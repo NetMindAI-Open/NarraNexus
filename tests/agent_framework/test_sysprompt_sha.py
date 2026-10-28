@@ -17,10 +17,10 @@ import re
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _log_sysprompt_sha,
 )
-from xyz_agent_context.agent_framework.adapters.materializer import (
+from narranexus.platform.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
 )
 

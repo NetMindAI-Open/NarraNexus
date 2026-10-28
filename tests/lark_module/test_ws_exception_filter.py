@@ -42,7 +42,7 @@ import time
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_trigger import (
+from narranexus_plugins.lark_module.lark_trigger import (
     _ws_loop_exception_filter,
 )
 

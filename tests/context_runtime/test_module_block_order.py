@@ -24,9 +24,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.repository.instance_repository import InstanceRepository
-from xyz_agent_context.schema.module_schema import ModuleInstructions
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.repository.instance_repository import InstanceRepository
+from narranexus.platform.schema.module_schema import ModuleInstructions
 
 
 def _runtime() -> ContextRuntime:
@@ -66,13 +66,13 @@ async def test_priority_ties_break_on_name_so_the_prompt_is_deterministic():
     runtime = _runtime()
     ordered = _instructions()
 
-    baseline = await runtime._build_module_instructions_prompt(ordered)
+    baseline = await runtime.build_module_instructions_prompt(ordered)
 
     rng = random.Random(20260728)
     for _ in range(20):
         shuffled = ordered[:]
         rng.shuffle(shuffled)
-        assert await runtime._build_module_instructions_prompt(shuffled) == baseline
+        assert await runtime.build_module_instructions_prompt(shuffled) == baseline
 
 
 @pytest.mark.asyncio
@@ -88,8 +88,8 @@ async def test_awareness_socialnetwork_swap_is_a_same_length_reorder():
     swapped = ordered[:]
     swapped[i_awareness], swapped[i_social] = swapped[i_social], swapped[i_awareness]
 
-    a = await runtime._build_module_instructions_prompt(ordered)
-    b = await runtime._build_module_instructions_prompt(swapped)
+    a = await runtime.build_module_instructions_prompt(ordered)
+    b = await runtime.build_module_instructions_prompt(swapped)
     assert len(a) == len(b)  # same-length: invisible to byte counts
     assert a == b  # ...and the total order makes it a no-op
 
@@ -106,8 +106,8 @@ def test_sort_key_is_total_over_priority_and_name():
 async def test_turn_context_module_blocks_use_the_same_total_order(monkeypatch):
     """The turn block lands in the message rather than the prefix, but it uses
     the same total order so "module block order" means one thing everywhere."""
-    from xyz_agent_context.schema import ContextData
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.schema import ContextData
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
 
@@ -115,7 +115,7 @@ async def test_turn_context_module_blocks_use_the_same_total_order(monkeypatch):
         def __init__(self, name: str, priority: int):
             self.config = SimpleNamespace(name=name, priority=priority)
 
-        async def get_turn_context(self, ctx_data) -> str:
+        async def contribute_turn_context(self, ctx_data) -> str:
             return f"## {self.config.name} turn block"
 
     def _instances(order):

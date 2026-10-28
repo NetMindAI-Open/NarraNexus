@@ -1,0 +1,17 @@
+{
+  "id": "acme.hello_channel",
+  "version": "1.0.0",
+  "displayName": "Hello Channel",
+  "description": "A webhook-transport IM channel installed as a plugin: descriptor + trigger + module.",
+  "license": "MIT",
+  "minAppVersion": "0.0.0",
+  "api": {"channel": 0, "trigger": 0, "module": 0},
+  "hosts": ["backend", "mcp", "workers"],
+  "backend": {"package": "backend", "pip": [], "activate": false},
+  "provides": {
+    "ingress.channels": ["nxplugins.acme_hello_channel:CHANNEL"],
+    "ingress.triggers": ["nxplugins.acme_hello_channel:TRIGGERS"],
+    "agent.capabilities.modules": ["nxplugins.acme_hello_channel:MODULES"]
+  },
+  "quality": "bronze"
+}

@@ -27,9 +27,9 @@ import {
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
-import type { NarramessengerCredentialData } from '@/types';
+import type { NarramessengerBindResponse, NarramessengerCredentialData } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { agentId } = useConfigStore();
@@ -51,7 +51,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
     try {
       setLoading(true);
       setError('');
-      const res = await api.getNarramessengerCredential(agentId);
+      const res = await api.channelCredential<NarramessengerCredentialData>('narramessenger', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -85,7 +85,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
     setActionLoading(true);
     setError('');
     try {
-      const res = await api.bindNarramessenger(agentId, bindCommand.trim());
+      const res = await api.channelBind<NarramessengerBindResponse>('narramessenger', agentId, { bind_command: bindCommand.trim() });
       if (res.success) {
         setBindCommand('');
         await fetchCredential();
@@ -112,7 +112,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindNarramessenger(agentId);
+      const res = await api.channelUnbind('narramessenger', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();
@@ -137,7 +137,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
         <button
           onClick={() => fetchCredential()}
           disabled={loading}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="p-1 rounded hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title="Refresh"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -145,7 +145,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -162,7 +162,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
             <div className="border border-[var(--border-default)] rounded">
               <button
                 onClick={() => setSetupOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--nm-paper-warm)] transition-colors"
                 aria-expanded={setupOpen}
               >
                 <span className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
@@ -222,7 +222,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
                   ({credential.connection_mode})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> Connected
               </span>
             </div>
@@ -231,7 +231,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
                 Owner: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_matrix_user_id}</span>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 ⚠ No owner registered — the agent has no trust signal for NarraMessenger senders.
               </div>
             )}

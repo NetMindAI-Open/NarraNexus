@@ -16,7 +16,7 @@ last_verified: 2026-06-17
 
 - **配对生命周期**:后端发 running → 醒来后第一个事件前发 completed。前端从
   `currentSteps` 里**取最后一个** `executor.warming` 步看它是否 `running`(步骤是
-  累加的,所以要取最新那个)。见 `[[../../../../src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py]]`。
+  累加的,所以要取最新那个)。见 `[[../../../../src/narranexus/platform/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py]]`。
 - **`isStreaming` 兜底**:即使 completed 没来(executor 起不来 → 本轮报错结束),
   `isStreaming` 转 false 也会清掉遮罩,不会卡死。
 - **作用域**:`absolute inset-0` 挂在聊天卡片的 relative 容器里(MainLayout

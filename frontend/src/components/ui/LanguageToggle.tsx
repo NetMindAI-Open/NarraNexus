@@ -23,6 +23,8 @@ export function LanguageToggle() {
     ) ?? SUPPORTED_LANGUAGES[0];
 
   const select = (code: string) => {
+    // Persistence rides i18n's languageChanged event (replyLanguageSync),
+    // so every language-change path writes through, not just this toggle.
     void i18n.changeLanguage(code);
     setOpen(false);
   };
@@ -53,7 +55,7 @@ export function LanguageToggle() {
                 dir={l.code === 'ar' ? 'rtl' : undefined}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors',
-                  'hover:bg-[var(--bg-tertiary)]',
+                  'hover:bg-[var(--nm-paper-warm)]',
                   active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]',
                 )}
               >

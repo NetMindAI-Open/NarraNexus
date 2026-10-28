@@ -140,13 +140,13 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                   key={template.id}
                   onClick={() => handleSelectTemplate(template)}
                   className={cn(
-                    'p-4 border rounded-lg text-left transition-all',
+                    'p-4 border rounded-[var(--radius-lg)] text-left transition-all',
                     'border-[var(--border-default)]',
                     'hover:border-[var(--accent-primary)] hover:shadow-sm'
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-lg bg-[var(--bg-elevated)]">
+                    <div className="p-2 rounded-[var(--radius-lg)] bg-[var(--bg-elevated)]">
                       <Icon className="w-5 h-5 text-[var(--accent-primary)]" />
                     </div>
                     <div className="flex-1">
@@ -194,7 +194,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                       value={variables[v.name] || ''}
                       onChange={(e) => handleVariableChange(v.name, e.target.value)}
                       className={cn(
-                        'w-full px-3 py-2 rounded-md border text-sm',
+                        'w-full px-3 py-2 rounded-[var(--radius-md)] border text-sm',
                         'border-[var(--border-default)] bg-[var(--bg-secondary)]',
                         'focus:border-[var(--accent-primary)] focus:outline-none'
                       )}
@@ -223,14 +223,14 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
               <h3 className="text-sm font-medium text-[var(--text-secondary)]">
                 {t('jobs.template.dependencyPreview')}
               </h3>
-              <div className="h-64 border border-[var(--border-default)] rounded-lg overflow-hidden">
+              <div className="h-64 border border-[var(--border-default)] rounded-[var(--radius-lg)] overflow-hidden">
                 <JobDependencyGraph jobs={previewNodes} />
               </div>
             </div>
 
             {/* Error message */}
             {error && (
-              <div className="p-3 rounded-lg bg-[var(--color-error)]/10 text-[var(--color-error)] text-sm">
+              <div className="p-3 rounded-[var(--radius-lg)] bg-[var(--color-error)]/10 text-[var(--color-error)] text-sm">
                 {error}
               </div>
             )}

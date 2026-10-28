@@ -7,7 +7,7 @@ stub: false
 # agentLimits.ts — 前端 agent 字段长度上限
 
 单一常量 `AGENT_TEXT_MAX_LENGTH = 255`,镜像后端
-`src/xyz_agent_context/schema/entity_schema.py` 的同名常量。`agent_name` /
+`src/narranexus/platform/schema/entity_schema.py` 的同名常量。`agent_name` /
 `agent_description` 在写边界(后端超限返回 422)、bundle 导入(截断到此长度)、
 以及前端([[EditAgentDialog.tsx]] 计数 + 禁用、[[AgentGroupSection.tsx]] inline
 改名的 maxLength)都用这一个上限。

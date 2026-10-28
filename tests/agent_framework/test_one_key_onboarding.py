@@ -19,19 +19,19 @@ import json
 import pytest
 from pydantic import BaseModel
 
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
     OpenAIConfig,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
-from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
-from xyz_agent_context.agent_framework.providers.driver import (
+from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
+from narranexus_plugins.llm_clients.anthropic_helper import AnthropicHelperSDK
+from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+from narranexus.platform.agent_framework.providers.driver import (
     resolve_user_runtime_llm_configs,
 )
-from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
+from narranexus.platform.agent_framework.providers.user_service import UserProviderService
 
 
 # =============================================================================
@@ -87,12 +87,23 @@ def _stub_key_probe(monkeypatch):
     """onboard_one_key live-probes the key via provider_registry.
     Stub it for every test in this file so nothing touches the network;
     individual tests override the stub to exercise failure outcomes."""
-    from xyz_agent_context.agent_framework.providers.registry import provider_registry
+    from narranexus.platform.agent_framework.providers.registry import provider_registry
 
     async def _ok(provider):
         return True, "Connected successfully"
 
     monkeypatch.setattr(provider_registry, "test_provider", _ok)
+
+
+@pytest.fixture(autouse=True)
+def _all_framework_plugins_installed(monkeypatch):
+    """The historical pairing assertions below (anthropic → claude_code,
+    openai → codex_cli) hold only where those plugins are installed. Pin that
+    explicitly so the file does not depend on which optional SDKs the test
+    venv happens to carry; the lightweight-build case overrides it."""
+    from narranexus.platform.agent_framework import plugin_paths
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: True)
 
 
 # =============================================================================
@@ -419,6 +430,27 @@ async def test_onboard_anthropic_key_wires_everything():
 
 
 @pytest.mark.asyncio
+async def test_onboard_on_lightweight_build_lands_on_an_installed_framework(monkeypatch):
+    """Lightweight local build: no framework plugin installed. The first card
+    must not bind the user to Claude Code / Codex (every turn would raise
+    FrameworkNotInstalledError) — it lands on the host-shipped framework."""
+    from narranexus.platform.agent_framework import plugin_paths
+    from narranexus.platform.agent_framework.loop.driver import framework_installed
+
+    monkeypatch.setattr(plugin_paths, "package_installed", lambda fw, pkg: False)
+    for key in ("sk-ant-abc123", "sk-proj-abc123"):
+        db = _FakeDB()
+        svc = UserProviderService(db)
+        config, new_ids, meta = await svc.onboard_one_key("u1", key)
+
+        assert meta["agent_framework"] == "nexus_power"
+        assert framework_installed(meta["agent_framework"])
+        assert await svc.get_user_agent_framework("u1") == "nexus_power"
+        assert config.slots["agent"].provider_id == new_ids[0]
+        assert not await svc.validate_slots("u1")
+
+
+@pytest.mark.asyncio
 async def test_onboard_openai_key_wires_codex_framework():
     db = _FakeDB()
     svc = UserProviderService(db)
@@ -449,8 +481,8 @@ async def test_onboard_netmind_routes_each_slot_to_its_protocol_row():
     )
 
     assert meta["agent_framework"] == "claude_code"
-    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4-Pro"
-    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4-Flash"
+    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
+    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
     assert len(new_ids) == 2
 
     agent_pid = config.slots["agent"].provider_id
@@ -469,9 +501,9 @@ async def test_onboard_netmind_resolves_end_to_end():
     cfg = await resolve_user_runtime_llm_configs("u1", db)
 
     assert cfg.claude.api_key == "netmind-key"
-    assert cfg.claude.model == "deepseek-ai/DeepSeek-V4-Pro"
+    assert cfg.claude.model == "deepseek-ai/DeepSeek-V4.1-Flash"
     assert cfg.openai.api_key == "netmind-key"
-    assert cfg.openai.model == "deepseek-ai/DeepSeek-V4-Flash"
+    assert cfg.openai.model == "deepseek-ai/DeepSeek-V4.1-Flash"
     assert cfg.anthropic_helper is None    # helper rides the openai row
 
 
@@ -506,7 +538,7 @@ async def test_onboard_explicit_type_overrides_prefix():
 async def test_onboard_rejects_invalid_key_before_writing(monkeypatch):
     """A definitively rejected key (401/403) must fail the onboard AND
     leave the config untouched — no provider row, no slots."""
-    from xyz_agent_context.agent_framework.providers.registry import provider_registry
+    from narranexus.platform.agent_framework.providers.registry import provider_registry
 
     async def _auth_fail(provider):
         return False, "Authentication failed (invalid API key)"
@@ -525,7 +557,7 @@ async def test_onboard_rejects_invalid_key_before_writing(monkeypatch):
 async def test_onboard_proceeds_unverified_on_transient_probe_failure(monkeypatch):
     """Network/5xx probe failures must NOT block a (possibly good) key —
     proceed and report key_check='unverified (...)'."""
-    from xyz_agent_context.agent_framework.providers.registry import provider_registry
+    from narranexus.platform.agent_framework.providers.registry import provider_registry
 
     async def _net_fail(provider):
         return False, "Connection failed: timeout"
@@ -640,8 +672,8 @@ async def test_resolver_threads_reasoning_params_into_claude():
 
 def test_codex_toml_maps_reasoning_effort():
     from pathlib import Path
-    from xyz_agent_context.agent_framework.api_config import CodexConfig
-    from xyz_agent_context.agent_framework.adapters.codex._config_toml_builder import (
+    from narranexus.platform.agent_framework.api_config import CodexConfig
+    from narranexus_plugins.frameworks_codex_cli._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -656,8 +688,8 @@ def test_codex_toml_maps_reasoning_effort():
 
 def test_codex_toml_clamps_max_to_high():
     from pathlib import Path
-    from xyz_agent_context.agent_framework.api_config import CodexConfig
-    from xyz_agent_context.agent_framework.adapters.codex._config_toml_builder import (
+    from narranexus.platform.agent_framework.api_config import CodexConfig
+    from narranexus_plugins.frameworks_codex_cli._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -672,8 +704,8 @@ def test_codex_toml_clamps_max_to_high():
 
 def test_codex_toml_auto_emits_no_effort_key():
     from pathlib import Path
-    from xyz_agent_context.agent_framework.api_config import CodexConfig
-    from xyz_agent_context.agent_framework.adapters.codex._config_toml_builder import (
+    from narranexus.platform.agent_framework.api_config import CodexConfig
+    from narranexus_plugins.frameworks_codex_cli._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -696,7 +728,7 @@ async def test_framework_probe_passes_on_api_key_provider(monkeypatch):
     NOT be told 'auth missing, run codex login' — the API key IS the
     auth. Same for claude_code with an anthropic key."""
     from backend.routes.providers import _probe_agent_framework_auth
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     db = _FakeDB()
     svc = UserProviderService(db)
@@ -723,7 +755,7 @@ async def test_framework_probe_passes_on_api_key_provider(monkeypatch):
 
 def test_build_dual_providers_netmind_default_is_prod():
     """No inference_base → the hardcoded prod bases (manual-paste path)."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {r["protocol"]: r for r in _build_dual_providers("netmind", "k", "g")}
@@ -733,7 +765,7 @@ def test_build_dual_providers_netmind_default_is_prod():
 
 def test_build_dual_providers_netmind_inference_base_override():
     """use-subscription passes a base → both rows point at that env (dev)."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {
@@ -748,7 +780,7 @@ def test_build_dual_providers_netmind_inference_base_override():
 
 
 def test_build_dual_providers_trailing_slash_normalized():
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {
@@ -763,7 +795,7 @@ def test_build_dual_providers_trailing_slash_normalized():
 
 def test_inference_base_override_only_applies_to_netmind():
     """A stray inference_base must NOT rewrite yunwu/openrouter bases."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {
@@ -840,8 +872,8 @@ async def test_onboard_free_tier_falls_back_to_catalog_without_env(monkeypatch):
         "u1", "wallet-key", provider_type="netmind_free",
     )
 
-    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4-Pro"
-    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4-Flash"
+    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
+    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4.1-Flash"
     agent_slot = next(
         s for s in db.slots.values()
         if s["user_id"] == "u1" and s["slot_name"] == "agent"
@@ -868,7 +900,7 @@ def test_free_tier_thinking_invalid_value_fails_closed(monkeypatch):
     """A typo in the safety switch must not silently restore auto thinking."""
     from loguru import logger
 
-    from xyz_agent_context.agent_framework.providers.free_tier import (
+    from narranexus.platform.agent_framework.providers.free_tier import (
         free_tier_default_thinking,
     )
 
@@ -888,16 +920,96 @@ def test_free_tier_thinking_invalid_value_fails_closed(monkeypatch):
 
 def test_free_tier_thinking_dotenv_passthrough_contract():
     """Local .env loading must forward the free-tier thinking switch."""
-    from xyz_agent_context.settings import _DOTENV_PASSTHROUGH
+    from narranexus.platform.settings import _DOTENV_PASSTHROUGH
 
     assert "FREE_TIER_AGENT_THINKING" in _DOTENV_PASSTHROUGH
 
 
 def test_free_tier_thinking_explicit_auto_is_allowed(monkeypatch):
     """Only the explicit escape hatch may restore neutral auto thinking."""
-    from xyz_agent_context.agent_framework.providers.free_tier import (
+    from narranexus.platform.agent_framework.providers.free_tier import (
         free_tier_default_thinking,
     )
 
     monkeypatch.setenv("FREE_TIER_AGENT_THINKING", "auto")
     assert free_tier_default_thinking() == ""
+
+
+# =============================================================================
+# 8. Framework auth probe leg 2 — the CLI-OAuth stubs (review round 4)
+# =============================================================================
+#
+# The stubs in _probe_agent_framework_auth build a fake DB row through
+# ProviderCard.from_row, so auth_ref comes from the derive.py truth table —
+# and the ONLY thing keeping that derivation alive is the explicit
+# auth_type="oauth" key in each dict (from_row defaults to "api_key",
+# which derives nothing). These four tests are the tripwire: without them,
+# dropping that key reports a logged-in host as "auth missing" with every
+# other test green. user_id is deliberately omitted — passing one lets
+# leg 1 (the API-key provider check) answer first and leg 2 never runs.
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_codex_leg2_ok_when_auth_json_exists(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "auth.json").write_text("{}")
+    probe = await _probe_agent_framework_auth("codex_cli")
+    assert probe["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_codex_leg2_not_ok_when_auth_json_missing(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    probe = await _probe_agent_framework_auth("codex_cli")
+    assert probe["ok"] is False
+    assert "codex login" in probe["detail"]
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_claude_leg2_ok_when_credentials_file_exists(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+
+    creds = tmp_path / ".credentials.json"
+    creds.write_text("{}")
+    # Highest-priority override in resolve_claude_credentials_path.
+    monkeypatch.setenv("CLAUDE_CLI_CREDENTIALS_PATH", str(creds))
+    probe = await _probe_agent_framework_auth("claude_code")
+    assert probe["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_framework_probe_claude_leg2_not_ok_when_no_credentials(
+    tmp_path, monkeypatch
+):
+    from backend.routes.providers import _probe_agent_framework_auth
+    from narranexus_plugins.providers import (
+        claude_oauth as claude_oauth_mod,
+    )
+
+    monkeypatch.setenv(
+        "CLAUDE_CLI_CREDENTIALS_PATH", str(tmp_path / "absent.json")
+    )
+
+    # On a mac with a real `claude login`, the probe falls back to the
+    # Keychain and would answer ok=True — block it so the assertion is
+    # about the file path, deterministic on every machine.
+    async def _no_keychain() -> bool:
+        return False
+
+    monkeypatch.setattr(
+        claude_oauth_mod.ClaudeOAuthDriver,
+        "_keychain_has_credentials",
+        staticmethod(_no_keychain),
+    )
+    probe = await _probe_agent_framework_auth("claude_code")
+    assert probe["ok"] is False

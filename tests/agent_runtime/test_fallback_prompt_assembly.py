@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _serialize_agent_loop_for_prompt,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     AgentTextDelta,
     AgentThinking,
     ErrorMessage,
@@ -205,7 +205,7 @@ def test_helper_payload_skips_tool_rows_and_null_content():
     rows (content None) into context_messages. The helper transcript is
     prose: neither may leak in — str(None) once rendered a literal
     "[assistant] None" line."""
-    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
         _build_helper_user_input,
     )
 

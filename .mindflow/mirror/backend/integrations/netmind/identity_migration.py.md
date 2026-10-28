@@ -1,8 +1,22 @@
 ---
 code_file: backend/integrations/netmind/identity_migration.py
-last_verified: 2026-06-12
+last_verified: 2026-08-18
 stub: false
 ---
+
+## 2026-08-17 — 手搓事务换成 `db.transaction()`（取消漏洞）
+
+原来是 `began` 标志 + `try/except Exception` 手搓 begin/commit/rollback。
+`asyncio.CancelledError` **不继承 `Exception`**，客户端断连时 Starlette 会取消请求
+task，于是迁移中途被取消 → rollback 整个被跳过 → 连接不归还、服务端事务一直开着直到
+锁超时，此后所有碰到相同行的写入都卡在 lock wait。这是 [[database.py]] 那条同型缺陷
+在全仓的最后一处手搓拷贝（`grep begin_transaction` 确认其余都走
+`db.transaction()`）。
+
+`async with db.transaction():` 内部捕获 `BaseException`。顺带删掉
+`hasattr(db, "begin_transaction")` 这层 duck-typing —— 三个后端都实现了该协议，这个
+判断唯一的实际效果是「悄悄不开事务」（铁律 #2：不要兼容垫片）。
+
 
 # identity_migration.py — 身份迁移内核（platform service 层）
 
@@ -23,8 +37,8 @@ Phase 1 用户系统统一要求把所有存量旧 user_id 改写为 NetMind 的
 - `backend/routes/admin/migration.py`：`POST /api/admin/migrate-identity` 路由处理函数调用 `execute_migration` 做单用户原子迁移，可选地顺带更新目标行 display_name/email。
 
 **依赖谁**：
-- `xyz_agent_context.utils.db.schema_registry`（`TABLES`）：`classify_identity_columns` 和 `_is_unique_identity_column` 从中自动发现所有身份列，避免列清单硬编码。
-- `xyz_agent_context.utils.db.db_factory`：操作传入的 `AsyncDatabaseClient`。
+- `narranexus.platform.utils.db.schema_registry`（`TABLES`）：`classify_identity_columns` 和 `_is_unique_identity_column` 从中自动发现所有身份列，避免列清单硬编码。
+- `narranexus.platform.utils.db.db_factory`：操作传入的 `AsyncDatabaseClient`。
 - `pathlib.Path`：`_rename_workspaces` 操作 workspace 目录。
 
 ## 关键函数说明

@@ -1,8 +1,207 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-08-05
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 — getProviderCatalog
+
+新增 `getProviderCatalog()`(GET `/api/providers/catalog`),前端只读取其 `onboard_defaults`(见 [[onboardDefaults]])。
+
+## 2026-10-08（PR #410 review）
+
+`getBrowserApprovals` / `resolveBrowserApproval` 删除，改为 `getBrowserNotices`（`/api/browser/notices`，
+返回 `BrowserLoginRequest[]`）。
+
+## 2026-09-23 浏览器支持
+
+setBrowserMode 使用统一鉴权 PUT /api/browser/runtime/mode，窄请求体仅含 mode，
+返回完整运行时状态。保存错误沿用 ApiError，客户端不重启浏览器。
+
+setBrowserSource 通过统一鉴权 PUT /api/browser/runtime/source，只发送 source 枚举，
+返回新的运行时状态；不发送可执行文件路径，不发起会话关闭或刷新。
+
+高级脚本权限读取、单项更新、撤销复用统一 request；三个方法都返回服务端最新权限
+视图。能力类型仅 full_cdp_access，访问规则已退役。仅发送 origin/capability/verdict，
+不发送完整策略或客户端拼造的作用域。
+
+getBrowserApprovals 返回的联合类型包含 kind=login 通知；它只用于打开真实浏览器，
+不进入 resolveBrowserApproval。运行时与安装返回值包含安装器生成的 manual_install。
+
+新增浏览器运行时查询、安装、取消、按 Agent 查询审批及提交决定的方法。全部复用 request 的身份头与错误处理，不另写无鉴权 fetch；安装取消返回 ok，审批决定失败可返回 ok:false，消费方必须显示错误。
+
+## 2026-09-11 — `getAgentLlmConfig` response type drops `free_tier`
+
+The backend stopped sending `data.free_tier` on 2026-07-28 (the free tier
+became an ordinary provider card); the optional field lingered here and
+kept an unreachable banner alive in `AgentLlmConfigPanel`. Removed with
+that banner.
+
+## 2026-09-09 — `updateJob` added: the seam PUT had no frontend caller (GitHub #86)
+
+Backend PUT /api/jobs/{job_id} (mirrors the job_update MCP tool) has
+existed for a while; nothing in the frontend ever called it — `getJob`
+was similarly unused. Added `updateJob(jobId, agentId, fields)`:
+`agentId` scopes ownership (`assert_owned`), `fields` is
+title/description/payload, only the keys the caller actually passes are
+sent (undefined keys are omitted by `JSON.stringify`, matching the
+backend's None-means-unchanged `JobUpdateFields` semantics). Sibling of
+the existing `updateJobSchedule` (a different route,
+`/api/dashboard/jobs/{id}/schedule`, for trigger/timing fields only —
+content and schedule were always two separate routes, so they stay two
+separate client methods). The return type is the backend's
+`JobUpdateResponse` (`success`/`job_id`/`updated_fields`/`message`); a
+non-2xx surfaces as a thrown `ApiError`, never a returned `detail`.
+Test: `__tests__/api.updateJob.test.ts` asserts the exact
+method/URL/body shape.
+
+## 2026-09-07 — `pluginChannels()`：渠道目录（批 6c，A2-8）
+
+`GET /api/plugins/channels` 把 `ingress.channels` 注册表当数据返回
+（name / display_name / owner / ui.{label,icon,order}）。
+[[registerBuiltinChannels]] 用它建 Channels 区的行，取代原先在 TypeScript 里
+逐字重抄六个 Python `ChannelUi(...)` 的做法。
+
+## 2026-09-07 — `factoryAction`'s acknowledge-permissions carries a body (I-12)
+
+`factoryAction(id, action, opts?)` gained a third `{ permissionsAcknowledged?: boolean }` param —
+only the `'acknowledge-permissions'` action sends a JSON body
+(`{ permissions_acknowledged: opts.permissionsAcknowledged ?? true }`); every other action is
+still a bodyless POST. This is what lets the disclosure modal's "I understand" persist
+`permissions_acknowledged` server-side instead of only clearing client-side state — see
+`components/settings/plugins/PluginFactory.tsx`'s mirror doc.
+
+## 2026-09-07 — `getAgentFramework()`'s `frameworks[]` entries gain `display_name`/`protocol`/`oauth_source` (B6, final cut — `protocol` corrected to the real 3-valued enum)
+
+All three optional on the TYPE (an older backend response, or one predating this field, simply
+omits them), but `protocol`/`oauth_source` are now the ONLY thing
+`lib/agentFramework.ts`'s `providerBacksFramework`/`availableFrameworks` read for their matching
+— that function has no hardcoded fallback left (`CLI_FRAMEWORK_BY_OAUTH_SOURCE` and
+`frameworkAcceptsProtocol` were both deleted), so a caller that doesn't pass this array once
+loaded gets `false` back for everything, not a guess.
+
+`protocol` is typed `'anthropic' | 'openai' | 'any'` — the backend's `FrameworkMeta.protocol`
+enum, not a bare `string`. `'any'` is NexusPower's value (it drives the provider API itself and
+works with either protocol); the consuming code reads this VALUE directly, with no
+framework-id/name branch — see `lib/agentFramework.ts`'s 2026-09-07 correction entry for the
+history (an earlier same-day cut incorrectly assumed `protocol` was always a single concrete
+value and special-cased `isNexusPowerFramework` instead; that branch is gone).
+
+`display_name` backs `lib/frameworkBrand.ts`'s `formatFrameworkFromList` (preferred over the
+static per-id label table, itself untouched and still falls back when `display_name` is absent
+for a given entry).
+
+## 2026-09-04 — `searchMarketplaceSkills` 带 `AbortSignal.timeout`
+
+常量 `MARKETPLACE_SEARCH_TIMEOUT_MS` 在 [[apiTimeouts.ts]]（不放本文件：测试整体 mock
+`@/lib/api`，named 常量会随 mock 消失）。创建工作室每轮拉目录且去重 in-flight，一个不 settle
+的请求会占住浏览器同源连接池；abort 让它变成普通失败。
+
+## 2026-09-03 — 删 `getAgentsModelOverview`
+
+后端端点已删（评审 I6）；每 agent 的有效模型/框架来自 `getAgents()` 的
+`agent_framework` / `model`。
+
+## 2026-09-03 — `setTeamPatrol` 带 15s 超时
+
+`PATROL_WRITE_TIMEOUT_MS = 15_000` 导出;`setTeamPatrol` 的 fetch 加 `signal: AbortSignal.timeout(...)`。
+原因:[[../stores/teamsStore]] 在这个 PUT 飞行期间把巡查开关标成 in-flight(轮询忽略、按钮禁用),
+一个永不 settle 的请求会把该状态钉死;超时会 reject 走 store 的回滚。api 层其它请求未改。
+
+
+## 2026-08-28 — 插件安装三件套 + `getAgentFramework` 加 `frameworks`
+
+`getPlugins()` / `uninstallPlugin(id)` 走既有 `request<T>()`；`installPlugin(id,
+onEvent)` **不走** `request<T>()` —— `/api/plugins/{id}/install` 的响应体是
+ndjson 逐行流（`Content-Type: application/x-ndjson`），不是单个 JSON 文档，
+`request<T>()` 的 `response.json()` 只会解析出第一行就返回或直接炸掉。改用
+`response.body.getReader()` 手动累积 `TextDecoder` 输出、按 `\n` 切行，每行
+`JSON.parse` 后回调 `onEvent`；末尾 `done: true` 帧既回调也作为函数返回值。
+一行跨两个网络 chunk 到达是正常情况（TCP 不保证消息边界），所以用
+`buffer` 累积而不是假设每个 `read()` 恰好是整行——见同名 vitest 用例
+"a line split across two stream chunks"。非 2xx（如云端 403：插件由云端集中
+管理）直接抛 `ApiError`，不进入流式解析分支。
+
+`getAgentFramework()` 返回类型新增可选 `frameworks?: Array<{name, available}>`
+——插件安装态的门禁，[[agentFramework]] 的 `frameworkAvailabilityMap` 消费。
+可选是因为要在没升级的后端下仍然类型检查通过。
+## 2026-08-28 — providers 族三个新方法 + ApiError.detail(P0 review 第 3 轮)
+
+`addProvider` / `getClaudeStatus` / `getCodexStatus` 收进 ApiClient——
+review 判定 providersApi 的裸 fetch 版本是"同一资源的第二套客户端",
+绕过了本类的 session-death 守卫(2026-08-02 的 /api/providers 401 事故
+正是这条资源)与 FastAPI detail 提取。`ApiError` 增加 `detail` 字段
+(裸 detail,'' = body 无 detail):展示用户文案的调用方要它而非带
+"API error 400:" 前缀的 message;`providerErrorMessage`(providersApi)
+基于它做统一映射。`getProviders` 的 providers 值类型从
+`Record<string, unknown>` 收紧为 `Record<string, ProviderRow>`(type-only
+import 自 providersApi,无运行时环;ProviderSummaryCard 的 ProviderInfo 现为
+ProviderRow 别名,cast 已删)。
+
+## 2026-08-26 — owner 级 bulk slot 方法
+
+新增三个薄封装方法对应 `/api/providers/slots/*`：`getSlotOverrideStats`
+（确认框影响面）、`applySlotsToAgents(slots)`（clear-to-inherit 批量应用）、
+`getAgentsModelOverview`（Dashboard chip 单次拉全 agent effective 模型）。均走
+统一 `request<T>()`，Mock Proxy 自动透传。
+
+## 2026-08-21 — getSimpleChatHistory 加 include 流选择参数
+
+`getSimpleChatHistory(agentId, limit, offset, include='all')` 第四参 `include: 'chat'|'activity'|'all'`
+落到 query。对话 tab 与 Activity Log 是两条独立分页的流(见 `ChatPanel` / 后端 `chat_history`);默认
+`'all'` 保留旧语义给未改的调用方。
+
+## 2026-08-18 — 支付宝 / 微信：recharge 带 payment_method，新增 fxRate
+
+- `recharge(amount, paymentMethod)` —— **第二个参数不再是 currency**。币种由后端
+  按支付方式派生（上游校验这一对、错配 400），所以前端连这个自由度都不该有。
+  ⚠ **作废下方 2026-07-05 条目里的 `recharge(amount, currency?)`**。
+- `amount` **永远是 USD**，即使微信按人民币扣款 —— 它是"到账多少额度"，不是
+  "这次划走多少钱"。
+- `fxRate(amount?)` 是新方法，只为**展示**服务：让微信付款者在掏钱前看到
+  "$10 ≈ ¥73"。**绝不能拿它的结果去决定金额** —— 真正的扣款由上游按它自己的
+  实时汇率定价，我们这边算出来的任何数字都只是个预览。
+- `subscribe(paymentMethod?, months?)` —— `months` 只在支付宝/微信时进 body。
+  后端对"卡 + months"是**拒绝**而不是忽略，所以这里必须省略而不是给默认值。
+
+## 2026-08-14 — `getTeamChat` 有三种模式
+
+无游标 = 最新一页（房间打开时），`since` = 往后追（3 秒轮询），`before` = 往上翻历史。
+两个游标**互斥**，在这里就地判掉：同时带上去，服务端只会看其中一个，而调用方会以为自己
+拿到了两者的交集。
+
+## 2026-08-10 — 工作板三个方法
+
+`getTeamWorkBoard` / `resumeTeamWorkItem` / `setTeamPatrol`。板子读回来**含
+`paused`**(agent 侧的列表刻意不含),因为要不要恢复是用户的决定 —— 隐藏它会
+让被停的任务看起来像被删了。
+
+## 2026-08-10 (review 修正) — `mintTeamArtifactViewToken` 客户端方法已移除
+
+上面 2026-08-07 那条介绍的**三个**方法里，第三个已删。它没有调用方：面板内联渲染走
+[[ArtifactRenderer.tsx]]，后者按 `artifact.agent_id`（**产出者**）走 agent 侧 view-token，
+而那条路由校验的是「JWT 用户是否拥有该 agent」——团队成员本就都是同一 owner 的 agent，
+所以队友的 artifact 用既有路由就能取到。
+
+**服务端路由 `POST /teams/{id}/artifacts/{id}/view-token` 保留**（Owner 决定）：它表达的
+「按 team 归属授权」语义更贴切，不依赖「团队皆同 owner」这个隐含前提。客户端这个空方法则是
+纯死代码，故删。
+
+（这条 md 的存在本身是个教训：删除也会让 intent 段落作废，而 CI 的 mirror 检查是
+`--diff-filter=AM` + 非阻塞的，删除方向它根本不报。）
+
+## 2026-08-07 — 团队工作台三个端点
+
+`listTeamArtifacts` / `listTeamFiles` / `mintTeamArtifactViewToken`。最后一个与 agent 侧的 mint
+分开，表达的是「按 team 归属授权」这一更贴切的语义（见 [[teams.py]]）；功能上与 agent 路由
+重叠——后者校验的是「JWT 用户是否拥有该 agent」，而团队成员本就都是同一 owner 的 agent。
+
+## 2026-08-07 — cancelRun(runId)
+
+`POST /api/runs/{run_id}/cancel` 的调用点。**resolve 不代表 run 停了** ——
+端点只记录意图就返回,真正的中断发生在另一个进程(见后端
+[[cancel_watcher]])。调用方应据 resolve 立刻渲染「正在停止」,终态从该
+run 的观察流里等。唯一消费者:[[TeamMemberPanel]] 的停止按钮。
 
 ## 2026-07-30 — 移除 402 → `narranexus:quota-exceeded` 的派发
 
@@ -50,6 +249,7 @@ PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
 consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin/runtime.py]].
+
 ## 2026-07-21 — Team Marketplace 三调用
 
 `getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
@@ -122,6 +322,7 @@ per-agent override surfaces. Types ``AgentSlotView`` / ``AgentSlotEffective`` in
 user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
 
  
+
 ## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
 
 `recharge(amount, currency?)` POSTs the top-up and returns
@@ -199,21 +400,11 @@ origination from the Arena SSO flow.
 
 PR #24 review hardening, matching the backend change in `routes/auth.py`:
 `getAnalyticsOptOut()` / `setAnalyticsOptOut(optedOut)` no longer take a
-`userId` parameter (no query param, no body field) and `trackFunnelEvent(event)`
-no longer accepts `properties`. The server derives the user from the auth
-header and stamps event properties (surface etc.) itself.
+`userId` parameter (no query param, no body field). The server derives the user
+from the auth header and stamps event properties (surface etc.) itself.
 
-## 2026-06-09 — trackFunnelEvent (setup page UI actions)
-
-Added `trackFunnelEvent(event)` — POSTs `{event}` to
-`POST /api/auth/funnel`. Called fire-and-forget by `SetupPage` (callers
-`.catch(() => {})` to suppress errors). Identity travels in the auth header
-(X-User-Id / JWT) set by `getAuthHeaders`, not in the body — consistent with
-every other `ApiClient` method.
-
-This is the only `ApiClient` method that targets the `/api/auth/funnel`
-endpoint. It is intentionally not typed beyond `{ success: boolean }` because
-the funnel endpoint is write-only from the frontend's perspective.
+Setup actions no longer live in `ApiClient`; `productAnalytics.ts` owns the
+single browser event ingestion contract.
 
 ## 2026-06-08 — getAnalyticsOptOut / setAnalyticsOptOut
 
@@ -281,7 +472,7 @@ Every panel and store needs to talk to the backend. Without a centralized HTTP c
 
 Imports `getApiBaseUrl` from `stores/runtimeStore` — the single source of truth for base URL across the app. `getApiBaseUrl` is re-exported from `api.ts` as `getBaseUrl` for backward compatibility (some older call sites use `getBaseUrl`).
 
-Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`SetupPage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
+Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexStore`, `embeddingStore`) and several hooks (`useAutoRefresh`, `useSkills`, `useTimezoneSync`) and pages (`WelcomePage`, `LoginPage`, `RegisterPage`, `CreateUserDialog`).
 
 ## Design decisions
 
@@ -295,7 +486,7 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 **`request<T>` throws on non-2xx.** The error message is `"API error: ${status} ${statusText}"`. Callers that need to distinguish error types must do so via the returned `success: false` payload rather than via exception. Exceptions only happen for network failures or non-2xx responses — not for business logic errors.
 
-**Side effect on 401 (stale JWT).** Before throwing, `request<T>` dispatches a global `CustomEvent` for one status: `narranexus:auth-expired` on 401, when an `Authorization` header was actually attached and the endpoint is not `/api/auth/login` or `/api/auth/register` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`). The guard skips anonymous probes and login attempts so wrong-credentials surfaces in the form rather than logging the user out. Decoupled via an event to avoid a circular import on `@/stores/configStore`.
+**Side effect on 401 (session death only).** Before throwing, `request<T>` inspects the 401 body's `code`. Only the session-death codes ([[authFailure.ts]]) go any further, and even those are handed to [[sessionGuard.ts]], which confirms against `GET /api/auth/session` before dispatching `narranexus:auth-expired` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`). Every other 401 — stale NetMind token, gateway token, an unclassified 401 from an old backend — just throws `ApiError` for the caller to handle. Still decoupled via an event to avoid a circular import on `@/stores/configStore`.
 
 402 has **no** special side effect any more — it takes the generic throw path like any other non-2xx. It used to dispatch `narranexus:quota-exceeded`; see the 2026-07-30 entry above for why that went away.
 
@@ -343,3 +534,35 @@ Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].
 void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正看着的真实
 错误。detail 客户端先截 300（服务端同样有硬上限）。调用方：useNetmindAuth
 的 emailLogin / handleAuthCallback 失败分支。
+
+## 2026-08-11 — 公告栏 5 个方法 + `clearTeamData` 增加 bulletin scope
+
+`getTeamBulletin` 返回 entries **加** usage/limits：面板要在用户打字**之前**就能禁用
+「添加」，而不是写完才被拒。
+## 2026-08-19 — 登录响应接线 guide coachmark；getOnboarding 退役
+
+`netmindLogin` / `createUser` 成功后调 `markGuideCoachmarkPending()`——
+但都以响应里的 `guide_agent_provisioning`（服务端 kill-switch 的回显）为
+门：服务端关掉供给时，UI 不会承诺一个永远不出现的 Agent。
+（lib/guideCoachmark.ts）：放在 api 层而非各消费方，是因为云端三条登录流
+（登录页 / ?token= 直通 / OAuth 回调）全部收敛在 `api.netmindLogin` 这一处，
+这里是唯一可靠看到 `is_new_user` 的地方（该字段自 2026-06 起返回但一直无
+前端消费方）。本地 create-user 成功即视为新用户。
+
+`getOnboarding` 删除：唯一读方 OnboardingChecklist 卡片已退役（自动供给的
+引导 Agent 接替新手引导）。`markOnboardingStep`（写方）保留——
+useCreateAgent / BundleImportPage 仍写进度 metadata，服务端 guide-agent
+幂等标记与之共用同一 metadata blob。
+
+## 2026-08-28 补(auto-review N7) — frameworks? 注释改真实理由
+
+`frameworks?` 可选的真实理由不是'兼容旧后端'(同包发布无 skew),而是该数组只列插件门控框架、未列出的(nexus_power/未来非插件框架)按'未知⇒可用'处理(`frameworkAvailabilityMap` 的 default-true),故建模为可选。
+
+## 2026-08-27 — onboarding read + landing flag
+
+`getOnboarding()` was added (the GET had no frontend caller for a while) because
+[[App]]'s root redirect needs `landing_completed` to decide whether a user still
+owes the first-run flow. `markOnboardingStep` accepts `'landing_completed'`,
+which [[WelcomePage]] writes on every exit — finish, skip, or nothing-to-do.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

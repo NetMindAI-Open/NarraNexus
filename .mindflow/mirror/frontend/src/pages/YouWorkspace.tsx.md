@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/pages/YouWorkspace.tsx
-last_verified: 2026-06-23
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-20 — 名字兜底不再回退到页面标题
+
+`pages.you.you` 从「你/You」改名「我的世界/My World」后,`name` 的兜底若还用
+`t('pages.you.you')`,在 displayName+userId 都空时会渲染「我的世界 · 我的世界」。
+改为兜底空串:无名字时只显示标题「我的世界」,头像退回 '?'。标题本身仍是
+`pages.you.you`(第 95 行)。
+
 
 # YouWorkspace.tsx — the owner-scoped "You" workspace
 

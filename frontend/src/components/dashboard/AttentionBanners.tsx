@@ -21,14 +21,14 @@ const LEVEL_STYLE: Record<
   { wrap: string; Icon: typeof AlertCircle; accent: string }
 > = {
   error: {
-    wrap: 'border-[var(--color-red-500)]/60 bg-[var(--color-red-500)]/8',
+    wrap: 'border-[var(--color-error)]/60 bg-[var(--color-error)]/8',
     Icon: AlertCircle,
-    accent: 'text-[var(--color-red-500)]',
+    accent: 'text-[var(--color-error)]',
   },
   warning: {
-    wrap: 'border-[var(--color-yellow-500)]/60 bg-[var(--color-yellow-500)]/8',
+    wrap: 'border-[var(--color-warning)]/60 bg-[var(--color-warning)]/8',
     Icon: AlertTriangle,
-    accent: 'text-[var(--color-yellow-500)]',
+    accent: 'text-[var(--color-warning)]',
   },
   info: {
     wrap: 'border-sky-500/40 bg-sky-500/8',
@@ -64,7 +64,7 @@ function BannerRow({ agentId, banner }: { agentId: string; banner: AttentionBann
   return (
     <div
       data-testid={`banner-${banner.kind}`}
-      className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${s.wrap}`}
+      className={`flex items-center gap-2 rounded-[var(--radius-md)] border px-2.5 py-1.5 text-xs ${s.wrap}`}
     >
       <Icon className={`w-3.5 h-3.5 shrink-0 ${s.accent}`} aria-hidden />
       <span className={`flex-1 leading-snug ${s.accent}`}>{banner.message}</span>

@@ -30,12 +30,18 @@ import {
   forwardRef,
   memo,
   useEffect,
+  useCallback,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 import { Textarea } from '@/components/ui';
+import { cn } from '@/lib/utils';
 import { getChatDraft, setChatDraft } from '@/lib/chatDrafts';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { COMPOSER_EXTENSIONS } from '@/platform/registries';
+import { useWhenContext } from '@/platform/whenContext';
 
 export interface ComposerHandle {
   /** Current textarea value (read at send time). */
@@ -64,6 +70,12 @@ interface ComposerProps {
   onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
   onDrop: (e: React.DragEvent<HTMLElement>) => void;
   onPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  /** How many action buttons overlay the textarea's right edge. The textarea
+   *  reserves right padding so text never slides under them: 1 button (Send, or
+   *  Stop alone) → pr-12; 2 buttons (a steerable run shows Stop + a steer Send)
+   *  → pr-24. ChatPanel owns the buttons, so it tells the input how much room to
+   *  keep. Defaults to 1 (the everyday single-button layout). */
+  trailingSlots?: 1 | 2;
 }
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 400;
@@ -80,6 +92,7 @@ export const Composer = memo(
       onDragLeave,
       onDrop,
       onPaste,
+      trailingSlots = 1,
     },
     ref,
   ) {
@@ -90,6 +103,7 @@ export const Composer = memo(
     const wasEmptyRef = useRef(text.trim().length === 0);
     const isComposingRef = useRef(false);
     const compositionEndTimeRef = useRef(0);
+    const whenCtx = useWhenContext({ conversationKind: 'chat', agentId });
 
     const reportEmpty = (value: string) => {
       const empty = value.trim().length === 0;
@@ -153,6 +167,46 @@ export const Composer = memo(
       };
     }, [agentId]);
 
+    // Grow the field with its content: height tracks scrollHeight (plus the
+    // border, which border-box height includes but scrollHeight does not),
+    // the CSS max-height caps it, and past the cap the textarea scrolls
+    // internally. Collapsing to 'auto' first lets it shrink again when
+    // lines are deleted.
+    const resizeToContent = useCallback(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      // Border must be read AFTER the collapse to auto, and added back:
+      // border-box height includes it, scrollHeight does not.
+      const borderPx = el.offsetHeight - el.clientHeight;
+      el.style.height = `${el.scrollHeight + borderPx}px`;
+    }, []);
+    // useLayoutEffect (not the change handler) so programmatic setText /
+    // clear and the restored draft resize the same way typing does.
+    useLayoutEffect(() => {
+      resizeToContent();
+    }, [text, resizeToContent]);
+    // Width changes rewrap the text (drawer drag, pin toggle, sidebar
+    // collapse, window resize) — the height must follow those too. The
+    // observer recomputes ONLY when the width changed: this callback only
+    // writes height, so filtering on width is what actually breaks the
+    // self-feedback loop (the write itself re-fires the observer).
+    useEffect(() => {
+      const el = textareaRef.current;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      // -1 so the initial delivery from observe() always runs, even in the
+      // edge case of a zero-width hidden container.
+      let lastWidth = -1;
+      const ro = new ResizeObserver((entries) => {
+        const width = entries[0].contentRect.width;
+        if (width === lastWidth) return;
+        lastWidth = width;
+        resizeToContent();
+      });
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [resizeToContent]);
+
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const v = e.target.value;
       setText(v);
@@ -172,6 +226,8 @@ export const Composer = memo(
 
     return (
       <div className="flex-1 relative">
+        {/* Plugin controls above the input (ui.composerExtensions), gated by `when`. */}
+        <SlotOutlet registry={COMPOSER_EXTENSIONS} ctx={whenCtx} agentId={agentId} as="div" className="flex flex-wrap items-center gap-2 px-1 pb-1" />
         <Textarea
           ref={textareaRef}
           value={text}
@@ -195,7 +251,20 @@ export const Composer = memo(
           onPaste={onPaste}
           placeholder={placeholder}
           disabled={disabled}
-          className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
+          // Input-field convention: the field is the LIGHTEST surface on
+          // the card and focus is signalled by the border deepening — so bg
+          // overrides the Textarea base to nm-card, and the base's
+          // hover(border-strong)/focus(ink) treatments are no longer pinned
+          // back to the hairline. Height is managed by the autosize effect;
+          // max-h caps it at ~a third of the viewport before it scrolls.
+          className={cn(
+            'nx-composer-input block min-h-[52px] max-h-[min(320px,35vh)] overflow-y-auto py-[14px] leading-[24px] resize-none bg-[color:var(--nm-card)]',
+            // Reserve room for the button(s) pinned over the right edge so typed
+            // text never slides underneath them. 2 buttons (steerable run:
+            // Stop @ right-2 + steer Send @ right-12, each w-9) span 8–84px, so
+            // pr-24 (96px); the single-button default spans 8–44px → pr-12.
+            trailingSlots === 2 ? 'pr-24' : 'pr-12',
+          )}
           rows={1}
         />
       </div>

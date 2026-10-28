@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-plugin-browser"
+version = "1.0.0"
+description = "Builtin module BrowserModule — drive a real browser the user can watch and take over."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+# Same honest declaration as the other builtins: the contracts + SDK wheels are
+# what this package imports by CONTRACT; importing `narranexus.platform` public
+# modules is an engine-internal coupling under the repo-lockstep guarantee
+# (docs/API_POLICY.md §1), not a resolvable dependency.
+dependencies = ["narranexus-contracts", "narranexus-sdk"]
+
+[project.optional-dependencies]
+full = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus_plugins"]
+
+# The manifest ships inside the wheel: the engine reads it from the package,
+# the source checkout is the fallback.
+[tool.hatch.build.targets.wheel.force-include]
+"narranexus-plugin.json" = "narranexus_plugins/browser_module/narranexus-plugin.json"

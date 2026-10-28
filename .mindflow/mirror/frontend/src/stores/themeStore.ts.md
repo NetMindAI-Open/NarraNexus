@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/stores/themeStore.ts
-last_verified: 2026-04-24
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — `pluginTheme`（持久化）
+
+叠在基础主题之上的插件主题 id；应用由 `usePluginTheme` 负责，store 只记选择。
 
 # themeStore.ts — Shared theme state (light / dark / system)
 

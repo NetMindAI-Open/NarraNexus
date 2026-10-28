@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import (
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import (
     TEAM_ROOM_OWNER_PREFIX,
     MessageBusTrigger,
+    TurnResult,
 )
-from xyz_agent_context.message_bus.schemas import BusMessage
+from narranexus.platform.message_bus.schemas import BusMessage
+
+from ._team_turn import speak_in_room
 
 ROOM = "ch_evt_room"
 
@@ -57,7 +60,7 @@ def _patch_db_factory(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -73,7 +76,15 @@ async def test_team_reply_is_stamped_with_the_turn_event_id(db_client, monkeypat
     trigger = MessageBusTrigger(bus=bus)
 
     async def _fake_invoke(*_a, **_k):
-        return "the reply", "evt_from_turn"
+        # The stub does what the runtime plus the agent do: report the run id
+        # (which is what stamps the reply), then make the room call.
+        await _k["on_event_id"]("evt_from_turn")
+        await speak_in_room(
+            db=db_client, bus=trigger._bus, agent_id=_k.get("agent_id") or "",
+            team_id="team_1", channel_id=ROOM, text="the reply",
+            event_id="evt_from_turn",
+        )
+        return TurnResult(text="the reply", event_id="evt_from_turn")
 
     monkeypatch.setattr(trigger, "_invoke_runtime", _fake_invoke)
 

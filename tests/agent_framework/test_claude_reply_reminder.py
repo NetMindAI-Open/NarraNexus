@@ -15,13 +15,13 @@ source of truth.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+from narranexus_plugins.frameworks_claude_code.prompts import (
     append_reply_reminder,
 )
 
 TOOLS = (
-    "mcp__message_bus_module__bus_send_message",
-    "mcp__chat_module__send_message_to_user_directly",
+    "mcp__message_bus_module__message_team",
+    "mcp__chat_module__reply_owner",
 )
 
 
@@ -29,8 +29,8 @@ def test_appends_reminder_with_all_tools_in_declared_order():
     out = append_reply_reminder("hello", TOOLS)
     assert out.startswith("hello")
     body = out[len("hello"):]
-    first = body.index("mcp__message_bus_module__bus_send_message")
-    second = body.index("mcp__chat_module__send_message_to_user_directly")
+    first = body.index("mcp__message_bus_module__message_team")
+    second = body.index("mcp__chat_module__reply_owner")
     assert first < second
 
 

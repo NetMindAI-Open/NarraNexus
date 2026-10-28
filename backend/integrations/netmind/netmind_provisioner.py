@@ -33,6 +33,11 @@ import asyncio
 
 from loguru import logger
 
+# ``user_providers.source`` written by this provisioner (and by add_provider /
+# onboard for a key the user pastes themselves — the two are not
+# distinguishable by source alone).
+NETMIND_SOURCE = "netmind"
+
 # Per-user in-process serialize of dedup + mint + onboard (one worker). Unbounded
 # by design while the feature is single-worker + flag-gated; bound it before flip.
 _locks: dict[str, asyncio.Lock] = {}
@@ -68,7 +73,7 @@ async def ensure_netmind_provider(
     key it minted, so no money-spending orphan lingers. Callers decide fatal vs
     non-fatal (the login task swallows; the route maps to HTTP).
     """
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     if not settings.netmind_use_subscription_enabled:
         return False
@@ -77,11 +82,11 @@ async def ensure_netmind_provider(
         return False
 
     from backend.integrations.netmind.netmind_key_client import NetmindKeyClient
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.providers.resolver import (
         is_user_config_complete,
     )
 
@@ -92,7 +97,7 @@ async def ensure_netmind_provider(
         # Dedup BEFORE minting — one netmind provider per user; never a duplicate
         # money-spending key across repeated logins / tabs.
         existing = await db.get_one(
-            "user_providers", {"user_id": user_id, "source": "netmind"}
+            "user_providers", {"user_id": user_id, "source": NETMIND_SOURCE}
         )
         if existing:
             # Backfill the account id/email for pre-existing rows that never had
@@ -116,7 +121,7 @@ async def ensure_netmind_provider(
             await svc.onboard_one_key(
                 user_id,
                 minted.apitoken,
-                provider_type="netmind",
+                provider_type=NETMIND_SOURCE,
                 inference_base=settings.netmind_inference_base,
                 activate=activate,
             )
@@ -151,7 +156,7 @@ async def _capture_netmind_account(db, user_id: str, token: str) -> None:
         who = await NetmindAuthClient().verify_token(token)
         await db.update(
             "user_providers",
-            {"user_id": user_id, "source": "netmind"},
+            {"user_id": user_id, "source": NETMIND_SOURCE},
             {
                 "netmind_account_id": who.user_system_code,
                 "netmind_account_email": who.email,

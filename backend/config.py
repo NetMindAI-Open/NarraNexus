@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import List
 
+from narranexus.contracts.web import DEFAULT_MAX_UPLOAD_BYTES, MAX_UPLOAD_BYTES_ENV
+
 
 def _parse_list(raw: str) -> List[str]:
     """Split a comma-separated string into a trimmed, non-empty list."""
@@ -67,8 +69,9 @@ class Settings:
     )
 
     # ── Upload limits ────────────────────────────────────────────────────────
-    # Maximum upload size in bytes (default 50 MB)
-    max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+    # Maximum upload size in bytes (default 50 MB); env name and default are
+    # shared with non-HTTP processes via narranexus.contracts.web.
+    max_upload_bytes: int = int(os.getenv(MAX_UPLOAD_BYTES_ENV, str(DEFAULT_MAX_UPLOAD_BYTES)))
 
 
 

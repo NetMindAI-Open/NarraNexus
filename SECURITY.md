@@ -26,7 +26,7 @@ for the current contact address.
 A useful report contains:
 
 - The component affected (e.g. `backend/routes/auth.py`,
-  `xyz_agent_context.agent_runtime`, the Tauri sidecar, …).
+  `narranexus.platform.agent_runtime`, the Tauri sidecar, …).
 - A minimal reproduction — request payload, env config, or steps.
 - Impact: what an attacker can read, write, or trigger.
 - Suggested fix if you have one (not required).
@@ -48,7 +48,7 @@ you wish.
   `backend/auth.py`)
 - Identity resolution in API routes (X-User-Id / JWT)
 - Bundle export — what credentials and chat content can leave
-  (`src/xyz_agent_context/bundle/`)
+  (`src/narranexus/platform/bundle/`)
 - LLM prompt-injection paths that lead to data exfiltration or
   unauthorized tool calls
 - Local-mode WebSocket auth (`/ws/agent/run`)

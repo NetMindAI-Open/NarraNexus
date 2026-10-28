@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/agents/attachments.py
-last_verified: 2026-07-22
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 与 files 路由同批：agent_id 先确权
+
+两条路由（上传、raw 读取）和 [[files]] 一样把 URL 的 `{agent_id}` 直接交给
+`store_uploaded_attachment` / `resolve_attachment_path` 拼目录，没有确权。事件里没被
+利用，但同类。改为先过 [[_ownership]] 的 `require_owned_workspace_agent`（404 兜底），再写/读磁盘。
+回归用例并入 `tests/backend/test_agents_files_traversal.py`。
 
 ## 2026-07-22 — MIME sniffing moved to the shared utils helper
 
@@ -59,13 +66,13 @@ Upstream:
   `GET /agents/{aid}/attachments/{file_id}/raw`
 
 Downstream:
-- `xyz_agent_context.utils.attachment_storage.store_uploaded_attachment`
+- `narranexus.platform.utils.attachment_storage.store_uploaded_attachment`
   writes the file and updates the daily index
-- `xyz_agent_context.utils.attachment_storage.resolve_attachment_path`
+- `narranexus.platform.utils.attachment_storage.resolve_attachment_path`
   re-resolves on `/raw` requests with the workspace sandbox check
-- `xyz_agent_context.schema.attachment_schema.derive_category_from_mime`
+- `narranexus.platform.schema.attachment_schema.derive_category_from_mime`
   classifies the upload so the frontend can render an icon vs a thumbnail
-- `xyz_agent_context.utils.audio_transcription.transcribe_audio` /
+- `narranexus.platform.utils.audio_transcription.transcribe_audio` /
   `is_transcription_available` — called only on `audio/*` uploads, with
   the request's `user_id` so per-user provider lookup works
 

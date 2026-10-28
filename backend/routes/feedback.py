@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from backend.auth import CurrentUser, get_current_user
-from xyz_agent_context.integrations.feedback_client import CATEGORIES, send_feedback
+from narranexus.platform.integrations.feedback_client import CATEGORIES, send_feedback
 
 router = APIRouter()
 

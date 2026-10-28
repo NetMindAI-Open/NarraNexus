@@ -83,7 +83,12 @@ describe('HtmlRenderer security', () => {
       if (!el) throw new Error('iframe not rendered yet');
       return el;
     });
-    expect(iframe.getAttribute('src')).toBe('/api/public/artifacts/raw/FAKE_TOKEN/');
+    // Token-protected directory URL + the per-element edit bridge flag
+    // (2026-08-19): the bridge is a query param on the SAME protected URL —
+    // auth and path confinement are unchanged.
+    expect(iframe.getAttribute('src')).toBe(
+      '/api/public/artifacts/raw/FAKE_TOKEN/?edit_bridge=1',
+    );
   });
 
   test('workspace-root single-file HTML uses a blob iframe src', async () => {

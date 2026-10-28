@@ -23,25 +23,25 @@ from typing import Any
 
 import pytest
 
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_FETCH_FAILED,
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
 )
-from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+from narranexus_plugins.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
-from xyz_agent_context.module.telegram_module.telegram_sdk_client import (
+from narranexus_plugins.telegram_module.telegram_sdk_client import (
     TELEGRAM_BOT_DOWNLOAD_CAP_BYTES,
     TelegramSDKError,
 )
-from xyz_agent_context.module.telegram_module.telegram_trigger import (
+from narranexus_plugins.telegram_module.telegram_trigger import (
     TelegramTrigger,
 )
-from xyz_agent_context.schema.attachment_schema import AttachmentCategory
-from xyz_agent_context.schema.parsed_message import MessageContentType
+from narranexus.platform.schema.attachment_schema import AttachmentCategory
+from narranexus.platform.schema.parsed_message import MessageContentType
 
 
 _FAKE_PDF = (
@@ -244,7 +244,7 @@ def test_parse_event_caption_entities_merge_with_entities() -> None:
 @pytest.fixture
 def isolated_workspace(monkeypatch, tmp_path: Path) -> Path:
     """Redirect BASE_WORKING_PATH so tests don't write to the real workspace."""
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)
     )
@@ -264,7 +264,7 @@ def trigger_with_owner(db_client, isolated_workspace):
         trigger = TelegramTrigger()
         # Inject deps the base would normally set inside start()
         trigger._db = db_client
-        from xyz_agent_context.repository.channel_trigger_audit_repository import (
+        from narranexus.platform.repository.channel_trigger_audit_repository import (
             ChannelTriggerAuditRepository,
         )
         trigger._audit_repo = ChannelTriggerAuditRepository("telegram", db_client)
@@ -295,7 +295,7 @@ async def test_fetch_attachments_downloads_and_persists_pdf(
 
     # When fetch_attachments doesn't find a cached client, it spins one up.
     # We patch the constructor so the call returns our stub.
-    import xyz_agent_context.module.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(
         tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _StubClient()
     )
@@ -355,12 +355,13 @@ async def test_fetch_attachments_audits_oversized_before_download(
         async def close(self):
             pass
 
-    import xyz_agent_context.module.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _Stub())
 
     # Force backend cap to a tiny value so size_hint trivially exceeds it.
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 1024)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "1024")  # workers topology: no WebHost
 
     parsed = trigger.parse_event(_msg(
         text="",
@@ -401,7 +402,7 @@ async def test_fetch_attachments_audits_telegram_20mb_cap(
         async def close(self):
             pass
 
-    import xyz_agent_context.module.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _Stub())
 
     parsed = trigger.parse_event(_msg(
@@ -448,7 +449,7 @@ async def test_fetch_attachments_audits_fetch_failure(
         async def close(self):
             pass
 
-    import xyz_agent_context.module.telegram_module.telegram_trigger as tg_mod
+    import narranexus_plugins.telegram_module.telegram_trigger as tg_mod
     monkeypatch.setattr(tg_mod, "TelegramSDKClient", lambda *_a, **_kw: _Stub())
 
     parsed = trigger.parse_event(_msg(

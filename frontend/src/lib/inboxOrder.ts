@@ -5,7 +5,8 @@
  * @description: Chronological ordering for inbox messages, microsecond-accurate.
  *
  * A conversational turn's inbound and reply rows are stamped one microsecond
- * apart server-side (channel_inbox_writer). The backend serialises created_at
+ * apart server-side (`channel/inbox_recorder.py`; it was `channel_inbox_writer`
+ * before 2026-08-17). The backend serialises created_at
  * as a microsecond-precision ISO string (inbox route `_to_iso`, "sorts
  * lexicographically in time order"). Comparing those strings preserves the
  * 1µs gap — whereas `new Date(created_at).getTime()` truncates to

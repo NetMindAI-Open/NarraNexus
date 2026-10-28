@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/office_watch/proxy.py
-last_verified: 2026-07-13
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
+
+SSE 逐出从「按 age 逐出最老」改「按 `last_active` 逐出最不活跃」:`_active_streams` entry 加 `last_active`,流体每帧 `_touch_sse_stream`,超上限时逐出最久无帧的那条。**根治**:全屏(列内+modal 同 docx 双 SSE)/双标签页会开多条同文件流,旧逻辑杀最老=杀还在用的健康流;现在杀最可能已死的空闲流。per-process 计数的固有局限(多 worker 上限=8×workers)未变,注释保留。
 
 # office_watch/proxy.py — office artifact 实时预览的反向代理
 
@@ -75,3 +79,41 @@ office 文档(pptx/docx/xlsx)作为一种 artifact **实时**渲染。是"office
 
 - open 里 import `ArtifactRepository` 等是函数内延迟 import(避免启动期循环依赖)。
 - `/api/public/` 在 `backend/auth.py` 的 `AUTH_EXEMPT_PREFIXES` 内,公共代理才免鉴权。
+
+## 2026-08-19 — POST 编辑通道 + 选区镜像 + lock 旗标(5② T1)
+
+①`POST /office-watch-proxy/.../{path}`:三重门=签名 token(user+port)
++watch 端口 allowlist(SSRF 闸不变)+**路径精确白名单**
+(api/send|batch|selection),体积 64KB 封顶;`_post_upstream` 独立成
+模块级函数=测试桩缝。**绝不能放宽成通用 POST 隧道**(watch server
+还有 shutdown/文件操作)。
+②shim 的 fetch 包装镜像选区:页面自己 POST api/selection 的 body
+原样 postMessage 给父窗口(officewatch-selection)——T1 浮条的锚点源,
+纯镜像不拦截。
+③/office-watch/version 增 `lock`(~$ 锁,云端恒 false)。
+
+## 2026-08-20 — POST 双重体积门(#334 I3)
+
+Content-Length 快拒(零字节入内存)+ 流式累计上限(header 可撒谎/缺失)
+——两道缺一不可。
+
+## 2026-08-20 — 写路径升格 session-authed(#334 I14)
+
+公开代理的 POST 白名单收窄到**只剩 api/selection**(页面自己的选区
+上报,无写能力)——2 小时 view token 回归纯只读凭据:路径 token 会进
+access log/历史/Referer,泄露一个绝不能等于「可改写文档 2 小时」。
+编辑动词走新的 `POST /api/office-watch/edit`(authed router):
+session 鉴权 + _lookup_office_file 归属确权 + ensure watch + 转发
+/api/batch。**附带红利:桌面 WKWebView 混合内容拦截被同源后端一跳
+绕过**(原手动清单风险项消灭)。EDIT_POST_ALLOWLIST 语义(绝不放宽成
+通用隧道)与 64KB 上限保留。
+
+## 2026-08-20(二)— /office-watch/edit 的门与错误映射(#334 r3 C1-3/I4)
+
+此端点**不得加 body field**:它是三个写入口里唯一「依赖真的先于
+body」的(无 body field ⇒ FastAPI 不预缓冲),两道门(declared-length
+依赖 + request.stream() 累计 64KB)的有效性建立在这上面——加回
+`Body(...)` 门当场变事后检查且没有测试会红(四个钉子只钉行为,
+这句钉意图)。上游错误映射:4xx 透传 status、5xx 收敛 502,
+**payload 只进 logger.warning、绝不回客户端**(watch server 错误里
+带 workspace 绝对路径,回传即泄露)。

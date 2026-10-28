@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-from xyz_agent_context.agent_runtime.admission import (
+from narranexus.platform.agent_runtime.admission import (
     AgentAdmissionController,
     reset_admission_controller_for_test,
 )
@@ -177,6 +177,18 @@ async def test_status_has_required_top_level_keys(db_client, monkeypatch):
         assert "admission" in body
         assert "executors" in body
         assert "audit_counts" in body
+        # The idle reaper's L2 section. Its key set must be complete on every
+        # path, including "no pass has run yet" — that branch covers each
+        # process's first interval after a deploy, and a watcher indexing
+        # these fields must not KeyError in exactly that window. Keys only,
+        # never values: this reads module-level state another test file's
+        # reaper may have written, so pinning numbers here would make the
+        # assertion depend on test ordering.
+        assert set(body["executor_reaper"]) == {
+            "running", "age_seconds", "stale", "task_error", "veto_installed",
+            "interval_seconds", "reaped", "blind_passes", "judged", "vetoed",
+            "blind", "recheck_judged", "recheck_vetoed", "refused_busy",
+        }
     finally:
         reset_admission_controller_for_test(None)
 
@@ -280,7 +292,7 @@ async def _get_workers(app) -> httpx.Response:
 
 @pytest.mark.asyncio
 async def test_workers_parses_latest_heartbeat(db_client, monkeypatch):
-    from xyz_agent_context.repository.service_audit_repository import (
+    from narranexus.platform.repository.service_audit_repository import (
         ServiceAuditRepository,
     )
 
@@ -311,7 +323,7 @@ async def test_workers_parses_latest_heartbeat(db_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_workers_started_fallback_when_no_heartbeat(db_client, monkeypatch):
     """Just booted (only a `started` row) → list workers as 'starting'."""
-    from xyz_agent_context.repository.service_audit_repository import (
+    from narranexus.platform.repository.service_audit_repository import (
         ServiceAuditRepository,
     )
 

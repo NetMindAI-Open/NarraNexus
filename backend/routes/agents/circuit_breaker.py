@@ -25,11 +25,11 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.agent_framework.loop.circuit_breaker import reset_agent
-from xyz_agent_context.repository.agent_circuit_breaker_repository import (
+from narranexus.platform.agent_framework.loop.circuit_breaker import reset_agent
+from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 

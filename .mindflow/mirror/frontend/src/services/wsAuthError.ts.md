@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/services/wsAuthError.ts
-last_verified: 2026-05-27
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — `dispatchAuthExpired` → `reportWsAuthFailure`（改走探针）
+
+不再直接派发 `narranexus:auth-expired`，改为把帧交给
+[[sessionGuard.ts]] 的 `confirmSessionDeath()`，由 `GET /api/auth/session`
+裁决。
+
+原因：`error_type: 'AuthError'` 底下混着并非会话问题的帧——例如 local 模式
+"URL 的 x_user_id 与 payload 不符"，那是前端状态 bug。旧实现一律登出。
+后端现在给每帧打了 `error_code`（[[websocket]]），本函数把它透传给探针作为
+诊断信息，但**判决权在探针**：分类错了最多损失这一次运行，而不是整个会话。
+
+`isAuthErrorMessage` 未改（两通道匹配逻辑照旧），其单测继续有效。
 
 # wsAuthError.ts — WS auth-error detection helper
 

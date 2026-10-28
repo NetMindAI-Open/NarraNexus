@@ -21,9 +21,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from backend.routes.teams import _member_activity
-from xyz_agent_context.message_bus import _bus_activity as act
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus_plugins.teams.routes import _member_activity
+from narranexus.platform.message_bus import _bus_activity as act
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 ROOM = "ch_team"
 MEMBERS = ["agent_a", "agent_b", "agent_c"]
@@ -246,7 +246,7 @@ async def test_payload_carries_event_id_when_present(db_client):
 @pytest.mark.asyncio
 async def test_note_event_id_persists_and_start_resets(db_client):
     """note_event_id lands on the activity row; a new turn clears it."""
-    from xyz_agent_context.message_bus import _bus_activity
+    from narranexus.platform.message_bus import _bus_activity
 
     act = _bus_activity.TurnActivity(db_client, "agent_x", "chan_1")
     await act.start()
@@ -268,3 +268,41 @@ async def test_note_event_id_persists_and_start_resets(db_client):
         "bus_agent_activity", {"agent_id": "agent_x", "channel_id": "chan_1"}
     )
     assert row["event_id"] is None  # stale id must not survive into a new turn
+
+
+@pytest.mark.asyncio
+async def test_idle_reports_whether_the_last_turn_was_silent(db_client):
+    """The transcript no longer says it (2026-09-03); the roster does."""
+    bus = await _room(db_client)
+    now = datetime.now(timezone.utc)
+    await _write_activity(
+        db_client, "agent_a", state="idle", updated_at=now.isoformat(),
+        steps='{"items": [{"phase": "starting", "at": "x"}, {"phase": "silent", "at": "y"}], "dropped": 0}',
+    )
+    await _write_activity(
+        db_client, "agent_b", state="idle", updated_at=now.isoformat(),
+        steps='{"items": [{"phase": "starting", "at": "x"}, {"phase": "replying", "at": "y"}], "dropped": 0}',
+    )
+    rows = _by_id(await _member_activity(db_client, bus, ROOM, MEMBERS))
+    assert rows["agent_a"]["last_turn_silent"] is True
+    assert rows["agent_b"]["last_turn_silent"] is False
+    assert "last_turn_silent" not in rows["agent_c"]
+
+
+@pytest.mark.asyncio
+async def test_queued_keeps_the_previous_turns_silent_mark(db_client):
+    """The owner's natural reply to silence is to ask again — which queues the
+    member. The mark must survive that, or the roster reads "queued" and the
+    silence is gone from every surface."""
+    bus = await _room(db_client)
+    now = datetime.now(timezone.utc)
+    await _write_activity(
+        db_client, "agent_a", state="idle", updated_at=now.isoformat(),
+        steps='{"items": [{"phase": "starting", "at": "x"}, {"phase": "silent", "at": "y"}], "dropped": 0}',
+    )
+    await bus.send_message(
+        from_agent="usr_owner", to_channel=ROOM, content="@a again?", mentions=["agent_a"],
+    )
+    rows = _by_id(await _member_activity(db_client, bus, ROOM, MEMBERS))
+    assert rows["agent_a"]["status"] == "queued"
+    assert rows["agent_a"]["last_turn_silent"] is True

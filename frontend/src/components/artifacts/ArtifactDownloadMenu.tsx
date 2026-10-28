@@ -36,17 +36,10 @@ import type { Artifact } from '@/types/artifact';
 import { useNotice } from '@/components/ui';
 import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { useDismissOnOutside } from '@/hooks/useDismissOnOutside';
 import { downloadFile } from '@/lib/download';
-
-const KIND_TO_EXT: Record<string, string> = {
-  'text/html': 'html',
-  'application/vnd.echarts+json': 'json',
-  'text/csv': 'csv',
-  'text/markdown': 'md',
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'application/pdf': 'pdf',
-};
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
+import { downloadExtFor } from './kindRegistry';
 
 function safeFilename(title: string, ext: string): string {
   // Strip path-illegal punctuation. Control chars are filtered by codepoint
@@ -71,13 +64,14 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   // In-app notices only: wry does not render window.alert, so a native one is
   // invisible on the DMG (see ui/ConfirmDialog).
   const { notifyPending, notifyDone, notifyError, dialog: noticeDialog } = useNotice();
-  const isChart = artifact.kind === 'application/vnd.echarts+json';
+  void useRegistryEntries(ARTIFACT_KINDS);
+  const isChart = Boolean(ARTIFACT_KINDS.get(artifact.kind)?.chartImageExport);
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
     artifact.updated_at,
   );
-  const ext = KIND_TO_EXT[artifact.kind] ?? 'bin';
+  const ext = downloadExtFor(artifact);
 
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -96,6 +90,10 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
     });
   }, []);
 
+  // Dismissal is the shared hook's job (trigger and portal panel live in
+  // different subtrees, so both refs go in); this effect only keeps the
+  // fixed-positioned panel glued to its trigger.
+  useDismissOnOutside(open, () => setOpen(false), [triggerRef, menuRef]);
   useEffect(() => {
     if (!open) return;
     recompute();
@@ -104,26 +102,18 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
     // capture phase so we also catch scrolls on inner overflow containers
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onResize);
-    const onPointerDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (menuRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
-      setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onResize);
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKey);
     };
   }, [open, recompute]);
 
   const exportChartImage = (type: 'png' | 'jpeg') => {
-    const instance = useArtifactStore.getState().chartInstances[artifact.artifact_id];
+    // Last mounted instance (the registry is a per-id list now — column +
+    // zoom modal can both be live; the latest is the one on screen).
+    const instance = useArtifactStore
+      .getState()
+      .chartInstances[artifact.artifact_id]?.at(-1);
     if (!instance) {
       void notifyPending(t('artifacts.download.chartLoading'));
       return;
@@ -167,14 +157,14 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
               <>
                 <button
                   onClick={() => exportChartImage('png')}
-                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--nm-paper-warm)]"
                   role="menuitem"
                 >
                   {t('artifacts.download.exportPng')}
                 </button>
                 <button
                   onClick={() => exportChartImage('jpeg')}
-                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--nm-paper-warm)]"
                   role="menuitem"
                 >
                   {t('artifacts.download.exportJpeg')}
@@ -206,7 +196,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
                       );
                     });
                 }}
-                className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                className="block w-full text-left px-3 py-1.5 hover:bg-[var(--nm-paper-warm)]"
                 role="menuitem"
               >
                 {t('artifacts.download.original', { ext })}

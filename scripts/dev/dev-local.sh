@@ -19,21 +19,14 @@ esac
 mkdir -p "$DB_DIR"
 export DATABASE_URL="sqlite:///$DB_DIR/nexus.db"
 
-# --- NetMind ("Power") account login — local dual-mode dev -------------------
-# Enable the Power login option alongside pure-local username login, pointed at
-# the protago-DEV environment. Every var is overridable (retarget / disable):
-# run with NEXUS_DEV_POWER_LOGIN=0 for a pure-local (username-only) session.
-# Exported BEFORE tmux spawns so both the backend and the vite frontend windows
-# inherit them (vite exposes VITE_-prefixed process env at dev time).
-if [[ "${NEXUS_DEV_POWER_LOGIN:-1}" != "0" ]]; then
-  export NARRANEXUS_ENABLE_POWER_LOGIN="${NARRANEXUS_ENABLE_POWER_LOGIN:-true}"
-  export NETMIND_USE_SUBSCRIPTION_ENABLED="${NETMIND_USE_SUBSCRIPTION_ENABLED:-true}"
-  export NETMIND_AUTH_API_URL="${NETMIND_AUTH_API_URL:-https://userauth.protago-dev.com}"
-  export BILLING_API_BASE="${BILLING_API_BASE:-https://billing.api.protago-dev.com}"
-  export NETMIND_KEY_API_BASE="${NETMIND_KEY_API_BASE:-https://mind-web.protago-dev.com}"
-  export NETMIND_INFERENCE_BASE="${NETMIND_INFERENCE_BASE:-https://test.api.netmind.ai/inference-api}"
-  export VITE_ENABLE_POWER_LOGIN="${VITE_ENABLE_POWER_LOGIN:-true}"
-fi
+# --- NetMind ("Power") account login — local dual-mode ---------------------
+# Power login alongside pure-local username login, on PROD NetMind by default
+# (NEXUS_NETMIND_ENV=dev for the protago-dev stack; NEXUS_DEV_POWER_LOGIN=0
+# for username-only). Backend and frontend endpoints are set together and
+# forwarded into every tmux window through ENV_CMD / NETMIND_ENV below.
+# shellcheck source=scripts/dev/netmind_env.sh
+source "$SCRIPT_DIR/netmind_env.sh"
+nexus_netmind_env || exit 1
 
 # --- Check tmux ---
 if ! command -v tmux &>/dev/null; then
@@ -49,9 +42,9 @@ fi
 # Always clean up orphan processes from a previous run
 pkill -f "sqlite_proxy_server" 2>/dev/null || true
 pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
+pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
 pkill -f "run_worker_supervisor" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+for port in 8100 8000 5173 5174 7801 47831; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -77,7 +70,7 @@ echo ""
 # via ``uv pip install -e . --reinstall-package xyz-agent-context``.
 # A second ``uv sync`` in this file would undo that step and the
 # Backend tmux window would die with
-# ``ModuleNotFoundError: No module named 'xyz_agent_context'``.
+# ``ModuleNotFoundError: No module named 'narranexus'``.
 #
 # Instead: import-check; if the editable install really is gone
 # (e.g. user manually nuked .venv, or uv flapped on a Python
@@ -85,8 +78,8 @@ echo ""
 # the dep set. Same trick we end up running by hand every time
 # this drifts.
 echo -e "${Y}Verifying Python environment...${R}"
-if ! "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null; then
-  echo -e "${Y}  xyz_agent_context editable install missing — restoring...${R}"
+if ! "$PROJECT_ROOT/.venv/bin/python3" -c "import narranexus.kernel" 2>/dev/null; then
+  echo -e "${Y}  narranexus (engine) editable install missing — restoring...${R}"
   (cd "$PROJECT_ROOT" && env -u VIRTUAL_ENV uv pip install \
     --python "$PROJECT_ROOT/.venv/bin/python3" \
     -e "$PROJECT_ROOT" --no-deps --reinstall 2>&1 | tail -3) || {
@@ -95,8 +88,8 @@ if ! "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null
     exit 1
   }
   # Re-verify; if it still fails, abort with the manual recipe.
-  "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
-    echo -e "${RED}ERROR: xyz_agent_context STILL not importable after heal.${R}"
+  "$PROJECT_ROOT/.venv/bin/python3" -c "import narranexus.kernel" 2>/dev/null || {
+    echo -e "${RED}ERROR: narranexus STILL not importable after heal.${R}"
     echo -e "  Manual fix: cd $PROJECT_ROOT && rm -rf .venv && uv sync && uv pip install -e . --no-deps"
     exit 1
   }
@@ -157,19 +150,11 @@ done
 # every tmux pane (esp. Backend) via ENV_CMD so resolve_surface() is explicit.
 NARRA_SURFACE="${NARRA_SURFACE:-local}"
 
-# Forward analytics env (PostHog) set in the parent shell into each tmux pane.
-# tmux panes do not reliably inherit ad-hoc exports (esp. when a tmux server is
-# already running), so the backend would otherwise miss POSTHOG_API_KEY and
-# fall back to NullSink. Only forwarded when set — absent → no telemetry.
-ANALYTICS_ENV=""
-for var in POSTHOG_API_KEY POSTHOG_HOST NARRA_ANALYTICS_ENABLED; do
-  value="${!var-}"
-  if [ -n "$value" ]; then
-    ANALYTICS_ENV+="export $var='$value'; "
-  fi
-done
+# NetMind endpoints resolved above, forwarded for the same tmux-server reason
+# (the Frontend window needs them too: vite bakes VITE_* at dev time).
+NETMIND_ENV="$(nexus_netmind_env_cmd)"
 
-ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${ANALYTICS_ENV}${HELPER_ENV}cd '$PROJECT_ROOT'"
+ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${HELPER_ENV}${NETMIND_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
@@ -225,7 +210,7 @@ draw_panel() {
   status_line "DB Proxy      :8100" "lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null || ss -tlnp 2>/dev/null | grep -q ':8100 '"
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
-  status_line "MCP Server"          "pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null"
+  status_line "MCP Server"          "pgrep -f 'narranexus.platform.module_system.module_runner mcp' >/dev/null"
   status_line "Workers"             "pgrep -f 'run_worker_supervisor' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
@@ -247,15 +232,15 @@ while true; do
       # tmux kill-session sends SIGHUP but some processes may ignore it.
       pkill -f "sqlite_proxy_server" 2>/dev/null || true
       pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-      pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
+      pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
       pkill -f "run_worker_supervisor" 2>/dev/null || true
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+      for port in 8100 8000 5173 5174 7801 47831; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+      for port in 8100 8000 5173 5174 7801 47831; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"
@@ -282,7 +267,7 @@ tmux new-session -d -s "$SESSION" -n "Control" \
 # ``$VENV_PY`` directly here because it's defined below — declare it
 # inline.
 tmux new-window -t "$SESSION" -n "DB Proxy" \
-  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m xyz_agent_context.utils.db.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m narranexus.platform.utils.db.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
 echo -n "Waiting for DB Proxy..."
@@ -310,7 +295,7 @@ tmux new-window -t "$SESSION" -n "Backend" \
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \
-  "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' -m xyz_agent_context.module.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' -m narranexus.platform.module_system.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
 # --- Worker Supervisor (poller / jobs / message-bus / all IM channel triggers) ---
 # One supervisor process runs every long-running background worker in a single
@@ -326,11 +311,11 @@ if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" = "1" ]; then
   echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
 fi
 tmux new-window -t "$SESSION" -n "Workers" \
-  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor $SUPERVISOR_ARGS; echo 'Workers stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m narranexus.platform.module_system.run_worker_supervisor $SUPERVISOR_ARGS; echo 'Workers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
-  "cd '$PROJECT_ROOT/frontend'; echo '=== Frontend Dev Server ==='; npm run dev; echo 'Frontend stopped. Press Enter to close.'; read"
+  "${NETMIND_ENV}cd '$PROJECT_ROOT/frontend'; echo '=== Frontend Dev Server ==='; npm run dev; echo 'Frontend stopped. Press Enter to close.'; read"
 
 # --- Select Control window ---
 tmux select-window -t "$SESSION:Control"
@@ -365,7 +350,7 @@ add_fail() { failed="${failed}$1"$'\n'; }
 [ "$backend_ok" = true ] || add_fail "Backend API|backend|HTTP :8000 never became reachable"
 { lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null 2>&1 || ss -tlnp 2>/dev/null | grep -q ':8100 '; } \
   || add_fail "SQLite Proxy|sqlite_proxy|:8100 never came up"
-pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null 2>&1 || add_fail "MCP Server|mcp|process not running (crashed on startup?)"
+pgrep -f 'narranexus.platform.module_system.module_runner mcp' >/dev/null 2>&1 || add_fail "MCP Server|mcp|process not running (crashed on startup?)"
 pgrep -f 'run_worker_supervisor' >/dev/null 2>&1 || add_fail "Workers|worker_supervisor|process not running (crashed on startup?)"
 
 if [ -n "$failed" ]; then

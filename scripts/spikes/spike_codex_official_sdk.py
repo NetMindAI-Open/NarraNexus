@@ -117,9 +117,9 @@ def _resolve_sdk() -> object | None:
         import openai_codex
     except ImportError as e:
         print(f"  openai_codex: NOT importable ({e})")
-        print(f"  Install the OFFICIAL SDK first:")
-        print(f"    uv pip uninstall openai-codex-sdk   # remove community fork if present")
-        print(f"    uv pip install --python .venv/bin/python3 openai-codex")
+        print("  Install the OFFICIAL SDK first:")
+        print("    uv pip uninstall openai-codex-sdk   # remove community fork if present")
+        print("    uv pip install --python .venv/bin/python3 openai-codex")
         return None
     return openai_codex
 

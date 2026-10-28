@@ -20,6 +20,7 @@ import { api } from '@/lib/api';
 import type { MyNarrative } from '@/types';
 import { BracketEmptyState } from '@/components/nm';
 import { cn } from '@/lib/utils';
+import { computeTimelineLayout } from './narraMemoryLayout';
 
 type LoadState =
   | { phase: 'loading' }
@@ -27,12 +28,6 @@ type LoadState =
   | { phase: 'ready'; items: MyNarrative[] };
 
 const fmtDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
-
-function ts(value: string | null): number | null {
-  if (!value) return null;
-  const t = Date.parse(value);
-  return Number.isNaN(t) ? null : t;
-}
 
 export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
   const { t } = useTranslation();
@@ -59,47 +54,16 @@ export function NarraMemoryTimeline({ search = '' }: { search?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Time range + lane layout, derived once per data set. A search query filters
-  // storylines by name / summary / topic / owning agent.
+  // Time range + lane layout, derived once per data set. A search query
+  // filters storylines by name / summary / topic / owning agent. The math
+  // lives in narraMemoryLayout.ts (pure, unit-tested) — it keeps every bar
+  // inside the axis and picks tick-label granularity from the tick gap.
+  // The layout owns query normalization; `q` above is only for the
+  // empty-state copy.
   const layout = useMemo(() => {
     if (state.phase !== 'ready') return null;
-    const items = state.items.filter(
-      (n) =>
-        !q ||
-        n.name.toLowerCase().includes(q) ||
-        n.summary.toLowerCase().includes(q) ||
-        n.topic_hint.toLowerCase().includes(q) ||
-        n.agent_name.toLowerCase().includes(q),
-    );
-    if (items.length === 0) return null;
-    const now = Date.now();
-    const stamps = items
-      .flatMap((n) => [ts(n.created_at), ts(n.updated_at)])
-      .filter((t): t is number => t !== null);
-    const min = stamps.length ? Math.min(...stamps) : now;
-    // Pad the left edge a touch so the earliest bar isn't flush to 0%.
-    const start = min - (now - min) * 0.04 - 1;
-    const span = Math.max(now - start, 1);
-    const pct = (t: number) => ((t - start) / span) * 100;
-
-    const lanes = [...items]
-      .sort((a, b) => (ts(a.created_at) ?? 0) - (ts(b.created_at) ?? 0))
-      .map((n) => {
-        const c = ts(n.created_at) ?? now;
-        const u = Math.max(ts(n.updated_at) ?? c, c);
-        const left = pct(c);
-        const width = Math.max(pct(u) - left, 3); // min marker width
-        return { n, left, width };
-      });
-
-    // 4 evenly spaced axis ticks.
-    const ticks = Array.from({ length: 4 }, (_, i) => {
-      const t = start + (span * (i + 0.5)) / 4;
-      return { left: ((t - start) / span) * 100, label: fmtDay.format(new Date(t)) };
-    });
-
-    return { lanes, ticks };
-  }, [state, q]);
+    return computeTimelineLayout(state.items, search, Date.now());
+  }, [state, search]);
 
   if (state.phase === 'loading') {
     return (

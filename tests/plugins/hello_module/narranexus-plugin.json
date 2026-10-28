@@ -1,0 +1,16 @@
+{
+  "id": "acme.hello_module",
+  "version": "1.0.0",
+  "displayName": "Hello Module",
+  "description": "A non-builtin L4 module installed as a plugin: instructions, one MCP tool, decision metadata, an agent-level instance and its own table.",
+  "license": "MIT",
+  "minAppVersion": "0.0.0",
+  "api": {"module": 0, "table": 0},
+  "hosts": ["backend", "mcp"],
+  "backend": {"package": "backend", "pip": [], "activate": false},
+  "provides": {
+    "agent.capabilities.modules": ["nxplugins.acme_hello_module:MODULES"],
+    "backend.tables": ["nxplugins.acme_hello_module:TABLES"]
+  },
+  "quality": "bronze"
+}

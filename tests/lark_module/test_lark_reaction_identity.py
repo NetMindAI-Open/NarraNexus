@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
+from narranexus_plugins.lark_module.lark_cli_client import LarkCLIClient
 
 
 @pytest.mark.asyncio

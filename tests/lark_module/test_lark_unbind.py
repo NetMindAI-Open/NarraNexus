@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_service import do_unbind
+from narranexus_plugins.lark_module._lark_service import do_unbind
 
 
 # ── Fakes ───────────────────────────────────────────────────────────
@@ -89,11 +89,11 @@ async def test_do_unbind_removes_credential_and_returns_unbound():
     db = _FakeDB()
 
     with patch(
-        "xyz_agent_context.module.lark_module._lark_service._cli.profile_remove"
+        "narranexus_plugins.lark_module._lark_service._cli.profile_remove"
     ) as profile_remove, patch(
-        "xyz_agent_context.module.lark_module._lark_service.cleanup_workspace"
+        "narranexus_plugins.lark_module._lark_service.cleanup_workspace"
         if False  # cleanup_workspace is imported inside do_unbind, not at module level
-        else "xyz_agent_context.module.lark_module._lark_workspace.cleanup_workspace"
+        else "narranexus_plugins.lark_module._lark_workspace.cleanup_workspace"
     ) as cleanup_ws:
         result = await do_unbind(mgr, "agent_1", db)
 
@@ -110,9 +110,9 @@ async def test_do_unbind_returns_no_credential_when_nothing_bound():
     db = _FakeDB()
 
     with patch(
-        "xyz_agent_context.module.lark_module._lark_service._cli.profile_remove"
+        "narranexus_plugins.lark_module._lark_service._cli.profile_remove"
     ) as profile_remove, patch(
-        "xyz_agent_context.module.lark_module._lark_workspace.cleanup_workspace"
+        "narranexus_plugins.lark_module._lark_workspace.cleanup_workspace"
     ) as cleanup_ws:
         result = await do_unbind(mgr, "agent_2", db)
 
@@ -136,10 +136,10 @@ async def test_do_unbind_continues_when_profile_remove_raises():
     db = _FakeDB()
 
     with patch(
-        "xyz_agent_context.module.lark_module._lark_service._cli.profile_remove",
+        "narranexus_plugins.lark_module._lark_service._cli.profile_remove",
         side_effect=RuntimeError("keychain locked"),
     ), patch(
-        "xyz_agent_context.module.lark_module._lark_workspace.cleanup_workspace"
+        "narranexus_plugins.lark_module._lark_workspace.cleanup_workspace"
     ):
         result = await do_unbind(mgr, "agent_3", db)
 
@@ -153,9 +153,9 @@ async def test_do_unbind_continues_when_workspace_cleanup_raises():
     db = _FakeDB()
 
     with patch(
-        "xyz_agent_context.module.lark_module._lark_service._cli.profile_remove"
+        "narranexus_plugins.lark_module._lark_service._cli.profile_remove"
     ), patch(
-        "xyz_agent_context.module.lark_module._lark_workspace.cleanup_workspace",
+        "narranexus_plugins.lark_module._lark_workspace.cleanup_workspace",
         side_effect=OSError("permission denied"),
     ):
         result = await do_unbind(mgr, "agent_4", db)
@@ -181,9 +181,9 @@ async def test_do_unbind_reaps_only_lark_channels():
     ]
 
     with patch(
-        "xyz_agent_context.module.lark_module._lark_service._cli.profile_remove"
+        "narranexus_plugins.lark_module._lark_service._cli.profile_remove"
     ), patch(
-        "xyz_agent_context.module.lark_module._lark_workspace.cleanup_workspace"
+        "narranexus_plugins.lark_module._lark_workspace.cleanup_workspace"
     ):
         await do_unbind(mgr, "agent_5", db)
 
@@ -210,9 +210,9 @@ async def test_do_unbind_reaps_empty_channel_messages_and_metadata():
     ]
 
     with patch(
-        "xyz_agent_context.module.lark_module._lark_service._cli.profile_remove"
+        "narranexus_plugins.lark_module._lark_service._cli.profile_remove"
     ), patch(
-        "xyz_agent_context.module.lark_module._lark_workspace.cleanup_workspace"
+        "narranexus_plugins.lark_module._lark_workspace.cleanup_workspace"
     ):
         await do_unbind(mgr, "agent_6", db)
 
@@ -228,7 +228,7 @@ def test_no_bot_prompt_mentions_lark_unbind():
     """When no bot is bound, asking the agent to "unbind" should
     still produce a deterministic action — we route it through
     ``lark_unbind`` which returns ``no_credential``."""
-    from xyz_agent_context.module.lark_module.lark_module import _NO_BOT_INSTRUCTION
+    from narranexus_plugins.lark_module.lark_module import _NO_BOT_INSTRUCTION
 
     assert "lark_unbind" in _NO_BOT_INSTRUCTION
 
@@ -236,7 +236,7 @@ def test_no_bot_prompt_mentions_lark_unbind():
 def test_lifecycle_line_mentions_unbind_tool():
     """The operational prompt (bot bound) must surface the unbind
     tool name and the destructive-action warning."""
-    from xyz_agent_context.module.lark_module.lark_module import _LIFECYCLE_LINE
+    from narranexus_plugins.lark_module.lark_module import _LIFECYCLE_LINE
 
     assert "mcp__lark_module__lark_unbind" in _LIFECYCLE_LINE
     assert "destructive" in _LIFECYCLE_LINE.lower()

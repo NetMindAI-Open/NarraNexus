@@ -1,0 +1,58 @@
+---
+code_file: src/narranexus/platform/repository/team_repository.py
+last_verified: 2026-08-10
+stub: false
+---
+## 2026-08-10 — 读出巡查两列
+
+`_row_to_entity` 增加 `patrol_enabled` / `last_patrol_at`;写侧刻意不动
+(理由见 [[team_schema]])。
+
+# team_repository.py — Team & TeamMember CRUD (subproject 1)
+
+## 为什么存在
+
+子项目 1 (Team Membership + Sidebar) 要求一个用户可以创建多个 team，每个 team 可以有多个 agent，一个 agent 可以在多个 team。两张表 `teams` + `team_members`。本仓库提供 CRUD + 一个**反向查 team-mates** 的核心查询：`list_team_mates(agent_id)` 是 social network derived join 的数据源。
+
+## 上下游关系
+
+- **被谁用**：
+  - `plugins/builtin.teams/src/narranexus_plugins/teams/routes.py` — REST CRUD
+  - `module/social_network_module/social_network_module.py` — `gather` 里 derive 同 team agent
+  - `bundle/importer.py` — import 时建 team + 加 member
+- **依赖谁**：`utils/database.AsyncDatabaseClient`、`repository/base.BaseRepository`
+
+## 设计决策
+
+### `list_team_mates` 自反 join
+
+不在 SQL 一次查（避免 cross-database 写法差异），分两次：(1) 查 caller agent 在哪些 team；(2) 对每个 team 查所有成员。`exclude_self=True` 时移除 caller 自己。
+
+### `team_members` 没有 `agent_owner_user_id` 列
+
+权限校验放在 routes 层（`team.owner_user_id == request user_id`）。table_id_field = `id` 用 surrogate PK，业务键是 `(team_id, agent_id)` 复合。
+
+### `gen_team_id` 用 `secrets.token_hex(6)`
+
+12-hex 字符串足够避免碰撞。前缀 `team_`。
+
+## Gotcha
+
+- `delete_team` 只删 `teams` 表行；调用方（routes/teams.py）必须**先**调 `member_repo.remove_all_members(team_id)`。这条契约只在 routes 层保证。
+
+## 2026-07-22 — member ordering: `id ASC`, not `joined_at`
+
+`list_members_by_team` orders by `id ASC` (auto-increment == join order). The
+original `"joined_at ASC, id ASC"` was silently mangled by the `order_by`
+parser (all three backends `split()` and only honor a single
+`<field> [ASC|DESC]` — the composite tiebreaker vanished), leaving
+`ORDER BY joined_at` alone; with SQLite's second-precision `joined_at`,
+same-second members tied and the default responder in [[teams]] could drift
+between requests. Don't pass composite `order_by` strings anywhere until
+`AsyncDatabaseClient.get` actually supports them.
+
+## 2026-07-21 — lead_agent_id + ordered members
+
+`_row_to_entity`/`_entity_to_row` now carry `teams.lead_agent_id`.
+`list_members_by_team` is ordered so the first entry is the earliest-joined
+member — the default-responder fallback in [[teams]] relies on that ordering.

@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactInlineBadge.tsx
-last_verified: 2026-05-15
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — setCollapsed 死调用移除
+
+`open()` 里的 `setCollapsed(false)` 删除——v4 后 artifactStore 的 `collapsed`
+无人再读,该写入是空操作。点击行为不变:`restoreTab(artifact_id)` 独自完成
+打开。与 [[ArtifactPreviewCard]] 的同名调用同轮删除,详见
+[[ArtifactColumn]]/[[artifactStore]] 08-19 条。
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+点击激活由 `setActive` 改 `restoreTab`(目标可能最小化,active 指隐藏 tab 会白屏——与 NewTabOmnibox 对齐)。
 
 # ArtifactInlineBadge.tsx — minimal artifact pointer chip
 

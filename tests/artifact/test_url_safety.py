@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.utils.url_safety import (
+from narranexus.platform.utils.url_safety import (
     UnsafeUrlError,
     assert_public_http_url,
+    assert_public_http_url_in_cloud,
     is_obviously_non_public_host,
+    is_obviously_non_public_url,
 )
 
 
@@ -159,3 +161,83 @@ def test_non_public_hosts_are_flagged(host):
 ])
 def test_public_hosts_pass(host):
     assert is_obviously_non_public_host(host) is False
+
+
+# --- is_obviously_non_public_url (parse-safe URL screen, no DNS) ------------
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://127.0.0.1:8000/x",
+        "http://localhost:3845/mcp",
+        "http://narranexus-litellm:4000/mcp",
+        # parse failures / garbage MUST be treated as non-public, never raise:
+        "http://[::1",   # urlparse -> ValueError (bad IPv6)
+        123,             # non-string -> AttributeError inside urlparse
+        None,            # -> empty host -> non-public
+        "",              # empty
+    ],
+)
+def test_non_public_or_unparseable_urls_are_flagged(url):
+    assert is_obviously_non_public_url(url) is True
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.example.com/sse",
+        "http://8.8.8.8/mcp",
+        "https://frps.example.com:6027/sse",
+    ],
+)
+def test_public_urls_pass(url):
+    assert is_obviously_non_public_url(url) is False
+
+
+# --- assert_public_http_url_in_cloud (deployment-aware wrapper) -------------
+
+
+@pytest.mark.asyncio
+async def test_in_cloud_wrapper_enforces_the_gate_in_cloud(monkeypatch):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    with pytest.raises(UnsafeUrlError):
+        await assert_public_http_url_in_cloud(
+            "http://llm-gateway:4000/v1", resolver=_resolver_returning("172.20.0.18")
+        )
+    with pytest.raises(UnsafeUrlError):
+        await assert_public_http_url_in_cloud("http://169.254.169.254/latest")
+    # A public target still passes in cloud.
+    await assert_public_http_url_in_cloud(
+        "https://api.example.com/v1", resolver=_resolver_returning("93.184.216.34")
+    )
+
+
+@pytest.mark.asyncio
+async def test_in_cloud_wrapper_is_a_no_op_locally(monkeypatch):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+
+    async def _resolver_must_not_run(host, port):
+        raise AssertionError("local mode must not resolve")
+
+    # Local/desktop: a single trusted user legitimately targets localhost.
+    await assert_public_http_url_in_cloud(
+        "http://localhost:11434/v1", resolver=_resolver_must_not_run
+    )
+    await assert_public_http_url_in_cloud("http://169.254.169.254/latest")
+
+
+@pytest.mark.asyncio
+async def test_in_cloud_wrapper_returns_the_validated_addresses_in_cloud(monkeypatch):
+    """The wrapper hands back the gate's validated IPs (for connection pinning)."""
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    addresses = await assert_public_http_url_in_cloud(
+        "https://api.example.com/v1", resolver=_resolver_returning("93.184.216.34")
+    )
+    assert addresses == ["93.184.216.34"]
+
+
+@pytest.mark.asyncio
+async def test_in_cloud_wrapper_returns_none_locally_meaning_allowed(monkeypatch):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    assert await assert_public_http_url_in_cloud("http://localhost:11434/v1") is None

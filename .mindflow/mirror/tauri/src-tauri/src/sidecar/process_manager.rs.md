@@ -1,7 +1,29 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-07-22
+last_verified: 2026-09-09
 ---
+
+## 2026-09-09 — build-desktop.sh now gates the baked NetMind env (comment only)
+
+The 2026-07-13 note below ("build-desktop.sh is intentionally NOT modified")
+no longer holds: build-desktop.sh's first step runs
+`scripts/release/check_desktop_netmind_env.sh env`, which refuses a missing,
+frontend/backend-mismatched, or non-prod (protago-dev, `test.*`) set of the
+same six vars plus the `VITE_NETMIND_*` frontend half. So a baked `None` here
+now only means a deliberate community build with Power login off. Code
+behaviour in this file is unchanged; the in-code comment was updated to say so.
+
+
+## 2026-08-11 — NARRA_SURFACE injected into every sidecar
+
+`NARRA_SURFACE=desktop` moved out of the backend-only block: it now
+rides the common env set for ALL sidecars (sqlite_proxy/mcp/workers
+included). Reason: the telemetry env label (`_ship._env_label`) reads
+it too, and the non-backend sidecars would otherwise fall back to the
+deployment-mode label ("local") in their telemetry envelopes —
+mislabeled surface, wrong storage partition on the collector. Analytics
+(`resolve_surface`) only ever ran in backend, so this widens nothing
+there.
 
 ## 2026-07-22 — required-service list follows the worker consolidation
 
@@ -28,8 +50,7 @@ The backend `cmd` block now forwards the Power-login env vars
 (`NARRANEXUS_ENABLE_POWER_LOGIN`, `NETMIND_USE_SUBSCRIPTION_ENABLED`,
 `NETMIND_AUTH_API_URL`, `BILLING_API_BASE`, `NETMIND_KEY_API_BASE`,
 `NETMIND_INFERENCE_BASE`) to the sidecar. A Finder-launched .app inherits no
-shell env, so — mirroring the existing `NARRA_POSTHOG_KEY` `option_env!` line
-right above — each is baked at COMPILE time (build shell exported it) with a
+shell env, so each is baked at COMPILE time (build shell exported it) with a
 runtime env override taking precedence. Unset at build → None → not forwarded →
 the packaged app stays pure-local (username-only); this is the DMG twin of the
 backend `is_power_login_enabled()` gate. **`scripts/release/build-desktop.sh` is
@@ -140,19 +161,12 @@ tokio thread that calls `start_service` may not see the write. Explicit
 `.env()` bypasses the inheritance path. Without `SQLITE_PROXY_URL` the Python
 side opens SQLite directly, causing multi-process lock contention.
 
-For the `backend` service only, two extra env vars are injected: a static
-`NARRA_SURFACE=desktop` (analytics surface label), and — via
-`option_env!("NARRA_POSTHOG_KEY")` — a `POSTHOG_API_KEY` forwarded to the
-Python sidecar. `option_env!` reads at COMPILE time: official release builds
-get the key baked in (CI sets the secret), while community/source builds
-resolve to `None` and ship no key, so the backend stays on NullSink. This is
-the single mechanism that makes telemetry "official builds only".
-
-The `backend` service additionally gets `.env("NARRA_SURFACE", "desktop")` so
+For the `backend` service, `.env("NARRA_SURFACE", "desktop")` ensures
 the Python `analytics.surface.resolve_surface()` knows it runs the desktop
 surface. The local launcher (`scripts/dev/dev-local.sh`) injects `local`, container
 mode (`run.sh` `run_container_mode`) injects `cloud`; this is the desktop one of
-those three launch-path labels.
+those three launch-path labels. No analytics key is compiled into or forwarded
+by the desktop application; local product facts stay in local SQLite.
 
 ## PATH injection for bundled Node.js CLIs
 

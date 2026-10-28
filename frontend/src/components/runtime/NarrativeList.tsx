@@ -46,10 +46,10 @@ function MemoryItem({ events, isExpanded, onToggle }: MemoryItemProps) {
       <button
         onClick={onToggle}
         className={cn(
-          'w-full p-2.5 flex items-center gap-2.5 text-left transition-all duration-300 rounded-xl group',
+          'w-full p-2.5 flex items-center gap-2.5 text-left transition-all duration-300 rounded-[var(--radius-xl)] group',
           isExpanded
             ? 'bg-[var(--color-success)]/10 shadow-[0_0_15px_var(--color-success)/20]'
-            : 'hover:bg-[var(--bg-elevated)] hover:shadow-[0_0_10px_var(--color-success)/10]'
+            : 'hover:bg-[var(--nm-paper-warm)] hover:shadow-[0_0_10px_var(--color-success)/10]'
         )}
       >
         <span className={cn(
@@ -119,7 +119,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
           'w-full py-2 px-2.5 flex items-center gap-2.5 text-left transition-colors duration-150 group',
           isExpanded
             ? 'bg-[var(--bg-secondary)]'
-            : 'hover:bg-[var(--bg-secondary)]'
+            : 'hover:bg-[var(--nm-paper-warm)]'
         )}
       >
         <span className={cn(
@@ -134,7 +134,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
         </span>
 
         <div className={cn(
-          'w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border transition-all duration-300',
+          'w-7 h-7 rounded-[var(--radius-lg)] flex items-center justify-center shrink-0 border transition-all duration-300',
           config.bgClass,
           isExpanded ? 'border-current/30 shadow-[0_0_10px_currentColor/20]' : 'border-transparent'
         )}>
@@ -176,7 +176,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
       {isExpanded && (
         <div className="mt-3 ml-4 space-y-3 animate-fade-in">
           {/* Instance details */}
-          <div className="text-[10px] text-[var(--text-tertiary)] space-y-1.5 p-3 bg-[var(--bg-sunken)] rounded-xl border border-[var(--border-subtle)] font-mono">
+          <div className="text-[10px] text-[var(--text-tertiary)] space-y-1.5 p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-xl)] border border-[var(--border-subtle)] font-mono">
             <div className="flex items-center gap-2">
               <span className="text-[var(--accent-primary)]">{t('runtime.narrative.idLabel')}</span>
               <span className="text-[var(--text-secondary)]">{instance.instance_id}</span>
@@ -206,7 +206,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
 
           {/* JobModule specific: display Job details */}
           {instance.module_class === 'JobModule' && instance.config && (
-            <div className="text-xs text-[var(--text-secondary)] p-3 bg-[var(--color-warning)]/5 rounded-xl border border-[var(--color-warning)]/20">
+            <div className="text-xs text-[var(--text-secondary)] p-3 bg-[var(--color-warning)]/5 rounded-[var(--radius-xl)] border border-[var(--color-warning)]/20">
               <div className="font-medium text-[var(--color-warning)] mb-2 flex items-center gap-2">
                 <Briefcase className="w-3.5 h-3.5" />
                 {t('runtime.narrative.jobDetails')}
@@ -257,7 +257,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
   return (
     <div
       className={cn(
-        'rounded-2xl border overflow-hidden transition-all duration-300',
+        'rounded-[var(--radius-2xl)] border overflow-hidden transition-all duration-300',
         isExpanded
           ? 'border-[var(--accent-primary)]/30 shadow-[0_0_30px_var(--accent-glow)] bg-[var(--bg-elevated)]'
           : 'border-[var(--border-default)] hover:border-[var(--accent-primary)]/20 hover:shadow-lg bg-[var(--bg-primary)]'
@@ -270,7 +270,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
           'w-full p-4 flex items-start gap-3 text-left transition-all duration-300 group',
           isExpanded
             ? 'bg-gradient-to-r from-[var(--accent-glow)] to-transparent'
-            : 'hover:bg-[var(--bg-elevated)]'
+            : 'hover:bg-[var(--nm-paper-warm)]'
         )}
       >
         <span className={cn(
@@ -285,7 +285,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
         </span>
 
         <div className={cn(
-          'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300',
+          'w-10 h-10 rounded-[var(--radius-xl)] flex items-center justify-center shrink-0 transition-all duration-300',
           isExpanded
             ? 'bg-[var(--accent-primary)] shadow-[0_0_20px_var(--accent-primary)]'
             : 'bg-[var(--accent-glow)] group-hover:shadow-[0_0_15px_var(--accent-glow)]'
@@ -349,7 +349,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
           {/* Module Instances layer - dynamic rendering */}
           <div className="p-3 space-y-2">
             {instances.length === 0 ? (
-              <div className="text-xs text-[var(--text-tertiary)] text-center py-6 bg-[var(--bg-sunken)] rounded-xl border border-[var(--border-subtle)]">
+              <div className="text-xs text-[var(--text-tertiary)] text-center py-6 bg-[var(--bg-sunken)] rounded-[var(--radius-xl)] border border-[var(--border-subtle)]">
                 {t('runtime.narrative.noInstances')}
               </div>
             ) : (
@@ -413,13 +413,13 @@ export function NarrativeList() {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="animate-pulse rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4">
+          <div key={i} className="animate-pulse rounded-[var(--radius-2xl)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[var(--accent-glow)]" />
+              <div className="w-10 h-10 rounded-[var(--radius-xl)] bg-[var(--accent-glow)]" />
               <div className="flex-1 space-y-2">
-                <div className="h-4 bg-[var(--bg-tertiary)] rounded-lg w-3/4" />
-                <div className="h-3 bg-[var(--bg-tertiary)] rounded-lg w-1/2" />
-                <div className="h-3 bg-[var(--bg-tertiary)] rounded-lg w-1/3" />
+                <div className="h-4 bg-[var(--bg-tertiary)] rounded-[var(--radius-lg)] w-3/4" />
+                <div className="h-3 bg-[var(--bg-tertiary)] rounded-[var(--radius-lg)] w-1/2" />
+                <div className="h-3 bg-[var(--bg-tertiary)] rounded-[var(--radius-lg)] w-1/3" />
               </div>
             </div>
           </div>
@@ -432,7 +432,7 @@ export function NarrativeList() {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center p-8">
-          <div className="w-16 h-16 rounded-2xl bg-[var(--accent-glow)] mx-auto mb-4 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-[var(--radius-2xl)] bg-[var(--accent-glow)] mx-auto mb-4 flex items-center justify-center">
             <BookOpen className="w-8 h-8 text-[var(--accent-primary)]" />
           </div>
           <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">

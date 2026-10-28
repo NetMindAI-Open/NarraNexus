@@ -37,4 +37,4 @@ stub: false
 
 ## 和外部目录的协作
 
-所有路由文件的业务逻辑依赖都在 `src/xyz_agent_context/` 里：`repository/` 做 DB 访问，`schema/` 提供 Pydantic response models，`agent_runtime/` 提供 AgentRuntime，`module/` 提供各 Module 的服务层。路由文件只做参数接收、调用和结果组装，不直接操作数据库。
+所有路由文件的业务逻辑依赖都在 `src/narranexus/platform/` 里：`repository/` 做 DB 访问，`schema/` 提供 Pydantic response models，`agent_runtime/` 提供 AgentRuntime，`module/` 提供各 Module 的服务层。路由文件只做参数接收、调用和结果组装，不直接操作数据库。

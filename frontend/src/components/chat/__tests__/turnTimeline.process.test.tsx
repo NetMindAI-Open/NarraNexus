@@ -1,43 +1,48 @@
 /**
- * 分工确立后：TurnTimeline 只渲染过程。
+ * Division of labour: TurnTimeline renders the PROCESS only.
  *
- * 答案层已经由气泡（SegmentedReply）负责；若时间线还渲染 reply /
- * native_output，同一句话会在气泡和折叠区各出现一次。
+ * The answer tier belongs to the bubble (SegmentedReply); if the timeline also
+ * rendered reply / native_output, the same sentence would appear twice — once
+ * in the bubble and once in the process region.
  */
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TurnTimeline } from '../TurnTimeline';
 import type { TurnEvent } from '@/types';
 
-describe('TurnTimeline 只渲染过程', () => {
-  it('不渲染 reply 与 native_output', () => {
+describe('TurnTimeline renders process only', () => {
+  it('does not render reply or native_output', () => {
     const events: TurnEvent[] = [
-      { id: 't1', ts: 1, type: 'thinking', content: '思考内容' },
-      { id: 'r1', ts: 2, type: 'reply', content: '这是回复不该出现' },
-      { id: 'n1', ts: 3, type: 'native_output', content: '这是原生输出不该出现' },
+      { id: 't1', ts: 1, type: 'thinking', content: 'reasoning body' },
+      { id: 'r1', ts: 2, type: 'reply', content: 'this reply must not appear' },
+      { id: 'n1', ts: 3, type: 'native_output', content: 'this native output must not appear' },
     ];
     render(<TurnTimeline events={events} />);
-    expect(screen.getByText(/思考内容/)).toBeInTheDocument();
-    expect(screen.queryByText(/这是回复不该出现/)).toBeNull();
-    expect(screen.queryByText(/这是原生输出不该出现/)).toBeNull();
+    // Reasoning collapses by default since 2026-08-30, so its body shows only
+    // after expanding — while reply / native_output are not rendered at all.
+    // Telling those two cases apart is what this case guards.
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
+    expect(screen.getByText(/reasoning body/)).toBeInTheDocument();
+    expect(screen.queryByText(/this reply must not appear/)).toBeNull();
+    expect(screen.queryByText(/this native output must not appear/)).toBeNull();
   });
 
-  it('只有答案层事件时整体不渲染', () => {
+  it('renders nothing at all when the turn holds answer-tier events only', () => {
     const { container } = render(
-      <TurnTimeline events={[{ id: 'r1', ts: 1, type: 'reply', content: '只有回复' }]} />,
+      <TurnTimeline events={[{ id: 'r1', ts: 1, type: 'reply', content: 'answer only' }]} />,
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it('plan 也不在这里渲染——它归 ProcessPanel 底部固定区', () => {
+  it('does not render the plan either - that belongs to the pinned PlanStrip', () => {
     render(
       <TurnTimeline
         events={[
-          { id: 't1', ts: 1, type: 'thinking', content: '思考内容' },
-          { id: 'p1', ts: 2, type: 'plan', steps: [{ step: '某步骤', status: 'pending' }] },
+          { id: 't1', ts: 1, type: 'thinking', content: 'reasoning body' },
+          { id: 'p1', ts: 2, type: 'plan', steps: [{ step: 'some step', status: 'pending' }] },
         ]}
       />,
     );
-    expect(screen.queryByText('某步骤')).toBeNull();
+    expect(screen.queryByText('some step')).toBeNull();
   });
 });

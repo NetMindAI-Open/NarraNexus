@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import backend.integrations.free_tier.removal_policy as mod
-from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletBalance,
     WalletMissing,
     WalletUnavailable,

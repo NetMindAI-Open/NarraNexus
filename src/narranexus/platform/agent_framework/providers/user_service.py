@@ -1,0 +1,1388 @@
+"""
+@file_name: user_service.py
+@author: NexusAgent
+@date: 2026-04-08
+@description: Per-user LLM provider configuration service
+
+Manages provider and slot configurations per user in the database.
+Replaces the global llm_config.json for multi-tenant cloud deployments.
+
+In local mode (SQLite), falls back to llm_config.json for backward compatibility.
+In cloud mode (MySQL), all provider configs are stored in user_providers and user_slots tables.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Union
+from uuid import uuid4
+
+from loguru import logger
+from pydantic import ValidationError
+
+from narranexus.platform.agent_framework.providers.model_identity import framework_of
+from narranexus.platform.agent_framework.providers.model_catalog import (
+    get_default_models,
+)
+from narranexus.platform.agent_framework.providers.cloud_policy import (
+    ensure_slot_provider_allowed,
+)
+from narranexus.platform.agent_framework.loop.driver import (
+    DEFAULT_AGENT_LOOP_FRAMEWORK,
+    available_agent_loop_frameworks,
+    default_framework_for_protocol,
+    framework_for_oauth_source,
+)
+from narranexus.platform.schema.provider_schema import (
+    SUBSCRIPTION_AUTH_TYPES,
+    AuthType,
+    LLMConfig,
+    ProviderConfig,
+    ProviderProtocol,
+    ProviderSource,
+    SlotConfig,
+    SlotName,
+)
+from narranexus.platform.agent_framework.providers.registry import (
+    is_stored_user_base_url_blocked,
+)
+from narranexus.platform.agent_framework.providers.framework_binding import (
+    framework_can_drive_provider,
+    get_slot_required_protocols,
+    resolved_framework_name,
+)
+
+
+def _is_cloud_mode() -> bool:
+    """Deprecated local name; routes to the single source of truth in
+    ``utils.deployment_mode``. Kept as a thin adapter so any external
+    callers that import this symbol keep working."""
+    from narranexus.platform.utils.deployment_mode import is_cloud_mode
+    return is_cloud_mode()
+
+
+# Canonical curated model list for OpenAI's OWN codex backend (the
+# ``codex_oauth`` ChatGPT-account login). Codex CLI's interactive picker
+# decides which models its subprocess accepts on api.openai.com — same set
+# for ChatGPT-account OAuth AND paid-API-key tier (verified 2026-06-02).
+#
+# Scope is deliberately narrow: this list is the source of truth ONLY for
+# ``codex_oauth`` (OpenAI's backend gates by account tier). A third-party
+# openai-protocol provider (netmind / yunwu / openrouter / custom base_url)
+# exposes ITS OWN model catalogue and is not constrained to this list — the
+# user picks whatever that endpoint serves.
+#
+# One consumer: ``UserProviderService.get_user_config`` overrides the stored
+# ``models`` column on a ``codex_oauth`` row at read time, so updating the
+# constant propagates without a DB migration. The frontend mirrors the same
+# codex_oauth-only scoping in ``agentFramework.ts::getModelsForSlot``.
+#
+# Verified 2026-06-02 by running interactive ``codex`` and reading
+# "Select Model and Effort" menu. This list has NO automatic refresh path
+# (OAuth CLIs are out of model_sync's scope) — re-run that verification
+# whenever OpenAI ships/retires a codex model, and keep every id registered
+# in model_catalog (pinned by
+# test_codex_curated_models_stay_registered_in_catalog).
+#
+# The values live in model_catalog._DEFAULT_MODELS[("codex_oauth", "openai")]
+# since 2026-07-31: keeping the literal HERE left get_default_models() empty
+# for codex, so codex verify_live's "curated defaults first" guard silently
+# fell back to the stale stored models column. One table, two consumers.
+CODEX_CURATED_MODELS = get_default_models("codex_oauth", "openai")
+
+
+def validate_slot_binding(
+    prov: Dict[str, Any], slot_name: str, agent_framework: Optional[str]
+) -> None:
+    """Validate that provider ``prov`` (a ``user_providers`` row) can back
+    ``slot_name`` under ``agent_framework``. Raises ``ValueError`` on mismatch.
+
+    Single source of truth for the three binding rules, shared by the
+    user-level slot writer (``UserProviderService.set_slot``) and the per-agent
+    override writer (``AgentSlotService.set_agent_slot``) — the same rules must
+    guard a per-agent override, or the misbinding only surfaces at agent-loop
+    time as a cryptic NotImplementedError / runtime failure.
+
+    Rules:
+      1. Protocol — the agent slot follows the framework (claude_code →
+         anthropic, codex_cli → openai); other slots keep their static
+         requirement. This is the ONLY protocol gate on the codex agent slot:
+         any openai-protocol provider (codex_oauth / user / netmind / yunwu /
+         openrouter) is accepted. Codex targets OpenAI's Responses API
+         (wire_api="responses"); whether a given endpoint actually serves it
+         is the provider's characteristic, not something the platform polices
+         at config time (binding rule #15). A mismatch surfaces at agent-loop
+         time — the same accepted cost as any user-chosen endpoint.
+      2. Subscription credential (AGENT slot) — a card carrying a CLI
+         subscription (auth_type oauth / oauth_token) is redeemable ONLY by
+         the framework whose CLI owns that credential. This is NOT the
+         platform judging providers: nexus_power physically cannot spend a
+         Claude Code login (it drives the HTTP API and rejects subscription
+         auth in ``nexus_agent._resolve_provider``), so accepting the binding
+         here only defers a certain failure to the middle of a run.
+      3. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
+         subscription login covers both slots. The OAuth credential can't make
+         DIRECT Messages / Chat-Completions calls, but the resolver routes an
+         OAuth helper to a CliHelperConfig and CliHelperSDK runs the helper's
+         structured calls one-shot through the same CLI as the agent
+         (build_cli_helper_config) — so no reject here. Rule 2 is agent-slot
+         only for exactly that reason.
+    """
+    required = get_slot_required_protocols(slot_name, agent_framework=agent_framework)
+    if required and prov["protocol"] not in [p.value for p in required]:
+        raise ValueError(
+            f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, "
+            f"got '{prov['protocol']}'"
+        )
+
+    if slot_name == SlotName.AGENT.value and not framework_can_drive_provider(
+        agent_framework,
+        source=prov.get("source", ""),
+        auth_type=prov.get("auth_type", "api_key"),
+        protocol=prov["protocol"],
+    ):
+        owner_framework = framework_for_oauth_source(prov.get("source", ""))
+        raise ValueError(
+            f"Provider '{prov.get('name') or prov.get('provider_id')}' signs in "
+            f"through a CLI subscription, so it can only back the "
+            f"'{owner_framework or 'matching CLI'}' agent framework — not "
+            f"'{agent_framework}'. Either switch this agent to "
+            f"'{owner_framework or 'that framework'}', or bind an API-key "
+            f"provider instead."
+        )
+
+    # helper_llm ACCEPTS OAuth (claude_oauth / codex_oauth) — no reject: the
+    # resolver routes an OAuth helper to a CliHelperConfig and CliHelperSDK runs
+    # its structured calls one-shot through the same CLI as the agent, so a
+    # single subscription covers both slots (2026-07 "subscription covers
+    # helper"). Removing the guard here also lets a per-agent override
+    # (AgentSlotService, which shares this validator) bind an OAuth helper.
+
+
+def _generate_provider_id() -> str:
+    return f"prov_{uuid4().hex[:8]}"
+
+
+def _generate_group_id() -> str:
+    return f"grp_{uuid4().hex[:8]}"
+
+
+def _cli_subscription_row_fields(
+    source: str, auth_type: str, protocol: str
+) -> dict:
+    """driver_type / billing_policy / auth_ref for a CLI-subscription card.
+
+    The values are the ``derive.py`` truth table, not literals: this P1's
+    root cause was exactly one of several literal copies missing a field
+    (same lesson as the ``_DUAL_PROVIDER_CONFIGS`` comment in
+    ``add_provider``). Scope: ONLY the claude_oauth / codex_oauth insert
+    and reconnect paths — aggregator and custom cards deliberately leave
+    driver_type / billing_policy for the resolver's read-time derivation.
+
+    ``derive_auth_ref`` returns None for oauth_token (the token IS the
+    credential, no file sentinel) — mapped to ``""`` here so
+    ``_insert_provider``'s ``if key in data`` check writes the empty
+    string instead of skipping the column.
+
+    ``protocol`` is passed through to align with ``derive_driver_type``'s
+    signature; for the two CLI-subscription sources it does not affect
+    the result (their branches key on source alone).
+    """
+    from narranexus.platform.agent_framework.providers.driver.derive import (
+        CLI_SUBSCRIPTION_SOURCES,
+        derive_auth_ref,
+        derive_billing_policy,
+        derive_driver_type,
+    )
+
+    if (source or "").lower() not in CLI_SUBSCRIPTION_SOURCES:
+        # Enforce the documented scope, not merely "classifiable":
+        # derive_driver_type happily classifies source="user" as
+        # custom_anthropic, and this helper would then stamp an
+        # external_oauth billing policy onto a card it must not serve.
+        # Fail loudly at the call site instead of producing a broken row.
+        raise ValueError(
+            f"not a CLI-subscription source: {source!r} (auth_type={auth_type!r})"
+        )
+    driver_type = derive_driver_type(source, auth_type, protocol)
+    if driver_type is None:
+        # In-scope but unclassifiable = the membership set was extended
+        # before derive_driver_type grew the matching branch (the
+        # half-done gemini_cli scenario). Without this backstop the row
+        # would be written with driver_type=NULL — the exact state this
+        # helper exists to eliminate.
+        raise ValueError(
+            f"CLI-subscription source {source!r} has no derive_driver_type "
+            "branch — extend the truth table before wiring the card type"
+        )
+    return {
+        "driver_type": driver_type,
+        "billing_policy": derive_billing_policy(source, auth_type),
+        "auth_ref": derive_auth_ref(source, auth_type) or "",
+    }
+
+
+class UserProviderService:
+    """
+    Per-user provider management via database.
+
+    Methods mirror provider_registry's API but are scoped to a user_id.
+    """
+
+    def __init__(self, db_client):
+        self.db = db_client
+
+    # =========================================================================
+    # Read
+    # =========================================================================
+
+    async def get_user_config(self, user_id: str) -> LLMConfig:
+        """Load a user's provider config from DB, returning an LLMConfig object."""
+        # Get providers
+        rows = await self.db.get("user_providers", filters={"user_id": user_id})
+        providers = {}
+        for row in rows:
+            # supports_anthropic_server_tools is a newer column. Old rows
+            # pre-dating the migration won't have it; default False so we
+            # err on the side of disabling WebSearch rather than hanging it.
+            _server_tools = row.get("supports_anthropic_server_tools", 0)
+            # The OAuth CLI cards' (claude_oauth / codex_oauth) model lists
+            # are catalog-owned, not user data — ``effective_card_models``
+            # overrides the stored column on every read so a code-side
+            # update propagates to existing rows with no DB migration. It
+            # is the SAME helper the resolver's slot self-heal judges
+            # membership with; keeping both paths on one source of truth
+            # is the fix for the "UI shows aliases but the run stays
+            # pinned to a stale full id" split.
+            from narranexus.platform.agent_framework.providers.model_catalog import (
+                effective_card_models,
+            )
+            raw_models = json.loads(row["models"]) if row.get("models") else []
+            stored_models = effective_card_models(row.get("source"), raw_models)
+            # Read-path egress screen (cloud, USER rows, DNS-free): a stored
+            # custom card on an internal host stays LISTED (so the user can
+            # delete it) but inactive, which every consumer — completeness
+            # check, slot validation, resolver classify — treats as unusable.
+            is_active = bool(row.get("is_active", 1)) and not is_stored_user_base_url_blocked(
+                row.get("source"), row.get("base_url", ""), row["provider_id"]
+            )
+            prov = ProviderConfig(
+                provider_id=row["provider_id"],
+                name=row["name"],
+                source=row["source"],
+                protocol=row["protocol"],
+                auth_type=row.get("auth_type", "api_key"),
+                api_key=row.get("api_key", ""),
+                base_url=row.get("base_url", ""),
+                models=stored_models,
+                linked_group=row.get("linked_group", ""),
+                is_active=is_active,
+                supports_anthropic_server_tools=bool(_server_tools),
+            )
+            providers[prov.provider_id] = prov
+
+        # Get slots
+        slot_rows = await self.db.get("user_slots", filters={"user_id": user_id})
+        slots = {}
+        for row in slot_rows:
+            # params_json holds the framework-neutral per-slot params
+            # (thinking, reasoning_effort, ...). Pre-migration rows have
+            # NULL; corrupt or out-of-vocabulary content degrades to auto
+            # ("") rather than failing the whole config load — a broken
+            # tuning knob must never take the agent offline.
+            params: dict = {}
+            raw_params = row.get("params_json")
+            if raw_params:
+                try:
+                    parsed = json.loads(raw_params)
+                    if isinstance(parsed, dict):
+                        params = parsed
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"user_slots.params_json for user={user_id} "
+                        f"slot={row['slot_name']} is not valid JSON; "
+                        f"falling back to auto params"
+                    )
+            try:
+                slot = SlotConfig(
+                    provider_id=row["provider_id"],
+                    model=row["model"],
+                    thinking=params.get("thinking", ""),
+                    reasoning_effort=params.get("reasoning_effort", ""),
+                )
+            except ValidationError:
+                logger.warning(
+                    f"user_slots.params_json for user={user_id} "
+                    f"slot={row['slot_name']} has out-of-vocabulary values "
+                    f"{params}; falling back to auto params"
+                )
+                slot = SlotConfig(
+                    provider_id=row["provider_id"], model=row["model"]
+                )
+            slots[row["slot_name"]] = slot
+
+        return LLMConfig(providers=providers, slots=slots)
+
+    # =========================================================================
+    # Add Provider
+    # =========================================================================
+
+    async def add_provider(
+        self,
+        user_id: str,
+        card_type: str,
+        name: str = "",
+        api_key: str = "",
+        base_url: str = "",
+        auth_type: str = "api_key",
+        models: Optional[List[str]] = None,
+        replace: bool = False,
+        inference_base: Optional[str] = None,
+    ) -> tuple[LLMConfig, list[str]]:
+        """Add a provider for a user. Returns (updated_config, new_provider_ids).
+
+        ``replace=True`` skips the per-source uniqueness guard for aggregator
+        card types so the key-rotation (replace) flow can insert a fresh
+        provider pair alongside the old one before deleting it (expand-contract
+        — see ``onboard_one_key``). New rows get fresh random provider_ids, so
+        there is no primary-key collision with the rows being replaced.
+        """
+
+        new_ids: list[str] = []
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Keyed off the dual-provider table, NOT a repeated literal list: the
+        # free-tier card was added to the table and to onboard_one_key but this
+        # third copy was missed, so it raised "Unknown card_type" at the last
+        # step. One source of truth makes that class of miss impossible.
+        if card_type in _DUAL_PROVIDER_CONFIGS:
+            # Check uniqueness (unless the caller is mid-replace).
+            if not replace:
+                existing = await self.db.get("user_providers", filters={"user_id": user_id, "source": card_type})
+                if existing:
+                    raise ValueError(f"A {card_type} provider already exists for this user")
+
+            group_id = _generate_group_id()
+            configs = _build_dual_providers(
+                card_type, api_key, group_id, models, inference_base=inference_base
+            )
+            for cfg in configs:
+                await self._insert_provider(user_id, cfg, now)
+                new_ids.append(cfg["provider_id"])
+
+        elif card_type == "claude_oauth":
+            # One subscription card, two credential transports: no api_key →
+            # host-CLI managed oauth (legacy default); api_key present → it is
+            # a `claude setup-token` long-lived token (auth_type oauth_token,
+            # env-injected as CLAUDE_CODE_OAUTH_TOKEN — see ClaudeOAuthDriver).
+            token = (api_key or "").strip()
+            existing = await self.db.get("user_providers", filters={"user_id": user_id, "source": "claude_oauth"})
+            if existing and not token:
+                raise ValueError("Claude OAuth provider already exists for this user")
+            if existing:
+                # Reconnect-in-place: pasting a token upgrades the existing
+                # card to the token transport (the 2026-07-23 macOS Keychain
+                # recovery path). Keep the provider_id so agent/helper slot
+                # bindings survive; clear the credential-file sentinel — the
+                # token IS the credential now.
+                pid = existing[0]["provider_id"]
+                await self.db.update(
+                    "user_providers",
+                    {"user_id": user_id, "provider_id": pid},
+                    {
+                        "auth_type": "oauth_token",
+                        "api_key": token,
+                        "updated_at": now,
+                        **_cli_subscription_row_fields(
+                            "claude_oauth", "oauth_token", "anthropic"
+                        ),
+                    },
+                )
+                new_ids.append(pid)
+            else:
+                pid = _generate_provider_id()
+                # One expression feeds both the row column and the derived
+                # fields below — duplicating it is how the two drift.
+                oauth_auth_type = "oauth_token" if token else "oauth"
+                row = {
+                    "provider_id": pid,
+                    "name": "Claude Code (OAuth)",
+                    "source": "claude_oauth",
+                    "protocol": "anthropic",
+                    "auth_type": oauth_auth_type,
+                    "api_key": token,
+                    "base_url": "",
+                    # CLI family aliases → auto-track the latest Claude release
+                    # (both subscription transports run the claude CLI, which
+                    # resolves opus|sonnet|haiku itself), so no manual version
+                    # bump on each new model. See model_catalog.py.
+                    "models": json.dumps(["opus", "sonnet", "haiku"]),
+                    # Subscription funnels through official Anthropic → server
+                    # tools OK.
+                    "supports_anthropic_server_tools": True,
+                    # Classify at insert time. The startup backfill only
+                    # normalizes rows left by pre-driver builds — a new row
+                    # must never wait for the next restart to become
+                    # testable: leaning on the backfill left auth_ref NULL
+                    # until then, so Test right after creation always
+                    # failed (P1, 2026-08-27).
+                    **_cli_subscription_row_fields(
+                        "claude_oauth", oauth_auth_type, "anthropic"
+                    ),
+                }
+                await self._insert_provider(user_id, row, now)
+                new_ids.append(pid)
+
+        elif card_type == "codex_oauth":
+            # Mirror of claude_oauth: a single row representing the
+            # host's ``codex login`` credential. The CodexSDK reads
+            # the token directly from ~/.codex/auth.json via its
+            # own OAuth fallback; this row exists primarily so
+            # CodexOAuthDriver.probe() has a card to probe and the
+            # Settings page can surface ✓ / ✗ status.
+            #
+            # protocol="openai" because Codex's underlying API surface
+            # is OpenAI-compatible (Responses API). This makes the row
+            # technically eligible for the helper_llm slot too — but
+            # OAuth credentials can't actually serve chat-completions
+            # calls, so users shouldn't pin it there. We don't gate
+            # it at insert time; the resolver / driver layers reject
+            # non-agent-slot uses with NotImplementedError.
+            existing = await self.db.get(
+                "user_providers", filters={"user_id": user_id, "source": "codex_oauth"}
+            )
+            if existing:
+                raise ValueError("Codex OAuth provider already exists for this user")
+
+            pid = _generate_provider_id()
+            await self._insert_provider(user_id, {
+                "provider_id": pid,
+                "name": "Codex CLI (OAuth)",
+                "source": "codex_oauth",
+                "protocol": "openai",
+                "auth_type": "oauth",
+                "api_key": "",
+                "base_url": "",
+                # Seed the column for completeness, but the read path
+                # in ``get_user_config`` overrides this with the
+                # current ``CODEX_CURATED_MODELS`` constant —
+                # so the column value is effectively cached, not
+                # canonical. Updating the constant updates the
+                # dropdown for every existing user on next reload.
+                "models": json.dumps(list(CODEX_CURATED_MODELS)),
+                # Codex is OpenAI's product — Anthropic server tools
+                # (WebSearch etc.) are not applicable.
+                "supports_anthropic_server_tools": False,
+                **_cli_subscription_row_fields("codex_oauth", "oauth", "openai"),
+            }, now)
+            new_ids.append(pid)
+
+        elif card_type in ("anthropic", "openai"):
+            # Egress gate at SAVE time: a stored custom card is fetched later by
+            # the agent loop / helper LLM / Test button, so an internal base_url
+            # must never persist (cloud only; see assert_user_base_url_allowed).
+            from narranexus.platform.agent_framework.providers.registry import (
+                UNSAFE_BASE_URL_MESSAGE,
+                assert_user_base_url_allowed,
+            )
+            try:
+                await assert_user_base_url_allowed(base_url)
+            except Exception as e:  # noqa: BLE001 — any decision failure fails closed
+                logger.warning(
+                    f"[add_provider] refused user base_url ({type(e).__name__}): {e}"
+                )
+                raise ValueError(UNSAFE_BASE_URL_MESSAGE) from e
+            pid = _generate_provider_id()
+            display_name = name or f"Custom {card_type.title()}"
+            if not models:
+                from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
+                models = get_default_models("user", card_type)
+            else:
+                models = list(models)
+            # Auto-detect: only the official api.anthropic.com host serves
+            # the server-side tool suite (WebSearch etc.). User can flip
+            # this later via the edit-provider flow if they front official
+            # with a transparent proxy.
+            server_tools = (
+                card_type == "anthropic"
+                and "api.anthropic.com" in (base_url or "").lower()
+            )
+            await self._insert_provider(user_id, {
+                "provider_id": pid,
+                "name": display_name,
+                "source": "user",
+                "protocol": card_type,
+                "auth_type": auth_type,
+                "api_key": api_key,
+                "base_url": base_url,
+                "models": json.dumps(models or []),
+                "supports_anthropic_server_tools": server_tools,
+            }, now)
+            new_ids.append(pid)
+        else:
+            raise ValueError(f"Unknown card_type: {card_type}")
+
+        # Subscription (OAuth) login covers BOTH slots in one step. The OAuth
+        # credential drives the agent CLI AND, via CliHelperSDK, the helper's
+        # one-shot calls — so bind agent + helper_llm to this provider now
+        # instead of forcing a second manual helper config (2026-07 P0).
+        #
+        # Fill EMPTY slots only: a fresh subscription login becomes fully
+        # runnable, but adding an OAuth provider on top of an existing working
+        # setup never clobbers the user's chosen agent/helper. Order mirrors
+        # onboard_one_key: framework first (set_slot's agent-protocol check
+        # reads it), then agent, then helper.
+        if card_type in ("claude_oauth", "codex_oauth") and new_ids:
+            pid = new_ids[0]
+            # The framework is the one whose CLI redeems this subscription
+            # card — the registry's knowledge, not a name table here.
+            framework = framework_for_oauth_source(card_type) or DEFAULT_AGENT_LOOP_FRAMEWORK
+            if card_type == "claude_oauth":
+                agent_model, helper_model = "opus", "haiku"
+            else:
+                curated = list(json.loads((await self.db.get_one(
+                    "user_providers", {"user_id": user_id, "provider_id": pid}
+                ) or {}).get("models") or "[]"))
+                # Agent on the flagship (curated[0] = gpt-5.5), helper on the
+                # cheap mini — mirrors claude's opus/haiku split. The helper
+                # does small structured jobs, so pin gpt-5.4-mini (in
+                # CODEX_CURATED_MODELS, accepted by a ChatGPT-account
+                # subscription; verified 2026-07-08) instead of reusing
+                # curated[0], which wrongly put the flagship gpt-5.5 on the
+                # helper slot.
+                agent_model = curated[0] if curated else ""
+                helper_model = "gpt-5.4-mini"
+
+            def _slot_empty(row) -> bool:
+                return not row or not row.get("provider_id")
+
+            agent_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": "agent"}
+            )
+            if _slot_empty(agent_slot):
+                await self.set_user_agent_framework(user_id, framework)
+                # actor_is_staff=None — explicit policy bypass: OAuth cards
+                # are staff-only on cloud at the add_provider route, so a
+                # non-staff cloud caller never reaches this auto-bind.
+                await self.set_slot(
+                    user_id, "agent", pid, agent_model, actor_is_staff=None
+                )
+            helper_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": "helper_llm"}
+            )
+            if _slot_empty(helper_slot):
+                await self.set_slot(
+                    user_id, "helper_llm", pid, helper_model, actor_is_staff=None
+                )
+
+        config = await self.get_user_config(user_id)
+        return config, new_ids
+
+    async def _insert_provider(self, user_id: str, data: dict, now: str):
+        row = {
+            "user_id": user_id,
+            "provider_id": data["provider_id"],
+            "name": data["name"],
+            "source": data["source"],
+            "protocol": data["protocol"],
+            "auth_type": data.get("auth_type", "api_key"),
+            "api_key": data.get("api_key", ""),
+            "base_url": data.get("base_url", ""),
+            "models": data.get("models", "[]"),
+            "linked_group": data.get("linked_group", ""),
+            "is_active": 1,
+            "supports_anthropic_server_tools": 1 if data.get("supports_anthropic_server_tools") else 0,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for optional_key in ("driver_type", "owner_user_id", "billing_policy", "auth_ref"):
+            if optional_key in data:
+                row[optional_key] = data[optional_key]
+        await self.db.insert("user_providers", row)
+
+    # =========================================================================
+    # Remove Provider
+    # =========================================================================
+
+    async def remove_provider(self, user_id: str, provider_id: str) -> LLMConfig:
+        """Remove a provider (and its linked group). Clears affected slots."""
+        row = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
+        if not row:
+            raise ValueError(f"Provider {provider_id} not found")
+
+        # If linked group, delete all in group
+        linked_group = row.get("linked_group", "")
+        if linked_group:
+            group_rows = await self.db.get("user_providers", {"user_id": user_id, "linked_group": linked_group})
+            for r in group_rows:
+                await self.db.delete("user_providers", {"user_id": user_id, "provider_id": r["provider_id"]})
+                # Clear any slots using this provider — both the user-level
+                # defaults and any per-agent overrides (agent_slots is keyed by
+                # agent_id, not user_id; provider_id is globally unique, so a
+                # provider_id filter only ever hits this owner's rows). Without
+                # this, a deleted provider leaves a dangling override that
+                # fails at resolve time.
+                await self.db.delete("user_slots", {"user_id": user_id, "provider_id": r["provider_id"]})
+                await self.db.delete("agent_slots", {"provider_id": r["provider_id"]})
+        else:
+            await self.db.delete("user_providers", {"user_id": user_id, "provider_id": provider_id})
+            await self.db.delete("user_slots", {"user_id": user_id, "provider_id": provider_id})
+            await self.db.delete("agent_slots", {"provider_id": provider_id})
+
+        return await self.get_user_config(user_id)
+
+    # =========================================================================
+    # Slots
+    # =========================================================================
+
+    async def set_slot(
+        self,
+        user_id: str,
+        slot_name: str,
+        provider_id: str,
+        model: str,
+        thinking: str = "",
+        reasoning_effort: str = "",
+        *,
+        actor_is_staff: Optional[bool],
+    ) -> LLMConfig:
+        """Assign a provider + model (+ neutral reasoning params) to a slot.
+
+        PUT semantics: every call writes the FULL param set. Omitted params
+        reset to "" (auto) — the UI always sends the current dropdown values.
+
+        ``actor_is_staff`` (required keyword): the caller's role for the
+        cloud netmind-only policy (see cloud_policy). Routes pass the real
+        role; a trusted internal caller (onboard, OAuth auto-bind — policy
+        already decided upstream) must write ``actor_is_staff=None``
+        EXPLICITLY. Deliberately no default: a silent-bypass default is
+        exactly how the manyfold clone gap happened, so a bypass has to be
+        visible at the call site. Raises ``CloudPolicyViolation`` (→ 403 at
+        the route) on a forbidden binding.
+        """
+        # Validate slot name
+        if slot_name not in [s.value for s in SlotName]:
+            raise ValueError(f"Invalid slot: {slot_name}")
+
+        # Validate the neutral params through the schema (rejects dialect
+        # words like "adaptive"/"minimal" before they reach storage).
+        params_model = SlotConfig(
+            provider_id=provider_id,
+            model=model,
+            thinking=thinking,  # type: ignore[arg-type]
+            reasoning_effort=reasoning_effort,  # type: ignore[arg-type]
+        )
+        params_json = json.dumps(
+            {
+                "thinking": params_model.thinking,
+                "reasoning_effort": params_model.reasoning_effort,
+            },
+            sort_keys=True,
+        )
+
+        # Validate provider exists for this user
+        prov = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
+        if not prov:
+            raise ValueError(f"Provider {provider_id} not found for user {user_id}")
+
+        # Cloud netmind-only policy (single source of truth: cloud_policy).
+        ensure_slot_provider_allowed(prov, actor_is_staff)
+
+        # Validate the provider↔slot binding (protocol / codex-source /
+        # helper-OAuth). The agent slot is framework-dependent, so resolve the
+        # user's current framework first. Shared with AgentSlotService via
+        # validate_slot_binding so both writers enforce identical rules.
+        agent_framework = None
+        if slot_name == SlotName.AGENT.value:
+            existing_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": slot_name}
+            )
+            # No framework on the slot yet → the bound default, the same
+            # framework the resolver will run (a stale hardcoded name here
+            # once refused every openai card for users on the default).
+            # The config boundary's resolver: a broken
+            # ``turn.pipeline.act.framework`` binding must answer 400 here (the
+            # route maps ValueError), not a RuntimeError the route has no
+            # handler for — the provider page is the one place the user can
+            # undo that binding.
+            agent_framework = (existing_slot or {}).get("agent_framework") or resolved_framework_name()
+        validate_slot_binding(prov, slot_name, agent_framework)
+
+        # Upsert slot
+        existing = await self.db.get_one("user_slots", {"user_id": user_id, "slot_name": slot_name})
+        now = datetime.now(timezone.utc).isoformat()
+        if existing:
+            await self.db.update("user_slots",
+                {"user_id": user_id, "slot_name": slot_name},
+                {"provider_id": provider_id, "model": model,
+                 "params_json": params_json, "updated_at": now}
+            )
+        else:
+            await self.db.insert("user_slots", {
+                "user_id": user_id,
+                "slot_name": slot_name,
+                "provider_id": provider_id,
+                "model": model,
+                "params_json": params_json,
+                "updated_at": now,
+            })
+
+        return await self.get_user_config(user_id)
+
+    # =========================================================================
+    # One-key onboarding
+    # =========================================================================
+
+    async def onboard_one_key(
+        self,
+        user_id: str,
+        api_key: str,
+        provider_type: Optional[str] = None,
+        replace: bool = False,
+        inference_base: Optional[str] = None,
+        activate: bool = True,
+        models: Optional[Union[list[str], dict[str, list[str]]]] = None,
+    ) -> tuple[LLMConfig, list[str], dict]:
+        """Wire a complete runnable config from a single API key.
+
+        Detects the key's protocol (sk-ant- prefix → anthropic, else
+        openai) unless ``provider_type`` overrides it, then:
+
+          1. Persists the matching agent framework — the first INSTALLED
+             framework for the card's protocol (anthropic → claude_code,
+             openai → codex_cli where those plugins are installed; the
+             host-shipped nexus_power otherwise). MUST happen before the
+             agent slot — set_slot validates the agent provider's
+             protocol against the framework.
+          2. Creates the provider (card_type = the protocol; the
+             provider gets the catalog's suggested model list).
+          3. Assigns BOTH slots to that same provider with the
+             catalog's onboarding defaults (strongest agent model of
+             the family + the cheap helper model).
+
+        Returns (config, new_provider_ids, meta) where meta carries
+        {provider_type, agent_framework, agent_model, helper_model}
+        for the API response. Raises ValueError on bad input or any
+        step failure (duplicate provider, protocol mismatch, ...).
+        """
+        from narranexus.platform.agent_framework.providers.free_tier import (
+            FREE_TIER_SOURCE,
+            free_tier_default_models,
+            free_tier_default_thinking,
+        )
+        from narranexus.platform.agent_framework.providers.model_catalog import (
+            get_default_agent_model,
+            get_default_helper_model,
+        )
+
+        key = (api_key or "").strip()
+        if not key:
+            raise ValueError("api_key is required")
+
+        # Aggregator keys (netmind/yunwu/openrouter) have no recognisable
+        # prefix — they are only reachable via an explicit provider_type
+        # from the UI's provider picker.
+        ptype = provider_type or (
+            "anthropic" if key.startswith("sk-ant-") else "openai"
+        )
+        allowed = (
+            "anthropic", "openai", "netmind", "netmind_free", "yunwu", "openrouter",
+        )
+        if ptype not in allowed:
+            raise ValueError(
+                f"provider_type must be one of {allowed}, got {ptype!r}"
+            )
+        # Only a pure-OpenAI key is an openai-protocol card; every
+        # aggregator's anthropic endpoint is an anthropic card like an
+        # official Claude key. The framework that card lands on is the
+        # registry's first INSTALLED framework locked to that protocol
+        # (claude_code / codex_cli when their plugins are installed), else the
+        # first installed protocol-agnostic one (nexus_power).
+        framework = default_framework_for_protocol("openai" if ptype == "openai" else "anthropic")
+        agent_model = get_default_agent_model(ptype)
+        helper_model = get_default_helper_model(ptype)
+        agent_thinking = ""
+        if ptype == FREE_TIER_SOURCE:
+            # The free-tier card starts on the DEPLOYMENT-configured pair, not
+            # the catalog constant: the platform pays out of the wallet, so
+            # which models the wallet opens on is an ops decision
+            # (FREE_TIER_AGENT_MODEL / FREE_TIER_HELPER_MODEL). Thinking is an
+            # ops decision for the same reason — reasoning tokens drain the
+            # wallet without being visible in the reply.
+            agent_model, helper_model = free_tier_default_models()
+            agent_thinking = free_tier_default_thinking()
+
+        # Key rotation: aggregator cards (netmind/yunwu/openrouter) are guarded
+        # one-per-source, so a second onboard is a REPLACE, not an add. If the
+        # user already has one and hasn't confirmed, don't mutate — report
+        # needs_replace so the UI can prompt "you already have <masked>, replace?".
+        # Official anthropic/openai cards use source="user" (unguarded, users
+        # may hold several) so they never need this.
+        old_rows: list[dict] = []
+        if ptype in _DUAL_PROVIDER_CONFIGS:
+            old_rows = await self.db.get(
+                "user_providers", filters={"user_id": user_id, "source": ptype}
+            )
+            if old_rows and not replace:
+                config = await self.get_user_config(user_id)
+                existing_key = str(old_rows[0].get("api_key") or "")
+                masked = ("***" + existing_key[-4:]) if len(existing_key) > 4 else "***"
+                meta = {
+                    "provider_type": ptype,
+                    "needs_replace": True,
+                    "existing_masked": masked,
+                }
+                return config, [], meta
+
+        # Verify the key BEFORE writing anything — a typo'd key should
+        # fail here with a clear message, not at the first chat turn.
+        # Definitive auth rejections (401/403) raise; transient failures
+        # (network, 5xx) do NOT block — we proceed and report
+        # key_check="unverified (...)" so the UI can surface a warning.
+        key_check = await self._verify_onboard_key(
+            ptype, key, agent_model, inference_base=inference_base
+        )
+
+        # Register-only mode (activate=False): create the provider(s) but do NOT
+        # touch the user's framework or slots. Used when the user already has an
+        # active config — a NetMind card is made AVAILABLE (auto-registered on
+        # login), not force-activated over their own provider.
+        if activate:
+            await self.set_user_agent_framework(user_id, framework)
+        # Expand-contract replace: create the NEW provider(s) and repoint slots
+        # to them BEFORE deleting the old ones (replace=True skips the source
+        # guard). If any step fails the old, working provider is still in place —
+        # the user is never left without a runnable config (safer than the
+        # delete-then-add the user would otherwise do by hand).
+        config, new_ids = await self.add_provider(
+            user_id=user_id, card_type=ptype, api_key=key, replace=bool(old_rows),
+            inference_base=inference_base, models=models,
+        )
+        if activate:
+            # Official anthropic/openai cards create ONE provider that
+            # serves both slots. The netmind card creates TWO linked rows
+            # (anthropic + openai); route each slot to its protocol's row.
+            agent_pid = helper_pid = new_ids[0]
+            if len(new_ids) > 1:
+                by_protocol = {
+                    config.providers[pid].protocol.value: pid
+                    for pid in new_ids
+                    if pid in config.providers
+                }
+                agent_pid = by_protocol.get("anthropic", new_ids[0])
+                helper_pid = by_protocol.get("openai", new_ids[0])
+            # actor_is_staff=None — explicit policy bypass: the onboard route
+            # already decided (cloud non-staff gets activate=False and never
+            # reaches these binds).
+            config = await self.set_slot(
+                user_id, "agent", agent_pid, agent_model,
+                thinking=agent_thinking, actor_is_staff=None,
+            )
+            # Do not forward agent_thinking to the helper. The only non-neutral
+            # case is free-tier, whose linked helper row is OpenAI-protocol and
+            # never crosses the Anthropic /v1/messages reasoning bridge.
+            config = await self.set_slot(
+                user_id, "helper_llm", helper_pid, helper_model, actor_is_staff=None
+            )
+
+        # Contract step: drop the old pair now that slots point at the new one.
+        # Slots for the old provider_ids were already overwritten above, so their
+        # deletion here is a harmless no-op — this only removes stale rows.
+        new_id_set = set(new_ids)
+        for r in old_rows:
+            old_pid = r.get("provider_id")
+            if not old_pid or old_pid in new_id_set:
+                continue
+            await self.db.delete("user_providers", {"user_id": user_id, "provider_id": old_pid})
+            await self.db.delete("user_slots", {"user_id": user_id, "provider_id": old_pid})
+        if old_rows:
+            config = await self.get_user_config(user_id)
+
+        meta = {
+            "provider_type": ptype,
+            "agent_framework": framework,
+            "agent_model": agent_model,
+            "helper_model": helper_model,
+            "key_check": key_check,
+            # False = register-only (framework/slots untouched) — the UI must
+            # not claim "you're now running on <model>" in that case.
+            "activated": activate,
+        }
+        return config, new_ids, meta
+
+    async def _verify_onboard_key(
+        self, ptype: str, api_key: str, agent_model: str,
+        inference_base: Optional[str] = None,
+    ) -> str:
+        """Live-probe the key against its provider before persisting.
+
+        Builds a transient ProviderConfig (never stored) and reuses
+        ``provider_registry.test_provider`` — GET /models on official
+        endpoints (zero token cost), a max_tokens=1 call on proxies.
+        Aggregators are probed on their anthropic endpoint (the agent's
+        critical path).
+
+        Returns "ok" on success, or "unverified (<reason>)" when the
+        probe failed for a NON-auth reason (network, 5xx, timeout) —
+        we don't block a good key because our egress hiccuped.
+
+        Raises ValueError when the provider definitively rejected the
+        credential (401/403).
+        """
+        from narranexus.platform.agent_framework.providers.registry import (
+            provider_registry,
+        )
+
+        if ptype in _DUAL_PROVIDER_CONFIGS:
+            from narranexus.platform.agent_framework.providers.free_tier import (
+                FREE_TIER_SOURCE,
+                free_tier_endpoints,
+            )
+
+            info = _DUAL_PROVIDER_CONFIGS[ptype]["anthropic"]
+            # Probe the SAME base the provider will be created with — otherwise a
+            # dev-minted netmind key gets probed against prod inference and 401s,
+            # failing onboarding before it ever writes.
+            base_url = info["base_url"]
+            if ptype == FREE_TIER_SOURCE:
+                base_url = free_tier_endpoints().for_protocol("anthropic")
+            elif ptype == "netmind" and inference_base:
+                base_url = _netmind_base_for("anthropic", inference_base)
+            probe_cfg = ProviderConfig(
+                provider_id="_onboard_verify",
+                name="onboard verify",
+                source=ptype,
+                protocol=ProviderProtocol.ANTHROPIC,
+                auth_type=info["auth_type"],
+                api_key=api_key,
+                base_url=base_url,
+                models=[agent_model],
+            )
+        else:
+            probe_cfg = ProviderConfig(
+                provider_id="_onboard_verify",
+                name="onboard verify",
+                source=ProviderSource.USER,
+                protocol=ptype,
+                auth_type=AuthType.API_KEY,
+                api_key=api_key,
+                base_url="",
+                models=[agent_model],
+            )
+
+        ok, msg = await provider_registry.test_provider(probe_cfg)
+        if ok:
+            return "ok"
+        low = msg.lower()
+        if (
+            "authentication failed" in low
+            or "access denied" in low
+            or "invalid api key" in low
+            or "http 401" in low
+            or "http 403" in low
+        ):
+            raise ValueError(f"API key rejected by {ptype}: {msg}")
+        logger.warning(
+            f"[onboard] key probe inconclusive for {ptype}: {msg} — "
+            f"proceeding unverified"
+        )
+        return f"unverified ({msg})"
+
+    # ---- agent_framework: per-user coding-agent SDK choice ---------
+    # The ``user_slots[slot_name='agent'].agent_framework`` column is
+    # read by step_3_agent_loop._resolve_agent_framework_sdk to pick
+    # ClaudeAgentSDK vs CodexSDK. Reading defaults to "nexus_power" (platform
+    # default since 2026-08-20) for any null/missing row.
+
+    @staticmethod
+    def supported_agent_frameworks() -> list[str]:
+        """Framework names ``set_user_agent_framework`` accepts: exactly the
+        frameworks registered in this process (the route layer and the
+        picker read the same list — no whitelist to keep in sync)."""
+        return available_agent_loop_frameworks()
+
+    async def get_user_agent_framework(self, user_id: str) -> str:
+        """Return the user's chosen coding-agent framework.
+
+        Returns ``DEFAULT_AGENT_FRAMEWORK`` (``model_identity``) when:
+          - The user has no agent slot row yet (new user)
+          - The column is null (rows from before the column was added)
+        Anything other than the supported set still returns the raw
+        value; the caller (step_3 resolver) is responsible for
+        falling back to nexus_power on unknown/null values.
+        """
+        row = await self.db.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+        return framework_of(row)
+
+    async def set_user_agent_framework(self, user_id: str, framework: str) -> bool:
+        """Persist the user's coding-agent framework choice.
+
+        Returns True when the agent slot's provider binding had to be
+        cleared (see below) — the route passes that on so the editor can
+        show an empty provider picker instead of a stale one.
+
+        Upserts ``user_slots[user_id, slot_name='agent'].agent_framework``.
+        If the user has no agent slot row yet (provider_id/model not
+        set), a stub row is inserted with empty provider_id+model so
+        the framework choice is preserved until they wire the slot.
+        provider_resolver still rejects the call at agent_loop time
+        when provider_id is empty — same as today.
+
+        If the currently bound provider CANNOT back the new framework
+        (``framework_can_drive_provider`` — e.g. a Claude Code Login card
+        while switching to nexus_power), the binding is CLEARED rather than
+        left behind. A framework switch is not a slot write, so nothing else
+        re-validates it: keeping the row would persist exactly the
+        combination ``validate_slot_binding`` refuses, and the only place it
+        would surface is the middle of an agent run. Clearing also matches
+        what both framework pickers already do to their local draft.
+
+        Raises ``ValueError`` for unknown framework values.
+        """
+        supported = self.supported_agent_frameworks()
+        if framework not in supported:
+            raise ValueError(
+                f"Unknown agent_framework {framework!r}. Supported: {supported}"
+            )
+
+        existing = await self.db.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        cleared = False
+        if existing:
+            payload: Dict[str, Any] = {
+                "agent_framework": framework,
+                "updated_at": now,
+            }
+            bound_pid = existing.get("provider_id") or ""
+            if bound_pid:
+                prov = await self.db.get_one(
+                    "user_providers",
+                    {"user_id": user_id, "provider_id": bound_pid},
+                )
+                # A dangling provider_id (row already deleted) is left alone:
+                # remove_provider owns that cleanup, and inventing a second
+                # writer for it here would just race that one.
+                if prov and not framework_can_drive_provider(
+                    framework,
+                    source=prov.get("source", ""),
+                    auth_type=prov.get("auth_type", "api_key"),
+                    protocol=prov.get("protocol", ""),
+                ):
+                    logger.warning(
+                        f"[providers] agent framework -> {framework!r} for "
+                        f"user={user_id!r}: clearing agent slot bound to "
+                        f"provider {bound_pid!r} "
+                        f"(source={prov.get('source')!r}, "
+                        f"auth={prov.get('auth_type')!r}) — that card cannot "
+                        f"back the new framework."
+                    )
+                    payload["provider_id"] = ""
+                    payload["model"] = ""
+                    cleared = True
+            await self.db.update(
+                "user_slots",
+                {"user_id": user_id, "slot_name": "agent"},
+                payload,
+            )
+        else:
+            # Stub row: framework choice survives even if the agent
+            # slot's provider/model is not yet wired. provider_resolver
+            # will reject usage with empty provider_id at agent_loop
+            # time, which is correct UX (forces the user to finish
+            # slot setup).
+            await self.db.insert(
+                "user_slots",
+                {
+                    "user_id": user_id,
+                    "slot_name": "agent",
+                    "provider_id": "",
+                    "model": "",
+                    "agent_framework": framework,
+                    "updated_at": now,
+                },
+            )
+        return cleared
+
+    async def validate_slots(self, user_id: str) -> list[str]:
+        """Validate all slots are configured."""
+        config = await self.get_user_config(user_id)
+        errors = []
+        for slot in SlotName:
+            if slot.value not in config.slots:
+                errors.append(f"Slot '{slot.value}' not configured")
+        return errors
+
+    # =========================================================================
+    # Update Models
+    # =========================================================================
+
+    async def update_models(self, user_id: str, provider_id: str, models: list[str]) -> LLMConfig:
+        """Update available models for a provider."""
+        now = datetime.now(timezone.utc).isoformat()
+        affected = await self.db.update("user_providers",
+            {"user_id": user_id, "provider_id": provider_id},
+            {"models": json.dumps(models), "updated_at": now}
+        )
+        if affected == 0:
+            raise ValueError(f"Provider {provider_id} not found")
+        return await self.get_user_config(user_id)
+
+    # =========================================================================
+    # Test
+    # =========================================================================
+
+    async def test_provider(self, user_id: str, provider_id: str) -> tuple[bool, str]:
+        """Test connectivity to a SAVED provider (stateful entry point).
+
+        Loads the persisted row, then delegates to ``_probe_api_key_card``
+        with the row's STORED source (so the egress gate applies to user
+        cards only), keeping the transient-ProviderConfig construction in
+        exactly one place. Both OAuth flavours delegate to the driver's ``verify_live``
+        — a real one-shot through the same CLI transport the agent uses.
+        The old ``oauth`` branch answered with an unconditional pass
+        ("the CLI holds real credentials, so connected is truthful") —
+        false: the CLI can hold EXPIRED credentials, and the pass leaked
+        into ProviderReadiness, re-arming paused jobs onto dead codex
+        logins (P0, 2026-07-31). Same defect class the 2026-07-23 incident
+        already proved for ``oauth_token``.
+        """
+        row = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
+        if not row:
+            return False, "Provider not found"
+
+        if row.get("auth_type") in SUBSCRIPTION_AUTH_TYPES:
+            from narranexus.platform.agent_framework.providers.driver.base import (
+                VERIFY_DEAD,
+                VERIFY_OK,
+                ProviderCard,
+            )
+            from narranexus.platform.agent_framework.providers.driver.registry import (
+                get_driver_class,
+            )
+
+            card = ProviderCard.from_row(row)
+            # Legacy rows predate the driver_type column: derive from the
+            # protocol — openai OAuth is the codex CLI, anthropic the claude
+            # CLI. (The old default of claude_oauth mis-verified codex rows.)
+            driver_type = card.driver_type or (
+                "codex_oauth" if (row.get("protocol") or "") == "openai" else "claude_oauth"
+            )
+            driver_cls = get_driver_class(driver_type)
+            if driver_cls is None:
+                return False, f"unknown driver {driver_type!r} — cannot verify"
+            driver = driver_cls(card)
+            verify = getattr(driver, "verify_live", None)
+            if verify is None:
+                # No live capability: report the cheap existence probe, but
+                # say so — never dress an existence check up as connectivity.
+                health = await driver.probe()
+                return health.ok, (
+                    f"{health.detail} (existence check only — driver "
+                    f"{driver_type!r} has no live verification)"
+                )
+            # Tri-state → bool mapping for the two consumers of this method
+            # (the Test button and ProviderReadiness): only a VERIFIED-dead
+            # credential maps to False. "unknown" (control-plane node,
+            # timeout, missing model list) maps to True-with-caveat — a
+            # False here would permanently block the readiness edge that
+            # re-arms PAUSED_NO_QUOTA jobs over a situation nobody verified.
+            verdict, detail = await verify()
+            if verdict == VERIFY_OK:
+                return True, detail
+            if verdict == VERIFY_DEAD:
+                return False, detail
+            return True, f"{detail} (not live-verified)"
+
+        # The egress gate is decided by the raw STORED source through the one
+        # platform-source criterion (registry.is_platform_provider_source): a
+        # platform card (netmind_free, the system / system_pool pool — all on
+        # our own gateway) keeps its internal base_url; user, missing and
+        # unknown sources are gated (fail closed). No enum conversion here: the
+        # column holds platform values the enum has no member for.
+        return await self._probe_api_key_card(
+            gate_source=row.get("source") or "",
+            card_type=row["protocol"],
+            api_key=row.get("api_key", ""),
+            base_url=row.get("base_url", ""),
+            auth_type=row.get("auth_type", "api_key"),
+            models=json.loads(row["models"]) if row.get("models") else [],
+        )
+
+    async def test_provider_config(
+        self,
+        *,
+        card_type: str,
+        api_key: str,
+        base_url: str = "",
+        auth_type: str = "api_key",
+        models: list[str] | None = None,
+    ) -> tuple[bool, str]:
+        """Test connectivity for an UNSAVED custom provider config.
+
+        Stateless twin of ``test_provider``: it builds a transient
+        ProviderConfig straight from the add-provider form values and
+        delegates to the registry — no DB row is read or written, nothing
+        is persisted. This is what lets the form verify a key / base_url /
+        model BEFORE the user commits it to storage.
+
+        Both ``card_type`` and ``auth_type`` are whitelisted BEFORE the
+        ProviderConfig is built. This is not defensive noise:
+        - ``auth_type="oauth"`` is a valid AuthType enum value, so without
+          the guard the registry's oauth short-circuit would return
+          ``(True, "OAuth provider …")`` for a config that was never
+          probed — a pure false "connected". A stateless probe has no
+          stored CLI credential to stand behind that claim.
+        - any other unknown ``auth_type`` would raise pydantic
+          ValidationError at construction; there is no global exception
+          handler, so that would surface as a 500 instead of a clean
+          failure verdict.
+
+        Args:
+            card_type: "anthropic" | "openai" (custom-provider protocol).
+            api_key: The key / token to probe with.
+            base_url: Endpoint override; empty = provider default.
+            auth_type: "api_key" | "bearer_token".
+            models: Configured models; the registry uses models[0] to
+                probe non-official proxy endpoints.
+
+        Returns:
+            (success, message) — passed straight through from the registry.
+        """
+        # Raw form values are user-supplied by definition: always USER, so the
+        # registry's egress gate applies to the base_url the client sent.
+        return await self._probe_api_key_card(
+            gate_source=ProviderSource.USER.value,
+            card_type=card_type,
+            api_key=api_key,
+            base_url=base_url,
+            auth_type=auth_type,
+            models=models,
+        )
+
+    async def _probe_api_key_card(
+        self,
+        *,
+        gate_source: str,
+        card_type: str,
+        api_key: str,
+        base_url: str,
+        auth_type: str,
+        models: list[str] | None,
+    ) -> tuple[bool, str]:
+        """The ONE place a transient api-key ProviderConfig is built for a probe.
+
+        Shared by the stateless form probe (``gate_source="user"``) and the
+        saved-row test (the row's raw stored source), so the whitelists below
+        and the registry's source-keyed egress gate can't drift between the
+        two. ``gate_source`` is handed to the registry as ``stored_source`` and
+        alone decides the egress gate; the transient config's own ``source``
+        is a fixed USER label that nothing else reads.
+        """
+        if card_type not in ("anthropic", "openai"):
+            return False, f"Unsupported protocol: {card_type}"
+        if auth_type not in ("api_key", "bearer_token"):
+            return False, f"Unsupported auth type: {auth_type}"
+
+        from narranexus.platform.agent_framework.providers.registry import provider_registry
+        prov = ProviderConfig(
+            provider_id="prov_probe",          # transient, never stored
+            name="probe",
+            source=ProviderSource.USER,        # label only; gate_source decides
+            protocol=card_type,                # pydantic coerces to ProviderProtocol
+            auth_type=auth_type,
+            api_key=api_key,
+            base_url=base_url,
+            models=models or [],
+        )
+        return await provider_registry.test_provider(prov, stored_source=gate_source)
+
+
+# =============================================================================
+# Dual-protocol provider builder (NetMind, free tier, Yunwu, OpenRouter)
+# =============================================================================
+
+# The free-tier card's base_urls are deployment-specific (they point at OUR
+# gateway, which does not exist locally), so they are resolved at build time
+# from `free_tier.free_tier_endpoints()` rather than frozen here. The entry
+# still exists so `card_type in _DUAL_PROVIDER_CONFIGS` — the check every dual
+# path uses — stays a single source of truth.
+_DUAL_PROVIDER_CONFIGS = {
+    "netmind_free": {
+        "anthropic": {"name": "Free Tier (Anthropic)", "base_url": "", "auth_type": "bearer_token"},
+        "openai": {"name": "Free Tier (OpenAI)", "base_url": "", "auth_type": "api_key"},
+    },
+    "netmind": {
+        "anthropic": {"name": "NetMind (Anthropic)", "base_url": "https://api.netmind.ai/inference-api/anthropic", "auth_type": "bearer_token"},
+        "openai": {"name": "NetMind (OpenAI)", "base_url": "https://api.netmind.ai/inference-api/openai/v1", "auth_type": "api_key"},
+    },
+    "yunwu": {
+        "anthropic": {"name": "Yunwu (Anthropic)", "base_url": "https://api.yunwuai.cloud/v1/messages", "auth_type": "api_key"},
+        "openai": {"name": "Yunwu (OpenAI)", "base_url": "https://api.yunwuai.cloud/v1", "auth_type": "api_key"},
+    },
+    "openrouter": {
+        "anthropic": {"name": "OpenRouter (Anthropic)", "base_url": "https://openrouter.ai/api/v1/messages", "auth_type": "api_key"},
+        "openai": {"name": "OpenRouter (OpenAI)", "base_url": "https://openrouter.ai/api/v1", "auth_type": "api_key"},
+    },
+}
+
+
+# NetMind's two inference sub-endpoints hang off one base prefix
+# (prod: https://api.netmind.ai/inference-api). ONLY netmind's base is
+# environment-swappable — a key minted on dev NetMind must hit dev inference
+# (https://test.api.netmind.ai/inference-api). yunwu/openrouter are single-env.
+_NETMIND_INFERENCE_SUBPATHS = {"anthropic": "/anthropic", "openai": "/openai/v1"}
+
+
+def _netmind_base_for(protocol: str, inference_base: str) -> str:
+    """Derive netmind's per-protocol inference URL from a base prefix override."""
+    return inference_base.rstrip("/") + _NETMIND_INFERENCE_SUBPATHS[protocol]
+
+
+def _build_dual_providers(
+    card_type: str,
+    api_key: str,
+    group_id: str,
+    models: Optional[Union[list, dict]] = None,
+    inference_base: Optional[str] = None,
+) -> list[dict]:
+    from narranexus.platform.agent_framework.providers.free_tier import (
+        FREE_TIER_SOURCE,
+        free_tier_endpoints,
+    )
+    from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
+    cfg = _DUAL_PROVIDER_CONFIGS[card_type]
+    result = []
+    for protocol, info in cfg.items():
+        # Per-protocol dict (the free-tier gate produces one — the gateway's
+        # openai and anthropic lists genuinely differ) or one shared list.
+        if isinstance(models, dict):
+            proto_models = models.get(protocol) or get_default_models(card_type, protocol)
+        else:
+            proto_models = models or get_default_models(card_type, protocol)
+        # Override the base ONLY for netmind + when a caller opted in
+        # (use-subscription). Everything else keeps the hardcoded prod base.
+        base_url = info["base_url"]
+        if card_type == FREE_TIER_SOURCE:
+            # Always resolved from the environment: the gateway URL differs per
+            # deployment and there is no meaningful hardcoded default.
+            base_url = free_tier_endpoints().for_protocol(protocol)
+        elif card_type == "netmind" and inference_base:
+            base_url = _netmind_base_for(protocol, inference_base)
+        result.append({
+            "provider_id": _generate_provider_id(),
+            "name": info["name"],
+            "source": card_type,
+            "protocol": protocol,
+            "auth_type": info["auth_type"],
+            "api_key": api_key,
+            "base_url": base_url,
+            "models": json.dumps(proto_models),
+            "linked_group": group_id,
+        })
+    return result

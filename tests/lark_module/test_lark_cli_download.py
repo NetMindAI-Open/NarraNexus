@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
+from narranexus_plugins.lark_module.lark_cli_client import LarkCLIClient
 
 
 def _extract_output_path(args: list[str]) -> str:
@@ -304,7 +304,7 @@ async def test_fetch_message_resource_rejects_message_id_with_slash(
         return {"success": True, "data": {}}
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
+        "narranexus_plugins.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
         _fake_run,
     )
 
@@ -330,7 +330,7 @@ async def test_fetch_message_resource_rejects_file_key_with_query_string(
         return {"success": True, "data": {}}
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
+        "narranexus_plugins.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
         _fake_run,
     )
 
@@ -361,7 +361,7 @@ async def test_fetch_message_resource_accepts_real_lark_id_formats(
         return {"success": True, "data": {}}
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
+        "narranexus_plugins.lark_module.lark_cli_client.LarkCLIClient._run_with_agent_id",
         _fake_run,
     )
 

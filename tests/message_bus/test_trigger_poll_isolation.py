@@ -29,8 +29,8 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
 ROOM = "ch_team"
 
@@ -85,7 +85,7 @@ async def test_a_quiet_room_produces_no_candidates(db_client):
     lookup per row, just to conclude it had nothing to do."""
     bus = await _seed_room(db_client, ["agent_a", "agent_b", "agent_c"])
     t = _trigger(bus)
-    assert await t._agents_with_pending() == []
+    assert await t._lanes_with_pending() == []
 
 
 @pytest.mark.asyncio
@@ -94,15 +94,15 @@ async def test_every_member_of_a_noisy_room_is_a_candidate(db_client):
 
     The candidate query only asks "is there a message past your cursor" — it
     does NOT apply the @mention filter. It must not: an un-addressed member is
-    exactly who needs to be dispatched so `_process_agent` can ACK the message
+    exactly who needs to be dispatched so `_process_lane` can ACK the message
     and move its cursor past it. Filter them out here and their cursors freeze,
     they stay candidates forever, and the scan never converges.
     """
     bus = await _seed_room(db_client, ["agent_a", "agent_b", "agent_c"])
     await _say(bus, ["agent_a"])
 
-    assert sorted(await _trigger(bus)._agents_with_pending()) == [
-        "agent_a", "agent_b", "agent_c",
+    assert sorted(await _trigger(bus)._lanes_with_pending()) == [
+        ("agent_a", ROOM), ("agent_b", ROOM), ("agent_c", ROOM),
     ]
 
 
@@ -117,7 +117,7 @@ async def test_candidates_drain_once_cursors_advance(db_client):
     for aid in ("agent_a", "agent_b"):
         await bus.ack_processed(aid, ROOM, latest.created_at)
 
-    assert await _trigger(bus)._agents_with_pending() == []
+    assert await _trigger(bus)._lanes_with_pending() == []
 
 
 @pytest.mark.asyncio
@@ -127,7 +127,7 @@ async def test_a_sender_is_not_a_candidate_for_its_own_message(db_client):
         from_agent="agent_a", to_channel=ROOM, content="hi", mentions=["agent_b"],
     )
     t = _trigger(bus)
-    assert await t._agents_with_pending() == ["agent_b"]
+    assert await t._lanes_with_pending() == [("agent_b", ROOM)]
 
 
 @pytest.mark.asyncio
@@ -141,13 +141,13 @@ async def test_a_hung_turn_does_not_freeze_the_cycle(db_client):
     started: list[str] = []
     release = asyncio.Event()
 
-    async def fake_process(agent_id: str) -> bool:
+    async def fake_process(agent_id: str, channel_id: str) -> bool:
         started.append(agent_id)
         if agent_id == "agent_a":
             await release.wait()  # never set during the assertions
         return True
 
-    t._process_agent = fake_process
+    t._process_lane = fake_process
 
     # First cycle dispatches both; it must RETURN even though agent_a hangs.
     dispatched = await asyncio.wait_for(t._poll_cycle(), timeout=2)
@@ -159,7 +159,7 @@ async def test_a_hung_turn_does_not_freeze_the_cycle(db_client):
         await asyncio.wait_for(t._poll_cycle(), timeout=2)
     assert t._cycles == 4
 
-    assert "agent_a" in t._in_flight, "the stuck turn should still be tracked"
+    assert ("agent_a", ROOM) in t._in_flight, "the stuck turn should still be tracked"
     release.set()
     await asyncio.sleep(0.05)
 
@@ -173,12 +173,12 @@ async def test_an_agent_is_not_dispatched_twice_while_in_flight(db_client):
     calls: list[str] = []
     release = asyncio.Event()
 
-    async def fake_process(agent_id: str) -> bool:
+    async def fake_process(agent_id: str, channel_id: str) -> bool:
         calls.append(agent_id)
         await release.wait()
         return True
 
-    t._process_agent = fake_process
+    t._process_lane = fake_process
 
     assert await t._poll_cycle() == 1
     await asyncio.sleep(0)
@@ -196,10 +196,10 @@ async def test_a_finished_dispatch_leaves_the_registry(db_client):
 
     t = _trigger(bus)
 
-    async def fake_process(agent_id: str) -> bool:
+    async def fake_process(agent_id: str, channel_id: str) -> bool:
         return True
 
-    t._process_agent = fake_process
+    t._process_lane = fake_process
 
     await t._poll_cycle()
     await asyncio.sleep(0.05)
@@ -216,10 +216,10 @@ async def test_a_dispatch_that_raises_is_logged_and_released(db_client):
 
     t = _trigger(bus)
 
-    async def boom(agent_id: str) -> bool:
+    async def boom(agent_id: str, channel_id: str) -> bool:
         raise RuntimeError("turn exploded")
 
-    t._process_agent = boom
+    t._process_lane = boom
 
     await t._poll_cycle()
     await asyncio.sleep(0.05)
@@ -237,15 +237,15 @@ async def test_liveness_snapshot_separates_running_from_waiting(db_client):
     t = _trigger(bus, max_workers=1)
     release = asyncio.Event()
 
-    async def fake_process(agent_id: str) -> bool:
+    async def fake_process(agent_id: str, channel_id: str) -> bool:
         async with t._semaphore:
-            flight = t._in_flight.get(agent_id)
+            flight = t._in_flight.get((agent_id, channel_id))
             if flight is not None:
                 flight.running = True
             await release.wait()
         return True
 
-    t._process_agent = fake_process
+    t._process_lane = fake_process
 
     await t._poll_cycle()
     await asyncio.sleep(0.05)
@@ -276,10 +276,10 @@ async def test_counters_distinguish_wedged_from_idle(db_client):
 
     await _say(bus, ["agent_a"])
 
-    async def fake_process(agent_id: str) -> bool:
+    async def fake_process(agent_id: str, channel_id: str) -> bool:
         return True
 
-    t._process_agent = fake_process
+    t._process_lane = fake_process
     await t._poll_cycle()
     await asyncio.sleep(0.05)
 
@@ -298,15 +298,15 @@ async def test_stop_cancels_in_flight_dispatches(db_client):
     t = _trigger(bus)
     release = asyncio.Event()
 
-    async def fake_process(agent_id: str) -> bool:
+    async def fake_process(agent_id: str, channel_id: str) -> bool:
         await release.wait()
         return True
 
-    t._process_agent = fake_process
+    t._process_lane = fake_process
 
     await t._poll_cycle()
     await asyncio.sleep(0)
-    task = t._in_flight["agent_a"].task
+    task = t._in_flight[("agent_a", ROOM)].task
 
     t.stop()
     await asyncio.sleep(0.05)

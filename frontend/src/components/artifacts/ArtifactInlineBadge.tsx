@@ -28,19 +28,19 @@ interface Props {
 
 function ArtifactInlineBadgeImpl({ artifact }: Props) {
   const { t } = useTranslation();
-  const setActive = useArtifactStore((s) => s.setActive);
-  const setCollapsed = useArtifactStore((s) => s.setCollapsed);
+  // restoreTab, not setActive: the target may be minimized, and an active
+  // pointer on a hidden tab blanks the column (0802 ①⑤ family).
+  const restoreTab = useArtifactStore((s) => s.restoreTab);
 
   const open = () => {
-    setCollapsed(false);
-    setActive(artifact.artifact_id);
+    restoreTab(artifact.artifact_id);
   };
 
   return (
     <button
       onClick={open}
       title={t('artifacts.openBadge', { title: artifact.title, kind: artifact.kind })}
-      className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-[family-name:var(--font-mono)] border border-[var(--border-subtle)] hover:border-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors max-w-full"
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-[family-name:var(--font-mono)] border border-[var(--border-subtle)] hover:border-[var(--text-tertiary)] hover:bg-[var(--nm-paper-warm)] text-[var(--text-secondary)] transition-colors max-w-full"
     >
       <Paperclip className="w-3 h-3 shrink-0 opacity-60" />
       <span className="truncate">{artifact.title || artifact.artifact_id}</span>

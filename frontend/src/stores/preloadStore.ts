@@ -112,8 +112,19 @@ async function loadDomain<T extends ApiResponse>(
         const changed = Object.entries(updates).some(
           ([key, val]) => JSON.stringify(current[key as keyof PreloadState]) !== JSON.stringify(val),
         );
-        if (!changed) return;
-        set(updates as Partial<PreloadState>);
+        // A successful load OBSOLETES any previous error, and a silent load
+        // must say so too. Panels render errorKey BEFORE content (see
+        // AwarenessPanel), so leaving a stale error masks data that did in
+        // fact arrive — and only a full page reload, which re-runs the
+        // non-silent path, would clear it.
+        //
+        // Concretely: a fresh agent has no awareness instance, so the first
+        // read legitimately fails; the creation studio then WRITES awareness
+        // and silently refreshes. Without this the panel kept showing
+        // "Awareness data not found" over content it already had.
+        const staleError = current[errorKey] !== null;
+        if (!changed && !staleError) return;
+        set({ ...updates, [errorKey]: null } as Partial<PreloadState>);
       } else {
         set({ ...updates, [loadingKey]: false } as Partial<PreloadState>);
       }

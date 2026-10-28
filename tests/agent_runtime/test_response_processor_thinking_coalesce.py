@@ -17,12 +17,12 @@ import time
 
 import pytest
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     ResponseProcessor,
     ResponseType,
 )
-from xyz_agent_context.schema import AgentThinking, ProgressMessage
+from narranexus.platform.schema import AgentThinking, ProgressMessage
 
 
 def _thinking_event(content: str) -> dict:

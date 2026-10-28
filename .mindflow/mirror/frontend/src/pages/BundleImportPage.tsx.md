@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/pages/BundleImportPage.tsx
-last_verified: 2026-07-23
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:upload 步骤加说明块 + 动作改名
+
+dropzone 下新增 info note(bundle 可含单 agent 或整团队;review 前不写入
+任何数据),主按钮文案 pages.bundleImport.preview 改为 "Run preflight →"
+(10 语言)。三模式共享布局、exitToOrigin 返回规则、退避重试逻辑不变。
 
 ## 2026-07-23 — done 屏列出 warnings 正文(review #3)
 
@@ -70,3 +76,7 @@ the templates marketplace is not.
 显示 import 摘要 toast + mcp_hints_data 列表（用户决定是否手动加 MCP）。
 
 `onViewIntro` 跳 `/app/chat`（B10：还没真做 team detail page，临时跳到 chat）。
+
+2026-08-19：`markOnboardingStep('template_applied')` 保留但注释改口——
+checklist 卡片已退役，这笔写入现在只作为 onboarding-progress metadata
+（分析用途）存在，无行为变化。

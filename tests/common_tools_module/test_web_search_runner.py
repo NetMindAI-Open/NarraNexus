@@ -27,7 +27,7 @@ import sys
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+from narranexus_plugins.common_tools_module._common_tools_impl import (
     web_search_runner as runner,
 )
 
@@ -133,7 +133,7 @@ def test_runner_invoked_as_subprocess_with_empty_queries_returns_empty_bundles()
     empty queries list; must print ``{"bundles": []}`` and exit 0.
 
     This verifies:
-      - The module path ``xyz_agent_context.module.common_tools_module
+      - The module path ``narranexus_plugins.common_tools_module
         ._common_tools_impl.web_search_runner`` is importable from a
         clean subprocess (no mysterious module-level side effects that
         only fire in parent).
@@ -144,7 +144,7 @@ def test_runner_invoked_as_subprocess_with_empty_queries_returns_empty_bundles()
     result = subprocess.run(
         [
             sys.executable, "-m",
-            "xyz_agent_context.module.common_tools_module."
+            "narranexus_plugins.common_tools_module."
             "_common_tools_impl.web_search_runner",
         ],
         input=json.dumps({"queries": [], "max_results_per_query": 5}),
@@ -164,7 +164,7 @@ def test_runner_invoked_as_subprocess_with_bad_stdin_exits_nonzero():
     result = subprocess.run(
         [
             sys.executable, "-m",
-            "xyz_agent_context.module.common_tools_module."
+            "narranexus_plugins.common_tools_module."
             "_common_tools_impl.web_search_runner",
         ],
         input="this is clearly not json",

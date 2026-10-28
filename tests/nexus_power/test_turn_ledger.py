@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import (
     TYPE_COMPACTION,
     TYPE_STEP_DONE,
     TYPE_TEXT_DELTA,
@@ -21,9 +21,9 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     LedgerEntry,
     Usage,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import ModelEvent
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolResult
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ModelEvent
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import ToolResult
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
 
@@ -175,7 +175,7 @@ def test_resume_base_continues_seq():
 def test_turn_logs_are_pruned_to_the_retention_bound(tmp_path):
     """One log per turn lands in the agent's workspace, which in cloud is a
     shared volume nothing else prunes — so the directory bounds itself."""
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
         FileEventLogWriter,
         prune_turn_logs,
     )
@@ -204,7 +204,7 @@ def test_turn_logs_are_pruned_to_the_retention_bound(tmp_path):
 
 
 def test_prune_tolerates_a_missing_directory():
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
         prune_turn_logs,
     )
 
@@ -220,7 +220,7 @@ def test_discard_step_undoes_a_half_streamed_step():
     guard turns into a hard failure the moment StepRetry is enabled
     (2026-07-29 review).
     """
-    from xyz_agent_context.agent_framework.nexus_power.contracts.model import ModelEvent
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ModelEvent
 
     ledger = TurnLedger("t1")
     ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "half a "}))
@@ -249,3 +249,35 @@ def test_discard_step_undoes_a_half_streamed_step():
     assert len(assistant) == 1
     assert assistant[0]["content"] == "thought"  # not "half a thought"
     assert len(assistant[0]["tool_calls"]) == 1
+
+
+def test_thinking_folds_into_the_assistant_message_and_discard_drops_it():
+    """DeepSeek's thinking mode 400s the next request of a tool round
+    unless the CoT behind the tool calls is passed back as
+    ``reasoning_content`` (2026-09-08, NetMind OpenAI endpoint). The
+    ledger keeps it on the folded assistant message; whether it is sent
+    is the projector's decision."""
+    ledger = TurnLedger("t1")
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "count "}))
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "words"}))
+    ledger.record_model_event(
+        ModelEvent(kind="tool_use", payload={"call_id": "c1", "tool_name": "bash", "args": {"command": "wc"}})
+    )
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "tool_calls"}))
+    assistant = ledger.provider_messages()[0]
+    assert assistant["role"] == "assistant"
+    assert assistant["reasoning_content"] == "count words"
+    assert assistant["tool_calls"][0]["id"] == "c1"
+
+    # A step without CoT carries no key at all (never an empty string).
+    ledger.record_tool_result("c1", ToolResult(call_id="c1", ok=True, content="3"))
+    ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "three"}))
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "stop"}))
+    assert "reasoning_content" not in ledger.provider_messages()[-1]
+
+    # discard_step forgets the half-streamed CoT with the rest of the step.
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "stale"}))
+    ledger.discard_step()
+    ledger.record_model_event(ModelEvent(kind="text_delta", payload={"text": "fresh"}))
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "stop"}))
+    assert "reasoning_content" not in ledger.provider_messages()[-1]

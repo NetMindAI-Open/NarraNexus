@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/admin/quota.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-09-04
 ---
 
 ## 2026-07-28 — grant(token) 换成 topup(美元)
@@ -49,3 +49,7 @@ Both routes require:
   reached the status=disabled state. Staff may want to credit tokens
   even if the user is disabled for another reason; re-enabling is a
   separate consideration.
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+Top-up fires `onDidChangeUserRunnability` instead of importing job_recovery.

@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/agents/artifacts.py
-last_verified: 2026-07-22
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — office-asset 落盘目录先过属主限定
+
+`entry_dir` 原来直接从 `base + art.file_path` 推出，指针越界就能把资产写进别人的目录。
+现在先经 `ArtifactService.resolve_owned_entry`（内部是 [[confinement]]；越界 404），再取 dirname。
 
 ## 2026-07-22 — URL-tab endpoints
 
@@ -20,7 +25,7 @@ pattern as the rest of this router.
 ## 2026-07-21 — thinned to an HTTP shell; heal moved to ArtifactService
 
 Artifact business logic left this file for the new
-`xyz_agent_context/artifact/` package ([[artifact_service.py]]):
+`narranexus/platform/artifact/` package ([[artifact_service.py]]):
 
 - The whole heal recovery strategy (`_KIND_EXTENSIONS`, workspace scan,
   three-step sequence) moved to the service ([[heal.py]]); the endpoint now
@@ -36,7 +41,7 @@ Artifact business logic left this file for the new
   `_get_owned_artifact` (still 404 on mismatch — no existence leak).
 
 References to `artifact_runner` in older entries below are historical; the
-code lives in `xyz_agent_context/artifact/_artifact_impl/registration.py` now.
+code lives in `narranexus/platform/artifact/_artifact_impl/registration.py` now.
 
 ## 2026-05-20 — stale "quota" wording removed
 
@@ -133,7 +138,7 @@ Upstream:
   `DELETE` / `POST .../register`.
 
 Downstream:
-- `ArtifactService` (xyz_agent_context/artifact) for register + heal.
+- `ArtifactService` (narranexus/platform/artifact) for register + heal.
 - `ArtifactRepository` for plain CRUD (list / get / pin / title / delete).
 - `_artifact_token.mint` for view-token minting.
 
@@ -177,3 +182,56 @@ Returns 404 (not 403) for mismatches to avoid leaking existence information.
 ## 2026-07-13 — office-live kind 的扩展名映射
 
 `_KIND_EXTENSIONS` 新增 `application/vnd.officecli-live` → (.pptx,.docx,.xlsx),让 heal(按扩展名找回断掉的指针)对 office artifact 也生效。
+
+## 2026-08-18 — scope=context
+
+list_for_agent_context 的 HTTP 暴露:前端全量拉(打开/切 agent/WS 重连)用,
+与 agent 状态块同一可见面。session/pinned 语义不变。
+
+## 2026-08-19 — PUT /{aid}/content(用户编辑保存)
+
+session 鉴权(view-token 永远只读);409 的 detail 是结构化
+`{error, current_hash}` —— 编辑器要拿它 re-base,别改成纯文本。
+其余 ArtifactError 照 e.code 直映。
+
+## 2026-08-19(二)— POST /{aid}/office-edit-commit
+
+watch 页用户编辑的登记提交(hash/history user_edited/事件),幂等。
+
+## 2026-08-19(三)— POST /{aid}/office-asset
+
+T2 图片替换的落盘半步:multipart 存 entry 同目录,文件名=随机前缀+
+净化 basename(带路径分隔/点串的敌意名进不来目录外),10MB 封顶,
+返回绝对路径供 `set src=` 用——watch server 与 entry 同一文件系统
+(本地同机;云端 executor 路径一致性在手动清单)。
+
+## 2026-08-20 — 上传/PUT 体积门 + 文件名 Unicode 净化(#334 I3/I15)
+
+office-asset:声明长度快拒 + 1MB 分块流式写(越界 413 且**不留半个
+文件**——entry 目录会被 raw 路由端出去);PUT /content:路由级依赖按
+Content-Length 快拒(service 的 MAX_ARTIFACT_BYTES 仍是第二道,防
+伪造 header)。文件名净化改 `\w`(UNICODE)——全语种字母数字放行,
+分隔符/控制符打下划线,截断(防 ENAMETOOLONG 变 500;r3 起 stem/ext 分截,见下节);
+原 CJK-only 白名单是「只想到中文」的物证,已除。
+
+## 2026-08-20(二)— 体积门真相版 + 截断保后缀(#334 r3 C1/I1)
+
+**r3 更正**:FastAPI 在解依赖**之前**就读完 body,路由依赖做不成
+「快拒」。真门=`backend/middleware/body_size.py`(HTTP 中间件,按
+方法+路径前缀查 Content-Length,唯一先于框架缓冲的层)。
+PUT /content **无 Pydantic body 形参**(有则框架预缓冲复活)——
+`request.stream()` 累计 25MB+2MB 上限后自行 model_validate_json,
+409 结构化 detail 形状不变;**给它加回 body field = 重开无界缓冲洞**。
+office-asset 保留 UploadFile:框架已 spool 到磁盘,函数内检查约束的
+是「拷出 spool 的量与落盘物」,不是内存门——注释已改实话。
+文件名截断改 stem[:104]+ext[:16] **分开截**(一刀切 [:120] 会吃掉
+后缀;raw 路由按扩展名判 media_type,症状=「替换成功但没图」)。
+
+## 2026-08-20(三)— office-asset 路由侧声明长度快拒删除(#334 r5 M4)
+
+上两节提到的 office-asset「声明长度快拒」已删:Content-Length 覆盖
+**整个 multipart body**(boundary/part header 在内),拿它比单文件
+10MB 会把 9.99MB 的合法图片 413 掉;声明门归中间件(带
+MULTIPART_FRAMING_MARGIN),文件字节的真实 10MB 由流式拷贝那道执行
+(越界 413 且不留半个文件,那才是比文件字节的门)。413 文案改由
+常量算出,改上限不再产生说错数字的错误消息。

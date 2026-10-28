@@ -1,0 +1,13 @@
+{
+  "api": {
+    "framework": 0
+  },
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "provides": {
+    "turn.pipeline.act.framework": "nxplugins.__PLUGIN_PKG__:CONTRIBUTION"
+  }
+}

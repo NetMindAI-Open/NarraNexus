@@ -1,0 +1,10 @@
+[
+  {
+    "id": "acme.hello_world",
+    "repo": "acme/narranexus-plugin-hello-world",
+    "author": "Acme",
+    "description": "Example entry: a hello-world plugin (routes + a page).",
+    "tags": ["example"],
+    "kinds": ["routes", "ui_page"]
+  }
+]

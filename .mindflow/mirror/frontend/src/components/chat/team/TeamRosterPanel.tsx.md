@@ -1,8 +1,41 @@
 ---
 code_file: frontend/src/components/chat/team/TeamRosterPanel.tsx
-last_verified: 2026-07-31
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — idle 且 `last_turn_silent` 显示「上一轮未发言」
+
+`StatusLine` 加一个分支(`data-testid=silent-<id>`),idle **和 queued** 都显示(queued 时与「排队中」并列),
+否则 owner 追问一句就把沉默从所有界面抹掉。房间不再为沉默贴系统行,
+「跑了但没说」只在这里可见。守卫:`TeamRosterPanel.test.tsx` 「said nothing」用例。
+
+
+## 2026-08-20 — 组长可在花名册就地指定（onSetLead）
+
+新增可选 `onSetLead(agentId)`。之前「组长」只能在 Edit-Team 弹窗底部那个标着
+「默认负责人」的 select 里改，埋三层、且术语和房间里那枚「组长」badge 对不上，用户
+「无法指定组长」的本质是这个 UX 断层（数据链一直是通的：`lead_agent_id`）。现在展开
+的非组长成员行会在 badge 所在处显示「设为组长」按钮（`data-testid=set-lead-<id>`），
+点击回调 `onSetLead`。给了才显示、当前组长不显示；父层 [[TeamChatPanel.tsx]] 用
+`api.updateTeam({lead_agent_id})` 乐观写入。守卫见 `__tests__/TeamRosterPanel.test.tsx`。
+
+## 2026-08-19 — 从站立列退为抽屉面板(下方旧条目的布局表述以本条为准)
+
+唯一挂载点是共享 [[../../bookmarks/BookmarkDrawer]] 的 **members 面板**
+([[TeamChatPanel]]);宽度/边框/可见性全部归抽屉壳
+([[../../../hooks/usePinnedDrawer]] 共享偏好),组件**不再自定宽度**——
+`w-64`/`w-[min(430px,92vw)]`/`transition-[width]`/`border-l` 已从源码删除,
+"列会呼吸"不复存在:展开成员的 terminal 在抽屉宽度内工作,要更宽拖抽屉。
+`className` 的用途从「窄屏 shell 差异」变为调用方布局注入。历史失效表述:
+「常驻右边缘站立列」「桌面列+窄屏 drawer 两个渲染点」「展开呼吸到 430px」。
+
+## 2026-08-10 — 列底部挂工作板
+
+新增 `teamId` prop,列表下方渲染 [[TeamWorkBoard]]。放在成员行**之下**而不是
+之中:roster 讲「谁此刻忙」,板子讲「团队欠什么」,后者活得比前者的每一轮都久。
+挂在这里而不是 TeamChatPanel,是因为桌面列与窄屏 drawer 是同一个组件的两个渲染
+点,挂内部两处自动都有。
 
 ## 2026-07-31 — v2 质感重做（Owner 反馈「廉价、没有质感」）
 
@@ -78,8 +111,9 @@ test file.
 - **Depends on**: [[teamActivity]] for the whole vocabulary (`compareActivity`
   ordering, `STATUS_TONES`, `phaseLabelKey`, `buildTimeline`, `formatDuration`,
   `lastRunSummary`) — the roster must not re-decide what "stalled" looks like;
-  `processShared` for `ProcessEventRows` + `friendlyToolName`, so a member's
-  process reads identically to the single-agent ProcessPanel's terminal;
+  `processShared` for `friendlyToolName` and the shared terminal glyphs (its
+  `ProcessEventRows` retired 2026-08-30 — a member's process now renders
+  through [[TurnTimeline]], the same component the main chat uses);
   `segmentTurn`'s `timelineToEvents` to normalise the persisted timeline; and
   `api.getEventLog`.
 

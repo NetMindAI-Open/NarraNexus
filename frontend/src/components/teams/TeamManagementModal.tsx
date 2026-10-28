@@ -8,28 +8,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Plus, X, Trash2, Users, FileText, Loader2, Check } from 'lucide-react';
+import { Plus, X, Trash2, Users, Loader2 } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { Button, useNotice } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
+import { COLOR_PRESETS } from './teamColors';
+import { TeamProfileForm } from './TeamProfileForm';
+
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Team to select when the modal opens (e.g. the row whose Manage was
+   *  clicked). Only applied on the open transition — switching teams inside
+   *  the modal is never overridden. */
+  initialTeamId?: string | null;
 }
 
-const COLOR_PRESETS = [
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#a855f7', // purple
-  '#06b6d4', // cyan
-  '#ec4899', // pink
-  '#64748b', // slate
-];
-
-export function TeamManagementModal({ open, onClose }: Props) {
+export function TeamManagementModal({ open, onClose, initialTeamId }: Props) {
   const { t } = useTranslation();
   const { teams, refresh, createTeam, updateTeam, deleteTeam, addMember, removeMember, loading } = useTeamsStore();
   const { agents } = useConfigStore();
@@ -42,19 +38,26 @@ export function TeamManagementModal({ open, onClose }: Props) {
   const [creating, setCreating] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamColor, setNewTeamColor] = useState(COLOR_PRESETS[0]);
-  const [editName, setEditName] = useState('');
-  const [editIntro, setEditIntro] = useState('');
-  const [editColor, setEditColor] = useState('');
   const [editLead, setEditLead] = useState('');
-  const [savingMeta, setSavingMeta] = useState(false);
 
   useEffect(() => {
     if (open) refresh();
   }, [open, refresh]);
 
+  // Apply the caller's team on the open transition only; the fallback effect
+  // below must not drag the selection back after the user switches manually.
   useEffect(() => {
-    if (!selectedTeamId && teams.length) setSelectedTeamId(teams[0].team.team_id);
-  }, [teams, selectedTeamId]);
+    if (open && initialTeamId) setSelectedTeamId(initialTeamId);
+  }, [open, initialTeamId]);
+
+  useEffect(() => {
+    // Fallback only when no caller-directed team exists: if both effects
+    // flush in the same commit (selectedTeamId still null), this one runs
+    // last and must not overwrite initialTeamId with teams[0].
+    if (!selectedTeamId && !initialTeamId && teams.length) {
+      setSelectedTeamId(teams[0].team.team_id);
+    }
+  }, [teams, selectedTeamId, initialTeamId]);
 
   const selected = useMemo(
     () => teams.find((t) => t.team.team_id === selectedTeamId) || null,
@@ -63,9 +66,6 @@ export function TeamManagementModal({ open, onClose }: Props) {
 
   useEffect(() => {
     if (selected) {
-      setEditName(selected.team.name);
-      setEditIntro(selected.team.intro_md || '');
-      setEditColor(selected.team.color || COLOR_PRESETS[0]);
       setEditLead(selected.team.lead_agent_id || '');
     }
   }, [selected?.team.team_id, selected?.team.updated_at]);
@@ -87,22 +87,31 @@ export function TeamManagementModal({ open, onClose }: Props) {
     }
   };
 
-  const handleSaveMeta = async () => {
+  // ONE save for the whole pane: the profile form's live draft plus the
+  // lead select's live value, merged here. Two same-named saves that each
+  // wrote half (2026-09-03, briefly) reset the other half's draft on the
+  // refresh that followed. The lead is read from live state, never from a
+  // snapshot taken at open — this dialog is the only editor while it is
+  // open, so there is nothing for a snapshot to overwrite, and a live value
+  // cannot be stale.
+  // What the select SHOWS is also what gets SAVED. The server keeps a lead
+  // that was since removed from the team (remove_member does not clear it,
+  // and does not bump updated_at, so `editLead` is not re-seeded); the
+  // select already falls back to "Auto" for that case, and the save must
+  // fall back the same way — otherwise every save of this team would 400
+  // with "lead_agent_id must be a team member" until someone touched the
+  // select. "" is the backend's clear-to-earliest-member signal.
+  const effectiveLead = selected && selected.member_agent_ids.includes(editLead) ? editLead : '';
+
+  const handleSave = async (patch: { name: string; color: string; intro_md: string }) => {
     if (!selected) return;
-    setSavingMeta(true);
     try {
       await updateTeam(selected.team.team_id, {
-        name: editName,
-        color: editColor,
-        intro_md: editIntro,
-        // "" clears the lead back to the earliest-joined fallback (backend
-        // treats empty string as clear; a member id sets an explicit lead).
-        lead_agent_id: editLead,
+        ...patch,
+        lead_agent_id: effectiveLead,
       });
     } catch (e) {
       void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
-    } finally {
-      setSavingMeta(false);
     }
   };
 
@@ -116,8 +125,18 @@ export function TeamManagementModal({ open, onClose }: Props) {
     });
     if (!ok) return;
     try {
-      await deleteTeam(selected.team.team_id);
-      setSelectedTeamId(null);
+      const deletedId = selected.team.team_id;
+      await deleteTeam(deletedId);
+      // Land on the neighbouring team — the one after the deleted row, or
+      // the one before it at the end of the list — computed from the
+      // pre-delete list (the store hasn't refreshed yet). Jumping to the
+      // top of the list would lose the user's place when pruning several
+      // teams in a row; writing null would strand the pane on the empty
+      // state, since the teams[0] fallback is guarded off whenever the
+      // caller passed initialTeamId — which every current caller does.
+      const idx = teams.findIndex((tm) => tm.team.team_id === deletedId);
+      const neighbour = teams[idx + 1] ?? teams[idx - 1];
+      setSelectedTeamId(neighbour?.team.team_id ?? null);
     } catch (e) {
       void notifyError(t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }));
     }
@@ -166,7 +185,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
             <h2 className="font-mono text-sm">{t('teams.title')}</h2>
             <span className="text-xs text-[var(--text-tertiary)]">{t('teams.teamCount', { count: teams.length })}</span>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-[var(--bg-tertiary)]"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1 hover:bg-[var(--nm-paper-warm)]"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
@@ -208,7 +227,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                   key={tm.team.team_id}
                   onClick={() => setSelectedTeamId(tm.team.team_id)}
                   className={cn(
-                    'w-full text-left px-3 py-2 border-b border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] flex items-center gap-2',
+                    'w-full text-left px-3 py-2 border-b border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] flex items-center gap-2',
                     selectedTeamId === tm.team.team_id && 'bg-[var(--bg-elevated)]'
                   )}
                 >
@@ -236,54 +255,35 @@ export function TeamManagementModal({ open, onClose }: Props) {
               </div>
             ) : (
               <div className="p-5 space-y-5">
-                {/* Meta */}
-                <div className="space-y-2">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.nameLabel')}</label>
-                  <input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
-                  />
-                  <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
-                    <span>{t('teams.colorLabel')}</span>
-                    {COLOR_PRESETS.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => setEditColor(c)}
-                        className={cn(
-                          'w-5 h-5 rounded-full',
-                          editColor === c ? 'ring-2 ring-offset-1 ring-[var(--text-primary)]' : ''
-                        )}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
+                <TeamProfileForm
+                  team={selected.team}
+                  onSave={handleSave}
+                  trailing={
+                    <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-error)]">
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {t('teams.deleteTeam')}
+                    </Button>
+                  }
+                >
+                  {/* Team lead — the agent that answers a team message
+                      with no @mention. "Auto" = the earliest-joined member. */}
+                  <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
+                    <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.leadLabel')}</label>
+                    <select
+                      value={effectiveLead}
+                      onChange={(e) => setEditLead(e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
+                    >
+                      <option value="">{t('teams.leadAuto')}</option>
+                      {selected.member_agent_ids.map((mid) => (
+                        <option key={mid} value={mid}>
+                          {agents.find((a) => a.agent_id === mid)?.name || mid}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.leadHint')}</p>
                   </div>
-                </div>
-
-                {/* intro_md */}
-                <div className="space-y-2">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)] flex items-center gap-1">
-                    <FileText className="w-3 h-3" /> {t('teams.introLabel')}
-                  </label>
-                  <textarea
-                    value={editIntro}
-                    onChange={(e) => setEditIntro(e.target.value)}
-                    rows={6}
-                    placeholder={t('teams.introPlaceholder', { name: editName })}
-                    className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none resize-y"
-                  />
-                </div>
-
-                <div className="flex justify-between">
-                  <Button onClick={handleSaveMeta} disabled={savingMeta} size="sm" className="gap-1">
-                    {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                    {t('teams.saveChanges')}
-                  </Button>
-                  <Button onClick={handleDeleteTeam} variant="ghost" size="sm" className="gap-1 text-[var(--color-red-500)]">
-                    <Trash2 className="w-3.5 h-3.5" />
-                    {t('teams.deleteTeam')}
-                  </Button>
-                </div>
+                </TeamProfileForm>
 
                 {/* Members */}
                 <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
@@ -295,7 +295,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
                     {agents.map((a) => {
                       const inTeam = selected.member_agent_ids.includes(a.agent_id);
                       return (
-                        <div key={a.agent_id} className="flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-tertiary)]">
+                        <div key={a.agent_id} className="flex items-center justify-between px-3 py-2 hover:bg-[var(--nm-paper-warm)]">
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-mono truncate">{a.name || a.agent_id}</div>
                             <div className="text-[10px] text-[var(--text-tertiary)] truncate">{a.agent_id}</div>
@@ -305,8 +305,8 @@ export function TeamManagementModal({ open, onClose }: Props) {
                             className={cn(
                               'text-xs px-2 py-1 border',
                               inTeam
-                                ? 'border-[var(--color-red-500)] text-[var(--color-red-500)] hover:bg-[var(--color-red-500)]/10'
-                                : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
+                                ? 'border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
+                                : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)]'
                             )}
                           >
                             {inTeam ? t('teams.remove') : t('teams.add')}
@@ -317,28 +317,6 @@ export function TeamManagementModal({ open, onClose }: Props) {
                   </div>
                 </div>
 
-                {/* Default responder — the agent that answers a team message
-                    with no @mention. "Auto" = the earliest-joined member. */}
-                <div className="space-y-2 pt-3 border-t border-[var(--border-default)]">
-                  <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('teams.defaultResponderLabel')}</label>
-                  <select
-                    value={selected.member_agent_ids.includes(editLead) ? editLead : ''}
-                    onChange={(e) => setEditLead(e.target.value)}
-                    className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
-                  >
-                    <option value="">{t('teams.defaultResponderAuto')}</option>
-                    {selected.member_agent_ids.map((mid) => (
-                      <option key={mid} value={mid}>
-                        {agents.find((a) => a.agent_id === mid)?.name || mid}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-[var(--text-tertiary)]">{t('teams.defaultResponderHint')}</p>
-                  <Button onClick={handleSaveMeta} disabled={savingMeta} size="sm" variant="ghost" className="gap-1">
-                    {savingMeta ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                    {t('teams.saveChanges')}
-                  </Button>
-                </div>
               </div>
             )}
           </div>

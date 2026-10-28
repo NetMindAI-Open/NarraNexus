@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import ResponseProcessor
-from xyz_agent_context.utils.cost_tracker import record_cost
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import ResponseProcessor
+from narranexus.platform.utils.cost_tracker import record_cost
 
 
 def _mk_mock_db():

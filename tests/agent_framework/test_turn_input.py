@@ -16,7 +16,7 @@ import dataclasses
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
+from narranexus.platform.agent_framework.loop.turn_input import TurnInput
 
 
 def _mk(**overrides):
@@ -33,7 +33,7 @@ def test_driver_kwargs_matches_legacy_call_shape():
         disallowed_tools=("WebSearch",),
         extra_env={"TAVILY_API_KEY": "k"},
         agent_id="agent_x",
-        expressive_tools=("mcp__chat_module__send_message_to_user_directly",),
+        expressive_tools=("mcp__chat_module__reply_owner",),
     )
     kwargs = ti.driver_kwargs()
     assert kwargs == {
@@ -42,7 +42,7 @@ def test_driver_kwargs_matches_legacy_call_shape():
         "extra_env": {"TAVILY_API_KEY": "k"},
         "disallowed_tools": ["WebSearch"],
         "agent_id": "agent_x",
-        "expressive_tools": ["mcp__chat_module__send_message_to_user_directly"],
+        "expressive_tools": ["mcp__chat_module__reply_owner"],
     }
     # messages / mcp_servers ride through by reference — no copies that
     # would break the mutate-then-call pattern in step_3.3.
@@ -95,3 +95,17 @@ def test_driver_kwargs_excludes_cancellation_and_streaming():
     kwargs = _mk().driver_kwargs()
     assert "cancellation" not in kwargs
     assert "streaming" not in kwargs
+
+
+def test_turn_profile_omitted_when_none():
+    """Legacy shape: absent profile emits NO key — drivers that never
+    heard of TurnProfile see the exact historical kwargs."""
+    assert "turn_profile" not in _mk().driver_kwargs()
+
+
+def test_turn_profile_rides_kwargs_when_set():
+    from narranexus.platform.schema.turn_profile import TurnProfile
+
+    profile = TurnProfile.voice_fast()
+    kwargs = _mk(turn_profile=profile).driver_kwargs()
+    assert kwargs["turn_profile"] is profile

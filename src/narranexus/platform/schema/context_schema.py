@@ -1,0 +1,98 @@
+"""
+@file_name: context_schema.py
+@author: NetMind.AI
+@date: 2025-11-15
+@description: Context related data models
+
+Includes:
+- ContextData - Data collected during Context construction
+- ContextRuntimeOutput - Output of ContextRuntime
+"""
+
+from typing import List, Dict, Any, Optional, Union
+from pydantic import BaseModel, ConfigDict
+
+from narranexus.platform.schema.hook_schema import WorkingSource
+
+
+class ContextData(BaseModel):
+    model_config = ConfigDict(extra='allow')
+    """
+    Data collected during Context construction
+
+    This class is continuously expanded during the Context construction process:
+    - Extracts data from Narratives
+    - Obtains data from Module's data_gathering
+    - Adds user input, time, and other basic information
+
+    Following the example in the design document:
+    ContextData:
+        - User input: Hello
+        - Chat module
+        - Basic info of User in Social-network
+        - Current time information
+        - Basic info
+        - ...
+    """
+    agent_id: str
+    user_id: Optional[str] = None
+    input_content: str  # Current user input
+    narrative_id: Optional[str] = None  # Current Narrative ID (for Memory isolation)
+
+    # The following fields are populated during data_gathering
+    chat_history: Optional[List[Dict[str, Any]]] = None
+    user_profile: Optional[Dict[str, Any]] = None
+    current_time: Optional[str] = None
+    working_source: Optional[Union[WorkingSource, str]] = None  # Supports WorkingSource enum or string
+
+    # Agent basic info (populated by BasicInfoModule)
+    agent_name: Optional[str] = None  # Agent name
+    agent_description: Optional[str] = None  # Agent description
+    creator_id: Optional[str] = None  # Creator ID (boss) — opaque key, not for display
+    creator_name: Optional[str] = None  # Creator's human display name (NetMind nickname / local name) for prompts
+    is_creator: Optional[bool] = None  # Whether the CURRENT SENDER is the Creator
+    current_speaker_name: Optional[str] = None  # Human name of who sent the current message
+    bootstrap_active: bool = False  # Whether bootstrap mode is active for this context
+    user_role: Optional[str] = None  # Current user role description ("Creator (Boss)" or "User/Customer")
+
+    # Runtime LLM identity (populated by BasicInfoModule.gather
+    # via agent_framework.resolve_agent_model_identity). Rendered into the
+    # system prompt's "LLM Model" line so the agent states its REAL framework
+    # + model instead of a hardcoded brand. See basic_info_module prompts.py.
+    agent_info_model_type: Optional[str] = None  # Framework display name, e.g. "Codex CLI"
+    model_name: Optional[str] = None  # Configured model string, e.g. "gpt-5"
+
+    # Deployment environment (populated by BasicInfoModule.gather).
+    # Short tag + verbose description block — both rendered into the system
+    # prompt so the agent can reason about cloud vs local constraints.
+    deployment_mode: Optional[str] = None  # "cloud" | "local"
+    deployment_context: Optional[str] = None  # Full prose block for the prompt
+
+    # For storing arbitrary extra data (Modules can add custom fields)
+    extra_data: Dict[str, Any] = {}
+
+
+class ContextRuntimeOutput(BaseModel):
+    """
+    Output of ContextRuntime
+
+    Contains the constructed messages and mcp_servers, ready to be passed to the Agent Framework
+    """
+    messages: List[Dict[str, Any]]  # messages list (includes system prompt and history messages)
+    # MCP server specs (server_name -> {"url": str, "headers": {str: str}?}).
+    # Module-internal servers carry only "url"; user-configured external
+    # servers may add "headers" (e.g. Authorization) applied on connect.
+    mcp_servers: Dict[str, Dict[str, Any]]
+    # Fully-qualified tool names (mcp__<server>__<tool>) whose schemas must
+    # not reach the model this turn (setup-residency: unbound channels keep
+    # only their bind tool). Merged into the CLI's disallowed_tools.
+    disallowed_tools: List[str] = []
+    # Delivery declaration (NexusPower reply contract): fully-qualified
+    # reply tools collected from modules' expressive_tools, in module
+    # priority order (first = the turn's default reply tool).
+    expressive_tools: List[str] = []
+    # Plugin tools (agent.capabilities.tools) not marked always_visible:
+    # fully-qualified names the framework keeps OUT of the model's up-front
+    # tool list and exposes only through tool_search (spec §12 context budget).
+    deferred_tools: List[str] = []
+    ctx_data: ContextData  # ContextData (contains all collected data)

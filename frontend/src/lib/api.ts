@@ -3,7 +3,13 @@
  * Uses relative paths in dev (Vite proxy) and configurable base URL in production
  */
 
+import type { Artifact, TeamFile } from '@/types/artifact';
+import { MARKETPLACE_SEARCH_TIMEOUT_MS } from '@/lib/apiTimeouts';
 import type {
+  AgentCapabilitiesView,
+  ChannelCredentialView,
+  ChannelSchema,
+  PluginChannelRow,
   MigrationFramework,
   MigrationDetectResponse,
   StandardizedAgentImport,
@@ -18,6 +24,7 @@ import type {
   MarkReadResponse,
   NoticesResponse,
   AwarenessResponse,
+  CancelRunResponse,
   ClearHistoryResponse,
   SocialNetworkResponse,
   SocialNetworkListResponse,
@@ -46,6 +53,7 @@ import type {
   NetmindLoginResponse,
   QuotaMeResponse,
   AgentListResponse,
+  SessionResponse,
   CreateUserResponse,
   UpdateTimezoneResponse,
   OnboardingResponse,
@@ -60,14 +68,15 @@ import type {
   SkillEnvConfigResponse,
   DashboardResponse,
   ApiResponse,
-  LarkCredentialResponse,
-  LarkBindResponse,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
   TeamListResponse,
   TeamOperationResponse,
   TeamChatHistoryResponse,
   TeamChatSendResponse,
+  TeamBulletin,
+  BulletinEntry,
+  TeamWorkBoardResponse,
   BundleExportRequest,
   BundlePreflightResponse,
   TeamTemplate,
@@ -76,20 +85,8 @@ import type {
   BundleArtifactPreview,
   BundleMcpPreview,
   SkillArchiveRecord,
-  SlackCredentialResponse,
-  SlackBindResponse,
-  SlackTestResponse,
-  TelegramCredentialResponse,
-  TelegramBindResponse,
-  NarramessengerCredentialResponse,
-  NarramessengerBindResponse,
-  TelegramTestResponse,
-  WeChatCredentialResponse,
   WeChatQrStartResponse,
   WeChatQrPollResponse,
-  DiscordCredentialResponse,
-  DiscordBindResponse,
-  DiscordTestResponse,
   PlanListResponse,
   SubscriptionMeResponse,
   SubscribeResponse,
@@ -97,11 +94,24 @@ import type {
   FeeInfoResponse,
   RecordsResponse,
   RechargeResponse,
+  RechargePaymentMethod,
+  SubscribePaymentMethod,
+  FxQuoteResponse,
   RechargeStatusResponse,
   AgentSlotView,
   AgentSlotEffective,
+  SlotOverrideStats,
   WorkerStatus,
   WorkerLiveness,
+  PluginId,
+  PluginsListResponse,
+  PluginUninstallResponse,
+  PluginInstallEvent,
+  FactoryListResponse,
+  FactoryInstallResponse,
+  FactoryErrorsResponse,
+  FactoryIndexResponse,
+  FactoryProposalsResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -109,20 +119,52 @@ import type {
 // for resolution order. This export is kept for backwards compatibility.
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import type { CliStatusPayload, ProviderRow } from './providersApi';
+import { getAuthHeaders as readAuthHeaders } from './authHeaders';
+import type {
+  BrowserInstallResult,
+  BrowserRuntimeStatus,
+  BrowserPolicyCapability,
+  BrowserPolicyRule,
+  BrowserPolicyView,
+  BrowserLoginRequest,
+} from '@/types/browser';
+import { markGuideCoachmarkPending } from './guideCoachmark';
+import { isSessionDeadFailure, readAuthCode } from './authFailure';
+import { confirmSessionDeath } from './sessionGuard';
 
 /**
  * Error thrown for non-2xx API responses. Carries the HTTP status so
  * callers can branch on it (e.g. treat DELETE 404 as already-gone)
  * instead of string-matching the message.
  */
+/** How long one patrol-switch PUT may stay in flight before the store gives
+ *  up on it (see teamsStore.patrolInFlight). */
+export const PATROL_WRITE_TIMEOUT_MS = 15_000;
+
 export class ApiError extends Error {
   readonly status: number;
+  /** The backend's raw HTTPException `detail` ('' when the body had
+   * none) — callers that show user copy want this, not the prefixed
+   * message. */
+  readonly detail: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail: string = '') {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.detail = detail;
   }
+}
+
+export interface TelemetryConsentState {
+  mode: 'off' | 'meta' | 'full';
+  source: 'env' | 'optout' | 'default';
+  opted_out: boolean;
+  controllable: boolean;
+  /** Who owns a non-controllable state: deployment env var vs
+   *  multi-tenant cloud install. null when the user holds the switch. */
+  managed_by: 'env' | 'cloud' | null;
 }
 
 /** Sources accepted by POST /api/providers/onboard (one-key setup). */
@@ -133,42 +175,31 @@ export type OnboardProviderType =
   | 'yunwu'
   | 'openrouter';
 
+/**
+ * The auth-funnel stages the frontend may report. This union is a COMPILE-TIME
+ * mirror of the backend allowlist `_FUNNEL_STAGES` (backend/routes/auth.py):
+ * the endpoint 400s any stage not in that set and reportAuthFunnel swallows the
+ * 400, so an un-allowlisted stage reports into a black hole. Keeping this a
+ * closed union means adding a new report site fails `tsc` until the name is
+ * added HERE — forcing the author to the backend allowlist at the same time.
+ */
+export type AuthFunnelStage =
+  | 'netmind_email_login_failed'
+  | 'netmind_oauth_failed'
+  | 'signup_send_code_failed'
+  | 'netmind_reset_code_failed'
+  | 'netmind_reset_password_failed';
+
 class ApiClient {
   // Public so download helpers (lib/download.ts) can attach the same
   // identity headers to direct fetch / Tauri-proxy file requests that
   // <a download> elements cannot carry.
   getAuthHeaders(): Record<string, string> {
-    // Read identity from configStore (localStorage).
-    //
-    // Two headers, mutually compatible:
-    //   - Authorization: Bearer <jwt>  — cloud mode, signed identity
-    //   - X-User-Id: <user_id>         — local mode, unsigned identity
-    //
-    // We send both whenever they're available; backend auth_middleware
-    // decides which one to trust:
-    //   - cloud mode: only JWT, X-User-Id is ignored (defence in depth)
-    //   - local mode: only X-User-Id; JWT is irrelevant (no signing key)
-    //
-    // The single ApiClient is mode-agnostic for the same reason — the
-    // mode switch happens server-side in auth_middleware, not here.
-    const headers: Record<string, string> = {};
-    try {
-      const raw = localStorage.getItem('narra-nexus-config');
-      if (raw) {
-        const config = JSON.parse(raw);
-        const token = config?.state?.token;
-        const userId = config?.state?.userId;
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        if (userId) {
-          headers['X-User-Id'] = userId;
-        }
-      }
-    } catch {
-      /* localStorage may be unavailable / disabled — fall through */
-    }
-    return headers;
+    // Implementation lives in lib/authHeaders so the session guard can
+    // build the same headers without importing this module (cycle).
+    // The single ApiClient stays mode-agnostic: the cloud/local decision
+    // happens server-side in auth_middleware, not here.
+    return readAuthHeaders();
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -187,44 +218,45 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      // Stale/expired JWT: backend says 401 even though we attached a token.
-      // Tell the app to clear auth state and bounce to /login. We skip when
-      // no token was attached (anonymous probe) and on auth endpoints
-      // themselves (wrong-credentials login should surface in the form, not
-      // log the user out of a session they never had). Decoupled via event
-      // to avoid a circular import with @/stores/configStore.
-      if (response.status === 401 && authHeaders.Authorization) {
-        const isAuthEndpoint =
-          endpoint.startsWith('/api/auth/login') ||
-          endpoint.startsWith('/api/auth/register');
-        // Billing routes authenticate the NetMind loginToken (X-Netmind-Token),
-        // NOT the NarraNexus session JWT. A 401 here means the NetMind token is
-        // missing/expired — it must NOT log the user out of their valid
-        // NarraNexus session. The panel handles this failure locally.
-        const isBillingEndpoint = endpoint.startsWith('/api/billing/');
-        if (!isAuthEndpoint && !isBillingEndpoint) {
-          window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
-        }
+      // Parse the error body once: it feeds both the thrown message and
+      // (on 401) the session-death decision below.
+      let body: unknown = null;
+      try {
+        body = await response.json();
+      } catch {
+        /* not JSON — fall through to status line */
       }
+
+      // A 401 does NOT mean "your session is dead". It can equally mean a
+      // second credential failed (NetMind login token, gateway token) or
+      // that a handler failed to resolve an identity the middleware had
+      // already verified. Only the backend's `code` can tell those apart,
+      // and even then we confirm against GET /api/auth/session before
+      // tearing anything down — see lib/sessionGuard.
+      //
+      // This replaced a denylist ("log out on any 401 except /api/auth/*
+      // and /api/billing/*") whose every missing entry was a live grenade:
+      // /api/providers' NetMind 401 was one, and it bounced demo users to
+      // /login on 2026-08-02 while their sessions were perfectly valid.
+      if (response.status === 401 && isSessionDeadFailure(body)) {
+        void confirmSessionDeath({ endpoint, code: readAuthCode(body) });
+      }
+
       // Extract the FastAPI HTTPException `detail` field so callers get
       // an actionable message ("Cannot add another user's agent") instead
       // of just "API error: 403 Forbidden". Falls back to the status
       // line if the body is missing / not JSON / has no `detail`.
       let detail = '';
-      try {
-        const body = await response.clone().json();
-        if (typeof body?.detail === 'string') {
-          detail = body.detail;
-        } else if (body?.detail) {
-          detail = JSON.stringify(body.detail);
-        }
-      } catch {
-        /* not JSON — fall through to status line */
+      const rawDetail = (body as { detail?: unknown } | null)?.detail;
+      if (typeof rawDetail === 'string') {
+        detail = rawDetail;
+      } else if (rawDetail) {
+        detail = JSON.stringify(rawDetail);
       }
       const label = detail
         ? `API error ${response.status}: ${detail}`
         : `API error: ${response.status} ${response.statusText}`;
-      throw new ApiError(response.status, label);
+      throw new ApiError(response.status, label, detail);
     }
 
     return response.json();
@@ -461,7 +493,7 @@ class ApiClient {
     return this.request<MyWorldviewResponse>('/api/me/worldview');
   }
 
-  // 语义搜索 Social Network Entities
+  // Semantic search over Social Network Entities
   async searchSocialNetwork(
     agentId: string,
     query: string,
@@ -498,10 +530,16 @@ class ApiClient {
     );
   }
 
-  async getSimpleChatHistory(agentId: string, limit: number = 20, offset: number = 0): Promise<SimpleChatHistoryResponse> {
+  async getSimpleChatHistory(
+    agentId: string,
+    limit: number = 20,
+    offset: number = 0,
+    include: 'chat' | 'activity' | 'all' = 'all',
+  ): Promise<SimpleChatHistoryResponse> {
     const params = new URLSearchParams({
       limit: limit.toString(),
       offset: offset.toString(),
+      include,
     });
     return this.request<SimpleChatHistoryResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/simple-chat-history?${params}`
@@ -511,6 +549,51 @@ class ApiClient {
   async getEventLog(agentId: string, eventId: string): Promise<EventLogResponse> {
     return this.request<EventLogResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/event-log/${encodeURIComponent(eventId)}`
+    );
+  }
+
+  /**
+   * Ask a run to stop. Owner only — the server rejects anyone else with 403
+   * regardless of whether the caller rendered a button.
+   *
+   * Resolves as soon as the request is recorded, NOT when the run has
+   * stopped: the run lives in another process and is interrupted there. The
+   * caller should render "stopping" off this resolution and watch the run's
+   * observation stream for the terminal state.
+   */
+  async cancelRun(runId: string): Promise<CancelRunResponse> {
+    return this.request<CancelRunResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/cancel`,
+      { method: 'POST' },
+    );
+  }
+
+  /** The team's work board, INCLUDING parked items — a stopped task must not
+   *  look deleted, and un-parking it is the user's call. */
+  async getTeamWorkBoard(teamId: string): Promise<TeamWorkBoardResponse> {
+    return this.request<TeamWorkBoardResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/work-items`
+    );
+  }
+
+  /** Un-park an item a stop parked. */
+  async resumeTeamWorkItem(teamId: string, itemId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/work-items/${encodeURIComponent(itemId)}/resume`,
+      { method: 'POST' },
+    );
+  }
+
+  /** Turn the Leader's periodic sweep on or off. The board stays usable either
+   *  way — this only stops the chasing. Times out (→ rejects → the store rolls
+   *  back) rather than pinning the in-flight state indefinitely. */
+  async setTeamPatrol(teamId: string, enabled: boolean): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/patrol`,
+      // Bounded: the store marks the switch "in flight" until this settles
+      // (polls ignored, button disabled), so a request that never settles
+      // must not be able to hold that state forever.
+      { method: 'PUT', body: JSON.stringify({ enabled }), signal: AbortSignal.timeout(PATROL_WRITE_TIMEOUT_MS) },
     );
   }
 
@@ -565,10 +648,21 @@ class ApiClient {
   }
 
   async netmindLogin(netmindToken: string, source?: string): Promise<NetmindLoginResponse> {
-    return this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
+    const res = await this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
       method: 'POST',
       body: JSON.stringify({ netmind_token: netmindToken, source: source || undefined }),
     });
+    // Every cloud login flow (login page, ?token= pass-through, OAuth
+    // callback) converges HERE, so this is the one place that reliably sees
+    // is_new_user — the flag that arms the one-shot "create your own agent"
+    // coachmark for users whose first agent was auto-provisioned server-side.
+    // guide_agent_provisioning gates it on the SERVER's kill-switch: with
+    // provisioning disabled, the coachmark would promise an agent that never
+    // appears.
+    if (res.success && res.is_new_user && res.guide_agent_provisioning) {
+      markGuideCoachmarkPending();
+    }
+    return res;
   }
 
   /**
@@ -579,7 +673,7 @@ class ApiClient {
    * that blind spot. Must never throw or surface: it is diagnostics riding
    * on top of a failure the user is already looking at.
    */
-  reportAuthFunnel(stage: string, email?: string, detail?: string): void {
+  reportAuthFunnel(stage: AuthFunnelStage, email?: string, detail?: string): void {
     void this.request('/api/auth/funnel-report', {
       method: 'POST',
       body: JSON.stringify({
@@ -591,13 +685,18 @@ class ApiClient {
   }
 
   async createUser(userId: string, displayName?: string): Promise<CreateUserResponse> {
-    return this.request<CreateUserResponse>('/api/auth/create-user', {
+    const res = await this.request<CreateUserResponse>('/api/auth/create-user', {
       method: 'POST',
       body: JSON.stringify({
         user_id: userId,
         display_name: displayName,
       }),
     });
+    // Local-mode signup is by definition a brand-new user — arm the same
+    // "create your own agent" coachmark the cloud path arms via is_new_user,
+    // under the same server-side kill-switch gate.
+    if (res.success && res.guide_agent_provisioning) markGuideCoachmarkPending();
+    return res;
   }
 
   async updateTimezone(userId: string, timezone: string): Promise<UpdateTimezoneResponse> {
@@ -610,18 +709,22 @@ class ApiClient {
     });
   }
 
-  /** New-user onboarding checklist state (cloud version). */
-  async getOnboarding(userId: string): Promise<OnboardingResponse> {
-    return this.request<OnboardingResponse>(
-      `/api/auth/onboarding?user_id=${encodeURIComponent(userId)}`,
-    );
+  /** Read the current user's onboarding progress. The root redirect asks for
+   *  `landing_completed` to decide whether this user still owes the one-time
+   *  welcome flow — server-side state, so a new browser doesn't replay it. */
+  async getOnboarding(): Promise<OnboardingResponse> {
+    return this.request<OnboardingResponse>('/api/auth/onboarding');
   }
 
   /** Mark a single onboarding step complete. Write-once-true on the
-   *  backend — passing a step here can only ever set it, never clear it. */
+   *  backend — passing a step here can only ever set it, never clear it.
+   *  `landing_completed` is written by the welcome flow (on finish, on skip,
+   *  and as a silent backfill for users who predate the flow). */
   async markOnboardingStep(
     userId: string,
-    step: 'first_agent_created' | 'template_applied' | 'dismissed',
+    // 'dismissed' left the union with the checklist card (its only setter);
+    // the backend still accepts it, so re-adding is a one-line change.
+    step: 'first_agent_created' | 'template_applied' | 'landing_completed',
   ): Promise<OnboardingResponse> {
     return this.request<OnboardingResponse>('/api/auth/onboarding', {
       method: 'POST',
@@ -650,19 +753,112 @@ class ApiClient {
     );
   }
 
-  /** Report a frontend funnel event (setup page UI actions). Identity comes
-   *  from the auth header server-side; no client properties are accepted
-   *  (the server stamps surface etc. itself). Best-effort: callers should
-   *  not block on it (fire-and-forget with a .catch). */
-  async trackFunnelEvent(event: string): Promise<void> {
-    await this.request<{ success: boolean }>('/api/auth/funnel', {
-      method: 'POST',
-      body: JSON.stringify({ event }),
-    });
+  /** The user's persisted reply-language preference; null = never set. */
+  async getReplyLanguage(): Promise<string | null> {
+    const r = await this.request<{ language: string | null }>(
+      '/api/auth/settings/reply-language',
+    );
+    return r.language ?? null;
+  }
+
+  /** Persist the reply-language preference (i18n code; '' clears). The
+   *  backend injects it into the agent's system prompt — without this
+   *  write the language choice never reaches the model. */
+  async setReplyLanguage(language: string): Promise<void> {
+    await this.request<{ success: boolean; language: string | null }>(
+      '/api/auth/settings/reply-language',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ language }),
+      },
+    );
+  }
+
+  /** Telemetry (diagnostic log shipping) consent state. Unlike
+   *  analytics (per-user, DB row) this is a per-MACHINE marker file:
+   *  `controllable` is false when a deployment env override or a
+   *  multi-tenant cloud install owns the decision — render the toggle
+   *  read-only then. */
+  async getTelemetryConsent(): Promise<TelemetryConsentState> {
+    return this.request<TelemetryConsentState>('/api/auth/settings/telemetry');
+  }
+
+  /** Flip the telemetry opt-out marker (per user account on the
+   *  host). Opting out takes effect within one flush interval;
+   *  re-enabling needs a restart only when telemetry was already off
+   *  at process start. */
+  async setTelemetryOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/telemetry',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
+      },
+    );
   }
 
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
+  }
+
+  // In-app browser runtime. Routed through `request<T>` like everything else:
+  // a raw fetch() here misses the identity headers the local-mode middleware
+  // requires, and the 401 that produces is indistinguishable, in the UI, from
+  // "no browser installed" — which is exactly what shipped on 2026-09-22.
+  async getBrowserRuntime(): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>(`/api/browser/runtime`);
+  }
+
+  async setBrowserSource(source: 'managed' | 'system'): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>('/api/browser/runtime/source', {
+      method: 'PUT', body: JSON.stringify({ source }),
+    });
+  }
+
+  async setBrowserMode(mode: 'headless' | 'headed'): Promise<BrowserRuntimeStatus> {
+    return this.request<BrowserRuntimeStatus>('/api/browser/runtime/mode', {
+      method: 'PUT', body: JSON.stringify({ mode }),
+    });
+  }
+
+  async installBrowserRuntime(): Promise<BrowserInstallResult> {
+    return this.request<BrowserInstallResult>(`/api/browser/runtime/install`, { method: 'POST' });
+  }
+
+  async cancelBrowserInstall(): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(`/api/browser/runtime/install/cancel`, { method: 'POST' });
+  }
+
+  async getBrowserPolicy(agentId: string): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}`);
+  }
+
+  async updateBrowserPolicy(agentId: string, rule: BrowserPolicyRule): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}`, {
+      method: 'PUT', body: JSON.stringify(rule),
+    });
+  }
+
+  async revokeBrowserPolicy(agentId: string, target: { origin: string; capability: BrowserPolicyCapability }): Promise<BrowserPolicyView> {
+    return this.request<BrowserPolicyView>(`/api/browser/policy/${encodeURIComponent(agentId)}/revoke`, {
+      method: 'POST', body: JSON.stringify(target),
+    });
+  }
+
+  /** The agent's open login / verification requests (raised in the MCP host). */
+  async getBrowserNotices(agentId: string): Promise<{ pending: BrowserLoginRequest[] }> {
+    return this.request<{ pending: BrowserLoginRequest[] }>(
+      `/api/browser/notices/${encodeURIComponent(agentId)}`,
+    );
+  }
+
+  /** Liveness of the caller's own session. Does no database work server-side,
+   *  so it is the cheap way to ask "is my JWT still accepted?" — used by
+   *  ProtectedRoute on mount. (lib/sessionGuard probes the same endpoint with
+   *  a raw fetch, deliberately bypassing `request<T>` to avoid recursing into
+   *  the very 401 handler it serves.) */
+  async getSession(): Promise<SessionResponse> {
+    return this.request<SessionResponse>('/api/auth/session');
   }
 
   // Arena onboarding: ensure the authenticated user has a provisioned Arena
@@ -1074,7 +1270,8 @@ class ApiClient {
     if (params.limit) search.set('limit', String(params.limit));
     if (params.agentId) search.set('agent_id', params.agentId);
     return this.request<MarketplaceSearchResponse>(
-      `/api/marketplace/skills/search?${search}`
+      `/api/marketplace/skills/search?${search}`,
+      { signal: AbortSignal.timeout(MARKETPLACE_SEARCH_TIMEOUT_MS) },
     );
   }
 
@@ -1173,12 +1370,52 @@ class ApiClient {
   async getProviders(): Promise<{
     success: boolean;
     data?: {
-      providers: Record<string, unknown>;
+      providers: Record<string, ProviderRow>;
       slots: Record<string, unknown>;
       version?: number;
     };
   }> {
     return this.request(`/api/providers`);
+  }
+
+  /** Server-owned provider catalogue. The UI only reads ``onboard_defaults``
+   * (per-source default agent/helper model ids; netmind_free follows the
+   * FREE_TIER_*_MODEL ops env) — see lib/onboardDefaults.ts. */
+  async getProviderCatalog(): Promise<{
+    success: boolean;
+    onboard_defaults: Record<string, { agent?: string; helper?: string }>;
+  }> {
+    return this.request(`/api/providers/catalog`);
+  }
+
+  /** Add a provider card (claude_oauth / codex_oauth / one of the key
+   * card types). Business rejections arrive as HTTPException -> this
+   * THROWS ApiError (read err.detail for the backend's reason); map
+   * errors to user copy with providersApi.providerErrorMessage. */
+  async addProvider(
+    body: Record<string, unknown>,
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(`/api/providers`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Claude Code CLI credential status (cloud non-staff get
+   * allowed: false — the OAuth-cards gate). */
+  async getClaudeStatus(): Promise<{
+    success: boolean;
+    data?: CliStatusPayload;
+  }> {
+    return this.request(`/api/providers/claude-status`);
+  }
+
+  /** Codex CLI credential status — same shape and gate as claude's. */
+  async getCodexStatus(): Promise<{
+    success: boolean;
+    data?: CliStatusPayload;
+  }> {
+    return this.request(`/api/providers/codex-status`);
   }
 
   /** One-key onboarding: a single API key wires the agent framework,
@@ -1252,12 +1489,34 @@ class ApiClient {
     return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
   }
 
-  /** Get the user's coding-agent framework choice + auth probe. */
+  /** Get the user's coding-agent framework choice + auth probe.
+   *
+   * `frameworks` reports plugin-install availability per framework name
+   * (Claude Code / Codex CLI are user-installed local plugins — see
+   * `getPlugins`). The array only lists the plugin-gated frameworks, so a
+   * framework absent from it (nexus_power, or any future non-plugin framework)
+   * is treated as available — that "unknown ⇒ available" default lives in
+   * lib/agentFramework.ts `frameworkAvailabilityMap`, and is why the field is
+   * modelled as optional here.
+   *
+   * `display_name` / `protocol` / `oauth_source` (B6, 2026-09-07 final cut) come straight off
+   * the framework registry's own metadata — `display_name` is the label
+   * `lib/frameworkBrand.ts`'s `formatFrameworkFromList` prefers over the static picker table;
+   * `protocol`/`oauth_source` are the ONLY source `lib/agentFramework.ts`'s
+   * `providerBacksFramework` reads for its matching — that function has no hardcoded table left
+   * to fall back to, so a caller MUST pass this array once loaded, or it fails closed. `protocol`
+   * is the backend's `FrameworkMeta.protocol` three-valued enum: a specific protocol, or `'any'`
+   * for a framework (NexusPower) that drives the provider API itself and works with either — a
+   * caller must NOT branch on framework id/name to special-case this, only on the `'any'` value.
+   * All three fields are still optional on the type — an older backend, or a request made before
+   * this list has ever loaded, has none of them.
+   */
   async getAgentFramework(): Promise<{
     success: boolean;
     data: {
       framework: string;
       supported: string[];
+      frameworks?: Array<{ name: string; available: boolean; display_name?: string; protocol?: 'anthropic' | 'openai' | 'any'; oauth_source?: string | null }>;
       probe: { ok: boolean; detail: string };
     };
   }> {
@@ -1296,6 +1555,155 @@ class ApiClient {
     });
   }
 
+  // ── local plugin installs (Settings › Plugins) ─────────────────────────
+  // Claude Code / Codex CLI ship as user-installed plugins rather than
+  // baked into the desktop image. `cloud_managed` in the response tells the
+  // panel to hide itself entirely — cloud installs its own CLIs centrally.
+
+  // ---- plugin factory (/api/plugin-factory): user plugins from GitHub / local dirs.
+
+  async factoryList(): Promise<FactoryListResponse> {
+    return this.request(`/api/plugin-factory`);
+  }
+
+  async factoryInstall(source: string, opts: { permissionsAcknowledged?: boolean; scope?: string } = {}): Promise<FactoryInstallResponse> {
+    return this.request(`/api/plugin-factory/install`, {
+      method: 'POST',
+      body: JSON.stringify({ source, permissions_acknowledged: opts.permissionsAcknowledged ?? false, scope: opts.scope ?? 'global' }),
+    });
+  }
+
+  async factoryAction(
+    id: string,
+    action: 'enable' | 'disable' | 'uninstall' | 'upgrade' | 'acknowledge-permissions',
+    opts: { permissionsAcknowledged?: boolean } = {},
+  ): Promise<ApiResponse> {
+    // Only the acknowledge action carries a body: it is the one write that must record
+    // `permissions_acknowledged = true` server-side, the durable flag the disclosure modal
+    // uses to decide whether it must reopen after a reload.
+    const body = action === 'acknowledge-permissions' ? JSON.stringify({ permissions_acknowledged: opts.permissionsAcknowledged ?? true }) : undefined;
+    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/${action}`, { method: 'POST', ...(body !== undefined ? { body } : {}) });
+  }
+
+  async factoryBuiltinSetEnabled(id: string, enabled: boolean): Promise<ApiResponse & { data?: { id: string; enabled: boolean; also_disabled: string[]; restart_required: boolean } }> {
+    return this.request(`/api/plugin-factory/builtin/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, { method: 'POST' });
+  }
+
+  async factoryBuiltinInstallDeps(id: string): Promise<ApiResponse & { data?: { id: string; installed: string[]; restart_required: boolean } }> {
+    return this.request(`/api/plugin-factory/builtin/${encodeURIComponent(id)}/install-deps`, { method: 'POST' });
+  }
+
+  async factoryRollback(): Promise<ApiResponse> {
+    return this.request(`/api/plugin-factory/rollback`, { method: 'POST' });
+  }
+
+  async factoryLeaveSafeMode(): Promise<ApiResponse> {
+    return this.request(`/api/plugin-factory/safe-mode/leave`, { method: 'POST' });
+  }
+
+  async factoryBisect(step: 'start' | 'stop'): Promise<ApiResponse & { data?: { trial?: string[]; remaining?: number; culprit?: string | null } }> {
+    return this.request(`/api/plugin-factory/bisect/${step}`, { method: 'POST' });
+  }
+
+  async factoryBisectAnswer(good: boolean): Promise<ApiResponse & { data?: { trial: string[]; remaining: number; culprit: string | null } }> {
+    return this.request(`/api/plugin-factory/bisect/answer`, { method: 'POST', body: JSON.stringify({ good }) });
+  }
+
+  async factoryProposals(): Promise<FactoryProposalsResponse> {
+    return this.request(`/api/plugin-factory/proposals`);
+  }
+
+  async factoryDecide(proposalId: string, approved: boolean): Promise<ApiResponse & { data?: { decision: string; restart_required?: boolean } }> {
+    return this.request(`/api/plugin-factory/proposals/${encodeURIComponent(proposalId)}/decide`, { method: 'POST', body: JSON.stringify({ approved }) });
+  }
+
+  async factoryErrors(id: string): Promise<FactoryErrorsResponse> {
+    return this.request(`/api/plugin-factory/${encodeURIComponent(id)}/errors`);
+  }
+
+  async factoryIndex(q = ''): Promise<FactoryIndexResponse> {
+    return this.request(`/api/plugin-factory/index?q=${encodeURIComponent(q)}`);
+  }
+
+  /** List every known plugin's install/update/login state. */
+  async getPlugins(): Promise<PluginsListResponse> {
+    return this.request(`/api/plugins`);
+  }
+
+  /** Remove a plugin's local install (binary + its pip/npm target dir). */
+  async uninstallPlugin(id: PluginId): Promise<PluginUninstallResponse> {
+    return this.request(`/api/plugins/${encodeURIComponent(id)}/uninstall`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Streams the ndjson install log for a plugin. `onEvent` fires once per
+   * line as it arrives off the wire — progress frames (`done: false`) carry
+   * one pip/npm log line each; the stream always ends with exactly one
+   * `done: true` frame carrying the outcome, which this also returns.
+   *
+   * Bypasses `request<T>` (like the FormData/blob helpers) because the
+   * response body is a line-delimited stream, not a single JSON document —
+   * `response.body.getReader()` is read incrementally instead of calling
+   * `response.json()` once.
+   */
+  async installPlugin(
+    id: PluginId,
+    onEvent: (event: PluginInstallEvent) => void,
+  ): Promise<Extract<PluginInstallEvent, { done: true }>> {
+    const baseUrl = getApiBaseUrl();
+    const response = await fetch(`${baseUrl}/api/plugins/${encodeURIComponent(id)}/install`, {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders() },
+    });
+
+    if (!response.ok || !response.body) {
+      let detail = '';
+      try {
+        const body = (await response.json()) as { detail?: unknown };
+        if (typeof body?.detail === 'string') detail = body.detail;
+      } catch {
+        /* not JSON — fall through to the status line */
+      }
+      throw new ApiError(
+        response.status,
+        detail || `API error: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let final: Extract<PluginInstallEvent, { done: true }> | null = null;
+
+    const consumeLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const event = JSON.parse(trimmed) as PluginInstallEvent;
+      onEvent(event);
+      if (event.done) final = event;
+    };
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex !== -1) {
+        consumeLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf('\n');
+      }
+    }
+    if (buffer) consumeLine(buffer);
+
+    if (!final) {
+      throw new Error('Plugin install stream ended without a result');
+    }
+    return final;
+  }
+
   // ── per-agent LLM config overrides ────────────────────────────────────
   // An agent inherits the owner's user-level slots by default; these override
   // just that agent's agent/helper slots. See backend agents_llm_config.py.
@@ -1307,14 +1715,26 @@ class ApiClient {
     data?: {
       agent_id: string;
       slots: Record<string, AgentSlotView>;
-      // While the owner's cloud free tier has budget, runs are pinned to the
-      // fixed system model and per-agent overrides are ignored (see backend
-      // ProviderResolver SYSTEM_OK branch). `active` lets the UI render an
-      // honest read-only model chip; `model` is what actually runs meanwhile.
-      free_tier?: { active: boolean; model: string | null };
     };
   }> {
     return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
+  }
+
+  // ---- per-agent capabilities (plugin platform batch 5c): which registered modules take part in this agent's turns.
+  async getAgentCapabilities(agentId: string): Promise<{ success: boolean; detail?: string; data?: AgentCapabilitiesView }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities`);
+  }
+
+  async setAgentCapability(agentId: string, moduleClass: string, enabled: boolean): Promise<{ success: boolean; detail?: string; data?: { module_class: string; enabled: boolean } }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities/${encodeURIComponent(moduleClass)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  async resetAgentCapability(agentId: string, moduleClass: string): Promise<{ success: boolean; data?: { module_class: string; reset: boolean } }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/capabilities/${encodeURIComponent(moduleClass)}`, { method: 'DELETE' });
   }
 
   /** Set (or replace) this agent's override for one slot. */
@@ -1348,6 +1768,24 @@ class ApiClient {
       `/api/agents/${encodeURIComponent(agentId)}/llm-config/${slot}`,
       { method: 'DELETE' },
     );
+  }
+
+  /** How many agents currently hold a per-agent override, per slot — the
+   *  blast radius shown before applying defaults to all agents. */
+  async getSlotOverrideStats(): Promise<{ success: boolean; data?: SlotOverrideStats }> {
+    return this.request(`/api/providers/slots/override-stats`);
+  }
+
+  /** Clear the given slots' per-agent overrides across ALL the caller's
+   *  agents (clear-to-inherit). */
+  async applySlotsToAgents(
+    slots: string[],
+  ): Promise<{ success: boolean; detail?: string; data?: { cleared: Record<string, number> } }> {
+    return this.request(`/api/providers/slots/apply-to-agents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slots }),
+    });
   }
 
   /**
@@ -1402,15 +1840,20 @@ class ApiClient {
     });
   }
 
-  // Lark / Feishu Integration API
-  async getLarkCredential(agentId: string): Promise<LarkCredentialResponse> {
-    return this.request<LarkCredentialResponse>(`/api/lark/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindLarkBot(agentId: string, appId: string, appSecret: string, brand: string, ownerEmail: string = ''): Promise<LarkBindResponse> {
-    return this.request<LarkBindResponse>('/api/lark/bind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, app_id: appId, app_secret: appSecret, brand, owner_email: ownerEmail }),
+  /** Edit a job's content fields (title/description/payload) — the seam
+   *  route PUT /api/jobs/{job_id}, which mirrors the job_update MCP tool
+   *  exactly. Only send the changed fields; omitted fields (undefined) keep
+   *  their existing value server-side. `agentId` is the owning agent, used
+   *  for ownership scoping (assert_owned), not the job's own id. */
+  async updateJob(
+    jobId: string,
+    agentId: string,
+    fields: { title?: string; description?: string; payload?: string },
+  ): Promise<{ success: boolean; job_id?: string; updated_fields?: string[]; message?: string }> {
+    return this.request(`/api/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId, ...fields }),
     });
   }
 
@@ -1432,117 +1875,44 @@ class ApiClient {
     return this.request<ApiResponse>(`/api/lark/auth/status?agent_id=${encodeURIComponent(agentId)}`);
   }
 
-  async testLarkConnection(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindLarkBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  // Activate/deactivate a bound channel credential (flip is_active/enabled)
-  // without re-binding. Used to turn a bundle-imported (inactive) channel live.
-  async setLarkActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/lark/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
-  // Slack Integration API
-  async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
-    return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindSlackBot(
-    agentId: string,
-    botToken: string,
-    appToken: string,
-    ownerEmail: string = '',
-  ): Promise<SlackBindResponse> {
-    return this.request<SlackBindResponse>('/api/slack/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        app_token: appToken,
-        owner_email: ownerEmail,
-      }),
-    });
-  }
-
-  async testSlackConnection(agentId: string): Promise<SlackTestResponse> {
-    return this.request<SlackTestResponse>('/api/slack/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindSlackBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/slack/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setSlackActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/slack/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
+  /** The `ingress.channels` catalog: one row per channel plugin the host loaded, with its
+   *  `ChannelUi` (label / lucide icon name / order) and owning plugin id. `registerBuiltinChannels`
+   *  builds the Channels section from this instead of restating each row in TypeScript. */
+  async pluginChannels(): Promise<ApiResponse & { data?: PluginChannelRow[] }> {
+    return this.request('/api/plugins/channels');
   }
 
   // Telegram Integration API
-  async getTelegramCredential(agentId: string): Promise<TelegramCredentialResponse> {
-    return this.request<TelegramCredentialResponse>(`/api/telegram/credential?agent_id=${encodeURIComponent(agentId)}`);
+  // ---- generic channels (/api/channels/{channel}): every channel in ingress.channels — the six
+  // builtins and plugin channels alike (plugin platform batch 4d.3 retired the per-channel
+  // bind/credential/test/unbind/set-active routes). The type parameters let a builtin's config
+  // component keep its precise credential / bind envelope (the service's response is returned
+  // verbatim by the route); channel-specific flows (Lark OAuth, WeChat QR) keep their own methods.
+  async channelSchema(channel: string): Promise<ApiResponse & { data?: ChannelSchema }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/schema`);
   }
 
-  async bindTelegramBot(
-    agentId: string,
-    botToken: string,
-    ownerUsername: string = '',
-  ): Promise<TelegramBindResponse> {
-    return this.request<TelegramBindResponse>('/api/telegram/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        owner_username: ownerUsername,
-      }),
-    });
+  async channelCredential<D extends object = ChannelCredentialView>(channel: string, agentId: string): Promise<ApiResponse & { data?: D | null }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/credential?agent_id=${encodeURIComponent(agentId)}`);
   }
 
-  async testTelegramConnection(agentId: string): Promise<TelegramTestResponse> {
-    return this.request<TelegramTestResponse>('/api/telegram/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
+  async channelBind<R extends ApiResponse = ApiResponse & { data?: ChannelCredentialView }>(channel: string, agentId: string, fields: Record<string, unknown>): Promise<R> {
+    return this.request<R>(`/api/channels/${encodeURIComponent(channel)}/bind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, fields }) });
   }
 
-  async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/telegram/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
+  async channelTest<R extends ApiResponse = ApiResponse & { data?: Record<string, unknown> }>(channel: string, agentId: string): Promise<R> {
+    return this.request<R>(`/api/channels/${encodeURIComponent(channel)}/test`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
   }
 
-  async setTelegramActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/telegram/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
+  async channelUnbind(channel: string, agentId: string): Promise<ApiResponse> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/unbind`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) });
   }
 
-  // WeChat (iLink) Integration API — QR-scan bind flow (no token paste).
-  async getWeChatCredential(agentId: string): Promise<WeChatCredentialResponse> {
-    return this.request<WeChatCredentialResponse>(`/api/wechat/credential?agent_id=${encodeURIComponent(agentId)}`);
+  /** Flip a bound credential's active flag without re-binding (a bundle-imported binding goes live here). */
+  async channelSetActive(channel: string, agentId: string, active: boolean): Promise<ApiResponse & { enabled?: boolean }> {
+    return this.request(`/api/channels/${encodeURIComponent(channel)}/set-active`, { method: 'POST', body: JSON.stringify({ agent_id: agentId, active }) });
   }
+
 
   async startWeChatQrcode(agentId: string): Promise<WeChatQrStartResponse> {
     return this.request<WeChatQrStartResponse>('/api/wechat/qrcode/start', {
@@ -1560,79 +1930,6 @@ class ApiClient {
     return this.request<WeChatQrPollResponse>('/api/wechat/qrcode/poll', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId, qrcode }),
-    });
-  }
-
-  async unbindWeChat(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/wechat/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setWeChatActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/wechat/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
-    });
-  }
-
-  async getNarramessengerCredential(agentId: string): Promise<NarramessengerCredentialResponse> {
-    return this.request<NarramessengerCredentialResponse>(`/api/narramessenger/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindNarramessenger(agentId: string, bindCommand: string): Promise<NarramessengerBindResponse> {
-    return this.request<NarramessengerBindResponse>('/api/narramessenger/bind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, bind_command: bindCommand }),
-    });
-  }
-
-  async unbindNarramessenger(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/narramessenger/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  // Discord Integration API
-  async getDiscordCredential(agentId: string): Promise<DiscordCredentialResponse> {
-    return this.request<DiscordCredentialResponse>(`/api/discord/credential?agent_id=${encodeURIComponent(agentId)}`);
-  }
-
-  async bindDiscordBot(
-    agentId: string,
-    botToken: string,
-    ownerUserId: string = '',
-  ): Promise<DiscordBindResponse> {
-    return this.request<DiscordBindResponse>('/api/discord/bind', {
-      method: 'POST',
-      body: JSON.stringify({
-        agent_id: agentId,
-        bot_token: botToken,
-        owner_user_id: ownerUserId,
-      }),
-    });
-  }
-
-  async testDiscordConnection(agentId: string): Promise<DiscordTestResponse> {
-    return this.request<DiscordTestResponse>('/api/discord/test', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async unbindDiscordBot(agentId: string): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/discord/unbind', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId }),
-    });
-  }
-
-  async setDiscordActive(agentId: string, active: boolean): Promise<ApiResponse> {
-    return this.request<ApiResponse>('/api/discord/set-active', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 
@@ -1714,8 +2011,24 @@ class ApiClient {
   }
 
   // Start a Pro subscription — returns Stripe checkout_url to redirect to.
-  async subscribe(): Promise<SubscribeResponse> {
-    return this.billingWrite<SubscribeResponse>('/api/billing/subscribe');
+  //
+  // `months` applies to the one-time products (alipay / wechat) ONLY. The
+  // backend REJECTS it on a card subscription rather than ignoring it, so it is
+  // omitted here instead of defaulted: sending "card, 6 months" would describe
+  // a purchase that cannot happen.
+  async subscribe(
+    paymentMethod: SubscribePaymentMethod = 'stripe',
+    months?: number,
+  ): Promise<SubscribeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const body: Record<string, unknown> = { payment_method: paymentMethod };
+    if (paymentMethod !== 'stripe') body.months = months ?? 1;
+    return this.request<SubscribeResponse>('/api/billing/subscribe', {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+      body: JSON.stringify(body),
+    });
   }
 
   // Cancel = turn off auto-renew (stays Pro until period end).
@@ -1731,13 +2044,31 @@ class ApiClient {
   // Module E: top-up. Create a hosted Stripe checkout for `amount` (USD by
   // default) and return checkout_url to open externally, then poll
   // rechargeStatus(session_id) until succeeded/failed.
-  async recharge(amount: number, currency = 'USD'): Promise<RechargeResponse> {
+  // `amount` is ALWAYS the USD credit being bought, even when the payer is
+  // charged in CNY — the backend derives the charge currency from the method,
+  // because upstream 400s when the two disagree.
+  async recharge(
+    amount: number,
+    paymentMethod: RechargePaymentMethod = 'default',
+  ): Promise<RechargeResponse> {
     const token = this.getNetmindToken();
     if (!token) throw new Error('NetMind account not linked (no loginToken)');
     return this.request<RechargeResponse>('/api/billing/recharge', {
       method: 'POST',
       headers: { 'X-Netmind-Token': token },
-      body: JSON.stringify({ amount, currency }),
+      body: JSON.stringify({ amount, payment_method: paymentMethod }),
+    });
+  }
+
+  // What a CNY charge costs right now, for showing "$10 ≈ ¥73" BEFORE the user
+  // commits. Quote-only: never call this to decide an amount, only to display
+  // one — the charge is priced upstream at its own live rate.
+  async fxRate(amount?: number): Promise<FxQuoteResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const qs = amount !== undefined ? `?amount=${encodeURIComponent(amount)}` : '';
+    return this.request<FxQuoteResponse>(`/api/billing/fx-rate${qs}`, {
+      headers: { 'X-Netmind-Token': token },
     });
   }
 
@@ -1757,6 +2088,94 @@ class ApiClient {
 
   async listTeams(): Promise<TeamListResponse> {
     return this.request<TeamListResponse>('/api/teams');
+  }
+
+  /**
+   * A team's artifacts, newest first — the workspace panel's Artifacts tab.
+   *
+   * Not scoped to one agent: the panel shows the TEAM's output whoever made
+   * it, and each row carries agent_id so the UI can attribute it.
+   */
+  async listTeamArtifacts(teamId: string): Promise<Artifact[]> {
+    return this.request<Artifact[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifacts`,
+    );
+  }
+
+  /**
+   * Which artifacts each turn in this room produced (event_id → artifact ids).
+   *
+   * The transcript already carries each reply's event_id, so this is a real
+   * join key. Matching by timestamp was never viable: one turn can register
+   * two artifacts and two agents can answer at once, so proximity would pin
+   * the wrong work to the wrong message.
+   */
+  async listTeamArtifactTurns(teamId: string): Promise<Record<string, string[]>> {
+    return this.request<Record<string, string[]>>(
+      `/api/teams/${encodeURIComponent(teamId)}/artifact-turns`,
+    );
+  }
+
+  /** Files shared into the team folder, newest first — the Files tab. */
+  async listTeamFiles(teamId: string): Promise<TeamFile[]> {
+    return this.request<TeamFile[]>(
+      `/api/teams/${encodeURIComponent(teamId)}/files`,
+    );
+  }
+
+  /**
+   * A team's bulletin plus its budget usage.
+   *
+   * Usage rides along with the list so the panel can grey out "add" before the
+   * user types a rule instead of rejecting it afterwards.
+   */
+  async getTeamBulletin(teamId: string): Promise<TeamBulletin> {
+    return this.request<TeamBulletin>(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin`,
+    );
+  }
+
+  async createTeamBulletinEntry(
+    teamId: string,
+    payload: { content: string; tier?: 'long_term' | 'current_task' },
+  ): Promise<{ success: boolean; entry?: BulletinEntry; error?: string }> {
+    return this.request(`/api/teams/${encodeURIComponent(teamId)}/bulletin`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+    content: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'PATCH', body: JSON.stringify({ content }) },
+    );
+  }
+
+  async deleteTeamBulletinEntry(
+    teamId: string,
+    entryId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /** Clear one tier in a single action — the "this task is done" button. */
+  async clearTeamBulletinTier(
+    teamId: string,
+    tier: 'long_term' | 'current_task',
+  ): Promise<{ success: boolean; removed?: number; error?: string }> {
+    const params = new URLSearchParams({ tier });
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/bulletin?${params}`,
+      { method: 'DELETE' },
+    );
   }
 
   async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {
@@ -1797,9 +2216,19 @@ class ApiClient {
    *  its members and the bus channel. Team counterpart to clearHistory. */
   async clearTeamData(
     teamId: string,
-    opts: { chat: boolean; files: boolean } = { chat: true, files: true },
-  ): Promise<{ success: boolean; chat_messages?: number; files_removed?: boolean; error?: string }> {
-    const params = new URLSearchParams({ chat: String(opts.chat), files: String(opts.files) });
+    opts: { chat: boolean; files: boolean; bulletin?: boolean } = { chat: true, files: true },
+  ): Promise<{
+    success: boolean;
+    chat_messages?: number;
+    files_removed?: boolean;
+    bulletin_entries?: number;
+    error?: string;
+  }> {
+    const params = new URLSearchParams({
+      chat: String(opts.chat),
+      files: String(opts.files),
+      bulletin: String(opts.bulletin ?? false),
+    });
     return this.request(
       `/api/teams/${encodeURIComponent(teamId)}/data?${params}`,
       { method: 'DELETE' },
@@ -1808,8 +2237,22 @@ class ApiClient {
 
   // --- Team group chat (over the message bus) ---
 
-  async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
-    const q = since ? `?since=${encodeURIComponent(since)}` : '';
+  /**
+   * A page of a team room's transcript.
+   *
+   * Three modes, and the cursors are mutually exclusive: no cursor is the
+   * NEWEST page (what the room opens on), `since` walks forward from what is on
+   * screen (the poll), `before` walks back into history (load more).
+   */
+  async getTeamChat(
+    teamId: string,
+    since?: string,
+    before?: string,
+  ): Promise<TeamChatHistoryResponse> {
+    const params = new URLSearchParams();
+    if (before) params.set('before', before);
+    else if (since) params.set('since', since);
+    const q = params.toString() ? `?${params}` : '';
     return this.request<TeamChatHistoryResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/chat/messages${q}`,
     );
@@ -2029,10 +2472,23 @@ class ApiClient {
   async migrateApply(
     importData: StandardizedAgentImport,
     agentId?: string,
+    /** Handle for this one apply, so `migrateHurry` can reach it mid-flight. */
+    importId?: string,
   ): Promise<MigrationApplyResult> {
     return this.request<MigrationApplyResult>('/api/migrate/apply', {
       method: 'POST',
-      body: JSON.stringify({ import_data: importData, agent_id: agentId }),
+      body: JSON.stringify({ import_data: importData, agent_id: agentId, import_id: importId }),
+    });
+  }
+
+  /** Tell a RUNNING import to stop summarizing and just finish. The apply keeps
+   *  going (cutting it would half-populate an agent) but drops to the
+   *  deterministic no-LLM summary for every session it has left — which is the
+   *  difference between seconds and N sequential model calls. */
+  async migrateHurry(importId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>('/api/migrate/hurry', {
+      method: 'POST',
+      body: JSON.stringify({ import_id: importId }),
     });
   }
 }

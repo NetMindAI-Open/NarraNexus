@@ -8,23 +8,22 @@ rule #9 — adding a framework must be a registration, not a step_3 edit).
 
 import pytest
 
-from xyz_agent_context.agent_framework import (
-    ClaudeAgentSDK,
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
+from narranexus.platform.agent_framework import (
     available_agent_loop_frameworks,
     get_agent_loop_driver,
     register_agent_loop_driver,
     resolve_framework_name,
 )
-from xyz_agent_context.agent_framework.loop.driver import _REGISTRY
 
 
 def test_claude_is_registered_by_default():
     assert "claude_code" in available_agent_loop_frameworks()
 
 
-def test_default_resolves_to_claude_code(monkeypatch):
+def test_default_resolves_to_nexus_power(monkeypatch):
     monkeypatch.delenv("AGENT_LOOP_FRAMEWORK", raising=False)
-    assert resolve_framework_name() == "claude_code"
+    assert resolve_framework_name() == "nexus_power"
 
 
 def test_env_overrides_default(monkeypatch):
@@ -56,13 +55,14 @@ def test_register_and_resolve_custom_driver():
         async def agent_loop(self, messages, mcp_servers, **kwargs):
             yield {"type": "fake"}
 
-    register_agent_loop_driver("fake-fw", _FakeDriver)
+    registration = register_agent_loop_driver("fake-fw", _FakeDriver)
     try:
         driver = get_agent_loop_driver("fake-fw", working_path="/tmp/x")
         assert isinstance(driver, _FakeDriver)
         assert driver.kwargs == {"working_path": "/tmp/x"}
     finally:
-        _REGISTRY.pop("fake-fw", None)
+        registration.dispose()
+    assert "fake-fw" not in available_agent_loop_frameworks()
 
 
 def test_registration_is_case_insensitive():
@@ -73,9 +73,9 @@ def test_registration_is_case_insensitive():
         async def agent_loop(self, messages, mcp_servers, **kwargs):
             yield {}
 
-    register_agent_loop_driver("UPPER", _D)
+    registration = register_agent_loop_driver("UPPER", _D)
     try:
         assert "upper" in available_agent_loop_frameworks()
         assert isinstance(get_agent_loop_driver("upper"), _D)
     finally:
-        _REGISTRY.pop("upper", None)
+        registration.dispose()

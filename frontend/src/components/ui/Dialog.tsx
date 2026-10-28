@@ -83,7 +83,19 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
                   className="flex items-center justify-between px-5 py-3 border-b"
                   style={{ borderColor: 'var(--nm-hairline)' }}
                 >
-                  <h2
+                  {/* NOT an <h2>: index.css styles bare h1-h6 OUTSIDE any
+                      cascade layer, and unlayered rules beat Tailwind's
+                      @layer utilities — so `text-[12px]` lost to
+                      `h2 { font-size: clamp(1.5rem,3vw,2rem) }` and every
+                      dialog title rendered at 24-32px, wrapping onto two
+                      lines. A div carries the heading role instead, which
+                      keeps the archive-label scale this design intends.
+                      (The global rule itself is the real culprit; moving
+                      index.css typography into @layer base is a separate,
+                      app-wide change.) */}
+                  <div
+                    role="heading"
+                    aria-level={2}
                     className="text-[12px] font-semibold uppercase tracking-[0.14em]"
                     style={{
                       fontFamily: 'var(--font-display)',
@@ -91,7 +103,7 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
                     }}
                   >
                     {title}
-                  </h2>
+                  </div>
                   <Button
                     variant="ghost"
                     size="icon"

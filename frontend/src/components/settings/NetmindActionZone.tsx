@@ -6,6 +6,8 @@
  * panel: at most ONE promoted spend action, everything else demoted.
  *
  *   pro_cancelled            → Resume auto-renew + "Add credits" modal
+ *   pro_onetime              → Renew (buy N more months) + "Add credits";
+ *                              NEVER cancel/resume — see the branch below
  *   free × low               → Upgrade-to-Nexus-Pro card inline; top-up behind a link
  *   pro_active × low         → top-up promoted directly (already Pro — no upsell)
  *   free × healthy           → "Upgrade or top up" opens a MODAL (Pro card +
@@ -31,14 +33,18 @@ import { NetmindUpsellCard } from './NetmindUpsellCard';
 import type { Runway } from './netmindRunway';
 import type { SubscriptionPlan } from '@/types';
 
-// NarraNexus website pricing page (plans + model pricing in product terms;
-// replaced the raw NetMind pricing page 2026-07-18) — the "learn more" depth
-// that doesn't belong
-// in the panel.
-const PRICING_URL = 'https://website.narra.nexus/pricing';
+// NarraNexus pricing page (plans + model pricing in product terms; replaced the
+// raw NetMind pricing page 2026-07-18; moved off the `website.` subdomain to
+// the apex 2026-08-19) — the "learn more" depth that doesn't belong here.
+//
+// Build-time constant, NOT deploy config: changing it needs a frontend rebuild.
+// If this URL starts moving (a relaunch, per-language pricing pages), promote it
+// to window.__NARRANEXUS_CONFIG__ alongside mode/apiUrl instead of editing here
+// again — that is the mechanism that already exists for values a deploy sets.
+const PRICING_URL = 'https://narra.nexus/pricing';
 
 interface NetmindActionZoneProps {
-  state: 'free' | 'pro_active' | 'pro_cancelled';
+  state: 'free' | 'pro_active' | 'pro_cancelled' | 'pro_onetime';
   runway: Runway;
   /** True only when the free tier is KNOWN exhausted (pct === 0). */
   freeTierExhausted: boolean;
@@ -47,7 +53,12 @@ interface NetmindActionZoneProps {
   proPlan: SubscriptionPlan | null;
   /** Top-up controls element (state + guards owned by the panel). */
   topUp: ReactNode;
-  onSubscribe: () => void;
+  /** "How do you want to pay for Pro" — rendered for a free user starting one
+   *  AND for a one-time subscriber extending theirs. */
+  proPurchase?: ReactNode;
+  /** Open the purchase dialog immediately — `/pay` redirects here with
+   *  `intent=buy`, and that CTA must land ON the purchase, not beside it. */
+  openBuyOnMount?: boolean;
   onCancel: () => void;
   onReactivate: () => void;
 }
@@ -60,13 +71,15 @@ export function NetmindActionZone({
   polling,
   proPlan,
   topUp,
-  onSubscribe,
+  proPurchase,
+  openBuyOnMount = false,
   onCancel,
   onReactivate,
 }: NetmindActionZoneProps) {
   const { t } = useTranslation();
   const [manageOpen, setManageOpen] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
+  const [buyOpen, setBuyOpen] = useState(openBuyOnMount);
 
   const closeManage = () => {
     setManageOpen(false);
@@ -126,13 +139,90 @@ export function NetmindActionZone({
   // The plan-forward content: Pro card leads, top-up is a demoted line. NO
   // "subscribe vs recharge" peer choice. Used inline (free×low) and in the
   // free manage modal.
+  // The upsell CTA opens the rail choice; it does NOT subscribe by card. Going
+  // straight to card is what made "buy Pro with Alipay" unreachable for anyone
+  // who was not already a one-time subscriber — including a one-time subscriber
+  // whose period had lapsed, who then could never buy it back.
   const planBlock = (
     <div className="space-y-3">
-      <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy || polling} />
+      <NetmindUpsellCard
+        proPlan={proPlan}
+        // closeManage first: on the healthy-free path this CTA lives INSIDE the
+        // manage dialog, and Dialog has no focus trap while each instance binds
+        // its own document-level Escape — two stacked scrims, and one Escape
+        // closing both would drop the user out of a purchase mid-way.
+        onUpgrade={() => {
+          closeManage();
+          setBuyOpen(true);
+        }}
+        busy={busy || polling}
+      />
       {topUpDisclosure}
       {pricingLink}
     </div>
   );
+
+  const buyDialog = (
+    <Dialog
+      isOpen={buyOpen}
+      onClose={() => setBuyOpen(false)}
+      title={t('settings.netmind.buyProTitle', 'Upgrade to Nexus Pro')}
+      size="lg"
+    >
+      <DialogContent className="space-y-4">
+        {proPurchase}
+        {pricingLink}
+      </DialogContent>
+    </Dialog>
+  );
+
+  // ── pro_onetime: a purchase that ENDS, so renewing is the whole job ────────
+  // Neither cancel nor resume appears here, and that is not tidiness:
+  //   - `reactivate` does not apply to a purchase that never renews;
+  //   - `cancel` returns 200 {"status":"auto_renew_off"} on one of these
+  //     (measured on dev 2026-08-19) — a silent no-op that would let the UI
+  //     announce a cancellation that did not happen and was never needed.
+  // The one action that keeps this user Pro is buying more months, so it is
+  // the promoted one regardless of runway: unlike a card subscriber, nothing
+  // will renew for them if they ignore it.
+  if (state === 'pro_onetime') {
+    return (
+      <>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            {/* Member pricing, NOT "Pro is active — one-time purchase": the
+                plan row directly above already states the plan, the end date
+                and that it does not renew. Repeating it here spent the most
+                prominent line in the zone on something the eye had just read.
+                This says what being Pro BUYS them, which is the same benefit
+                pro_active states in this exact position. */}
+            <div className="flex items-center gap-1.5 text-sm text-[var(--color-success)]">
+              <span aria-hidden>✦</span>
+              <span>
+                {t('settings.netmind.proMemberActive', 'Member pricing active — up to 50% off')}
+              </span>
+            </div>
+            <Button variant="accent" size="sm" onClick={() => setManageOpen(true)}>
+              {t('settings.netmind.renewBtn', 'Renew')}
+            </Button>
+          </div>
+          {pricingLink}
+        </div>
+        <Dialog
+          isOpen={manageOpen}
+          onClose={closeManage}
+          title={t('settings.netmind.renewTitle', 'Keep Pro going')}
+          size="lg"
+        >
+          <DialogContent className="space-y-4">
+            {proPurchase}
+            <hr className="border-[var(--nm-hairline)]" />
+            {topUp}
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   // ── pro_cancelled: resume (runway-agnostic) + manage-balance modal ─────────
   if (state === 'pro_cancelled') {
@@ -177,6 +267,7 @@ export function NetmindActionZone({
               : t('settings.netmind.lowChoose', "You're low on credits. To keep going:")}
           </p>
           {planBlock}
+          {buyDialog}
         </div>
       );
     }
@@ -206,6 +297,7 @@ export function NetmindActionZone({
         >
           <DialogContent>{planBlock}</DialogContent>
         </Dialog>
+        {buyDialog}
       </>
     );
   }
@@ -229,7 +321,7 @@ export function NetmindActionZone({
         <DialogContent className="space-y-4">
           {/* The plan intro in its subscribed state — the user sees what
               their Pro includes right where they'd cancel it. */}
-          <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy} subscribed />
+          <NetmindUpsellCard proPlan={proPlan} busy={busy} subscribed />
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-[var(--text-secondary)]">
               {t('settings.netmind.cancelBtn', 'Cancel subscription')}

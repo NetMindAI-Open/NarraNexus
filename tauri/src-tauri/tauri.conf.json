@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicedoc/tauri-schema/v2/schema.json",
   "productName": "NarraNexus",
   "identifier": "com.narranexus.app",
-  "version": "1.15.0",
+  "version": "1.21.11",
   "build": {
     "frontendDist": "../../frontend/dist",
     "devUrl": "http://localhost:5173"
@@ -20,7 +20,30 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' plugin: officewatch: http://localhost:* http://127.0.0.1:*",
+        "script-src": "'self' blob: plugin: 'wasm-unsafe-eval'",
+        "style-src": "'self' 'unsafe-inline' plugin:",
+        "img-src": "'self' data: blob: plugin: http://localhost:* http://127.0.0.1:* https:",
+        "media-src": "'self' data: blob: http://localhost:* http://127.0.0.1:* https:",
+        "font-src": "'self' data: plugin:",
+        "connect-src": "'self' blob: plugin: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:",
+        "frame-src": "'self' blob: officewatch: http://localhost:* http://127.0.0.1:* https:",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self' plugin: officewatch: http://localhost:* http://127.0.0.1:*",
+        "script-src": "'self' 'unsafe-inline' blob: plugin: 'wasm-unsafe-eval' http://localhost:* http://127.0.0.1:*",
+        "style-src": "'self' 'unsafe-inline' plugin:",
+        "img-src": "'self' data: blob: plugin: http://localhost:* http://127.0.0.1:* https:",
+        "media-src": "'self' data: blob: http://localhost:* http://127.0.0.1:* https:",
+        "font-src": "'self' data: plugin:",
+        "connect-src": "'self' blob: plugin: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:",
+        "frame-src": "'self' blob: officewatch: http://localhost:* http://127.0.0.1:* https:",
+        "worker-src": "'self' blob:",
+        "object-src": "'none'"
+      }
     }
   },
   "bundle": {

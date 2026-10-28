@@ -13,37 +13,16 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { activeLocale, formatAbsolute, formatMessageAge } from '@/lib/utils';
 import { Trash2, RefreshCw } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogFooter, useNotice } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { artifactsApi } from '@/services/artifactsApi';
 import type { Artifact } from '@/types/artifact';
-
-const KIND_LABEL: Record<string, string> = {
-  'text/html': 'HTML',
-  'application/vnd.echarts+json': 'Chart',
-  'text/csv': 'CSV',
-  'text/markdown': 'Markdown',
-  'image/png': 'PNG',
-  'image/jpeg': 'JPEG',
-  'application/pdf': 'PDF',
-};
-
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return iso.slice(0, 10);
-  const ms = Date.now() - then;
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
 
 export default function ArtifactsSection() {
+  void useRegistryEntries(ARTIFACT_KINDS);
   const { t } = useTranslation();
   // wry does not render window.alert — report in-app (see ui/ConfirmDialog).
   const { notifyError, dialog: noticeDialog } = useNotice();
@@ -190,7 +169,7 @@ export default function ArtifactsSection() {
           {items.map((a) => (
             <label
               key={a.artifact_id}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-[var(--bg-secondary)] cursor-pointer text-sm"
+              className="flex items-center gap-3 px-3 py-2 hover:bg-[var(--nm-paper-warm)] cursor-pointer text-sm"
             >
               <input
                 type="checkbox"
@@ -200,13 +179,19 @@ export default function ArtifactsSection() {
               />
               <span className="flex-1 truncate" title={a.title}>{a.title}</span>
               <span className="text-xs text-[var(--text-secondary)] w-20 text-right">
-                {KIND_LABEL[a.kind] ?? a.kind}
+                {ARTIFACT_KINDS.get(a.kind)?.label ?? a.kind}
               </span>
               <span className="text-xs text-[var(--text-tertiary)] w-32 truncate" title={a.agent_id}>
                 {t('settings.artifacts.agentPrefix', { id: a.agent_id.replace(/^agent_/, '').slice(0, 10) })}
               </span>
-              <span className="text-xs text-[var(--text-tertiary)] w-20 text-right">
-                {formatRelativeTime(a.updated_at)}
+              {/* Relative age for scanning, absolute (UTC-parsed) in the
+                  tooltip — this list exists to pick OLD artifacts to prune,
+                  and "last year" alone can't support that decision. */}
+              <span
+                className="text-xs text-[var(--text-tertiary)] w-20 text-right whitespace-nowrap"
+                title={formatAbsolute(a.updated_at, activeLocale())}
+              >
+                {formatMessageAge(a.updated_at, activeLocale())}
               </span>
             </label>
           ))}

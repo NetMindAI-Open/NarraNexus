@@ -26,7 +26,11 @@ beforeEach(() => {
   getEventLogMock.mockResolvedValue({
     success: true,
     timeline: [
-      { type: 'thinking', content: 'pondering the answer' },
+      // monologue: this fixture stands for "the timeline rendered", and
+      // since 2026-08-30 provider reasoning renders collapsed while
+      // narration renders open. These cases are about fetch/caching, not
+      // about the tier, so use the tier that shows without extra clicks.
+      { type: 'thinking', content: 'pondering the answer', monologue: true },
       { type: 'tool_call', tool_name: 'mcp__x__read_file', tool_input: { path: 'a.txt' } },
     ],
   });

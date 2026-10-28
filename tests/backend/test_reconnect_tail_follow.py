@@ -21,7 +21,7 @@ from datetime import timedelta
 import pytest
 
 import backend.routes.websocket as ws_module
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.utils.timezone import utc_now
 
 
 class _FakeWS:

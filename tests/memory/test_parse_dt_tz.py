@@ -11,8 +11,8 @@ worker every pass on the cloud (MySQL) backend.
 """
 from datetime import datetime, timezone
 
-from xyz_agent_context.memory.record import _parse_dt
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.memory.record import _parse_dt
+from narranexus.platform.utils.timezone import utc_now
 
 
 def test_naive_datetime_object_becomes_utc_aware():

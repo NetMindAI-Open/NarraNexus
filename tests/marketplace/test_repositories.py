@@ -12,14 +12,14 @@ SkillScanResultRepository (append + latest wins).
 
 import pytest
 
-from xyz_agent_context.repository.skill_catalog_repository import SkillCatalogRepository
-from xyz_agent_context.repository.skill_installation_repository import (
+from narranexus.platform.repository.skill_catalog_repository import SkillCatalogRepository
+from narranexus.platform.repository.skill_installation_repository import (
     SkillInstallationRepository,
 )
-from xyz_agent_context.repository.skill_scan_result_repository import (
+from narranexus.platform.repository.skill_scan_result_repository import (
     SkillScanResultRepository,
 )
-from xyz_agent_context.schema.skill_marketplace_schema import (
+from narranexus.platform.schema.skill_marketplace_schema import (
     SkillCatalogEntry,
     SkillScanResult,
 )

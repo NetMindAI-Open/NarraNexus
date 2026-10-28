@@ -1,8 +1,183 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-31
+last_verified: 2026-10-16
 stub: false
 ---
+
+## 2026-10-16 (PR#413 review I2) — /catalog 新增 onboard_defaults
+
+`GET /api/providers/catalog` 增加 `onboard_defaults: {source: {agent, helper}}`(`model_catalog.get_onboard_defaults()`;`netmind_free` 跟随
+`FREE_TIER_*_MODEL`)。前端 `lib/onboardDefaults.ts` 用它填充"推荐模型"表,前端不再持有模型 id。只下发模型 id,不带钱包 thinking/余额策略。
+
+## 2026-09-10 — 熔断器恢复：只挂显式动作、按 provider 收窄（GitHub #117 预审 I1）
+
+上一版把 `_resume_agent_circuit_breakers(uid)` 挂到了 `GET /claude-status` /
+`GET /codex-status` 上——两个**只读**端点变成了写接口，而且它们报告的是**宿主机 CLI**
+的状态，跟一个因 NetMind key 余额耗尽而 PAUSED 的 agent 毫无关系。前端在打开 provider
+选卡弹窗、订阅页 mount 时都会并发拉它们：用户每点一次弹窗，全部 PAUSED agent 被清空 →
+积压 backlog 一口气放出 → 全部再失败 → 3 连败重新 PAUSE + 再告警 owner。熔断器对这类
+用户等于不存在。本轮：
+
+- 两个 GET 恢复成纯读，代码里留注释说明"不许再往 GET 上挂副作用"。
+- 恢复只挂在 **显式动作** 上：既有的 4 条重配置路径（add_provider / onboard /
+  use_subscription / set_slot，不带 provider_id = 该 owner 全量，因为用户刚改了 agent
+  跑在什么上）+ `POST /{provider_id}/test` 成功（带 `provider_id`）。
+- `reset_for_owner(uid, provider_id=...)`（[[circuit_breaker]]）按 agent 的有效 `agent`
+  slot 绑定收窄：`agent_slots` 覆盖优先、否则 `user_slots` 默认；绑在别的 provider 上的
+  agent 不动——测通 A 对跑在 B 上的 agent 没有任何信息量。既无 `agent_slots` 也无
+  `user_slots` 绑定的 agent 永远不会被 `POST /{id}/test` 恢复（它绑的 provider 未知）；
+  这类 agent 由 add-provider / set-slot 走的不带 provider_id 全量路径恢复。
+
+`tests/backend/test_providers_circuit_breaker_resume.py`：test 成功 → `("alice","p1")`；
+失败不恢复；两个 status 端点 `logged_in=True` 时**不**恢复（原来钉住相反行为的 4 条测试
+已删）。`test_reset_for_owner_scoped_to_the_tested_provider` 钉住收窄口径。
+
+## 2026-09-09 — `/claude-status` 补上过期比对（B-25，#111；复审 I3/I4/M6/M7 修订）
+
+`/codex-status` 在 2026-06-11 事故后已经学乖：文件/凭据存在不等于会话还活着，必须拿
+`expires_at` 跟"现在"比一次，过期就把 `logged_in` 掰回 `False` 并加一个 `expired` 字段。
+`_expiry_is_past` 那个 helper `/claude-status` 却从来没调用——`expires_at` 一路被填（CLI probe
+的 `claude auth status` 输出、或旧版 `.credentials.json` 兜底）却从未拿去比较，于是一个已
+过期的 token 仍然报 `logged_in=True`，Settings 页面显示"已登录"而实际每一轮 Claude 调用都
+会因未授权失败。修法照抄 `/codex-status`：两条填充路径跑完、`return` 之前统一比一次；
+fail-open 语义继承（解析不了的 `expires_at` 不算过期）。两条路由的 docstring 都登记了
+`expired` 字段。
+
+复审后三处收口：
+- **`_expiry_is_past` 提到两条路由之前**、去掉"codex"措辞——它服务两条路由，却原本定义在
+  `# Codex CLI Auth Status` 横幅之下、被 120 行之上的 `get_claude_status` 调用，读起来像 codex
+  私有。秒/毫秒阈值抽成常量 `EPOCH_MS_THRESHOLD = 1e11`（1e11 秒是 5138 年、1e11 毫秒是
+  1973 年，真 token 不会落在中间），前端 `SubscriptionConnect.tsx::formatExpiresAt` 原来用
+  `1e12`，1e11–1e12 之间两边解释相反，现在同一个值、互相注明。
+- **凭据文件路径改走 `driver/derive.py::resolve_claude_credentials_path`**（认
+  `CLAUDE_CLI_CREDENTIALS_PATH` / `CLAUDE_CLI_HOME`，默认 `~/.claude/.credentials.json`），
+  与 runtime 读的是同一个文件；此前硬编码 `Path.home()/.claude`，env override 下会基于一个
+  runtime 根本不用的文件把 `logged_in` 掰成 false（codex 那条早就认 `CODEX_HOME`，不对称）。
+  无 env 时行为不变；dev/prod 容器若设了这两个 env，取值会变——切版前用
+  `scripts/ec2_inspect.sh dev env-keys` 核一次。
+- **测试喂真实格式**：`claudeAiOauth.expiresAt` 是 epoch 毫秒整数，测试用 2020/2100 的毫秒
+  值各钉一条（claude + codex 两侧），删掉阈值那两行即红；`_run_json_subprocess` 全部 stub
+  掉（`shutil.which` 被 patch 成固定路径，装了真 `claude` 的机器会真跑子进程、结果随本机登录
+  态漂移）；另补 CLI probe 分支的过期用例和 `CLAUDE_CLI_HOME` override 用例；
+  `NARRANEXUS_DEPLOYMENT_MODE` 显式 delenv（`_is_cloud()` 先看它再看 DATABASE_URL）。
+
+同类「文件在=已登录」未修、记录口径（复审 I4）：`backend/integrations/plugins/service.py::
+_logged_in`（纯 `Path.exists()`，Plugins 设置页）、`plugins/builtin.providers/.../claude_oauth.py::
+probe`（`is_file()` 即 ok）、`tauri/src-tauri/src/commands/auth.rs::get_claude_login_status`
+（后端不可达时的第二套实现，字符串匹配 `"loggedIn":true`，无 `expires_at`）。本批只修路由层。
+
+## 2026-09-04 — 删端点后的注释残句清理（评审二轮 M2）
+
+`/slots/override-stats` 上方那段注释在删 `/slots/agents-overview` 后断了句（后半句还在说
+已删的 Dashboard chip）。重写为：这两个端点只回答「多少 agent 覆盖」与「清除覆盖」，
+目录的框架 / 模型列归 `/api/auth/agents`。
+
+## 2026-09-03 (评审修订) — 删 `/slots/agents-overview`；provider 卡带 `auto_provisioned`
+
+- 目录表改由 `/api/auth/agents` 经同一个 service 投影后，这个端点没有任何前端调用者
+  （评审 I6，铁律 #2 不留兼容壳），连同它的两条路由测试删除；service 方法保留并多了
+  `agent_framework`。
+- `_config_to_response` 给每张卡打 `auto_provisioned`（评审 I7）：取自 free-tier 与
+  netmind provisioner 自己的 source 常量，放在写入方旁边。首程门禁读这个标记，不再在
+  前端维护一份「哪些 source 是 login 自动开的」。已知碰撞：用户自己粘贴的 NetMind key
+  也是 `netmind`，代价是多走一次首程流程。
+
+## 2026-08-28 — agent-framework 端点接入插件安装状态（fail-closed）
+
+Local/desktop 把 `claude_code`/`codex_cli` 从基础安装拆成按需插件（装进
+`~/.narranexus/plugins/`，见 [[plugin_paths]]、`backend/integrations/plugins/`）
+后，两个既有端点各加一处、都只 import `framework_installed`，不重新推导判定
+逻辑（这条规则是 2026-07-18 那次教训的直接延续）：
+
+- **`GET /agent-framework`**：`data` 新增 `frameworks` 字段——
+  `[{"name": fw, "available": framework_installed(fw)} for fw in
+  _SUPPORTED_AGENT_FRAMEWORKS]`。既有 `supported`/`framework`/`probe` 三个
+  字段原样保留，`frameworks` 是纯增量，前端插件感知选择器消费它，旧前端
+  忽略它。
+- **`POST /agent-framework`**：在「未知 framework → 400」之后、真正调用
+  `service.set_user_agent_framework` 之前插一道 fail-closed 检查——
+  `body.framework != "nexus_power" and not framework_installed(body.framework)`
+  → `409`，detail 是纯英文机器可读串
+  `f"Framework '{...}' plugin is not installed"`（前端按 framework 名本地化，
+  不解析 detail 文本）。不这样做的后果：用户切到一个没装插件的框架会先
+  "成功"落库，下一次真正发消息时才在 `get_agent_loop_driver` 里炸出
+  `FrameworkNotInstalledError`——把一个本可以在切换那一刻就说清楚的错误，
+  推迟到了体验最差的时间点。
+
+**为什么门禁顺序是 cloud gate → unknown-framework 400 → install 409 → codex
+wheel 检查 → 落库**：cloud gate（`framework_allowed_in_cloud`）必须最先，
+它决定这个请求在这个部署形态下"能不能问这个问题"；未知框架名是纯粹的输入
+校验，理应比"这个框架装没装"更先报；`_ensure_codex_installed` 检查的是
+「wheel 里的 codex 二进制在不在」，是 install 检查通过之后的**运行时细节**
+（wheel 已确认可 import，但二进制路径可能仍然缺失），语义上比
+`framework_installed` 更细粒度，所以排在它之后。
+
+**为什么 `nexus_power` 天然豁免**：`framework_installed("nexus_power")`
+在 [[plugin_paths]] 里恒真（它是内置框架，从不走插件安装），本条件式的
+`body.framework != "nexus_power"` 短路只是把这条真值原样体现在门禁的措辞
+里，并非另开一条特例判定——即便 `framework_installed` 未来某天对
+`nexus_power` 返回非 True（回归），这句显式排除仍能兜底。
+
+**为什么云端永远不会被这道新门挡住**：云端镜像的基础环境本身就预装了
+`claude_agent_sdk`/`openai_codex`（铁律：cloud/CI 用 `uv sync --extra
+plugins` 显式装这两个包，见 [[plugin_paths]] 文件头），`framework_installed`
+走的是 `_present_in_base`（`importlib.util.find_spec`）分支，恒真——这道
+门只在 local/desktop（未装插件）才会真正触发。
+
+测试：`tests/backend/test_agent_framework_plugin_gate.py`（monkeypatch
+`framework_installed`，覆盖正例/负例/`nexus_power` 豁免/cloud gate 先行）。
+## 2026-08-27 — agent-framework 探针 stub 改走 from_row(auth_ref P1 收尾)
+
+`_probe_agent_framework_auth` 的 claude/codex 两个 stub 原来手写
+`auth_ref` 常量 + `driver_type` 字符串——`derive.py` 真值表之外的第三份
+副本,哨兵语义一变就静默漂移(探针会拿过期形态的 auth_ref 去 resolve,
+把登录正常的宿主报成 "auth missing")。现改为 `ProviderCard.from_row`
+喂假 DB row,auth_ref 走读时推导(base.py.md 同日条目)。两个坑:
+① `auth_type` 必须显式 `"oauth"`——from_row 缺省兜 `"api_key"`,推导
+返回 None,探针会误报未登录;② `driver_type` 字段删除是安全的——两个
+分支都直接构造 driver 类,不经 `get_driver_class`。leg 2 此前**零测试
+覆盖**(既有探针测试都带 user_id,在 leg 1 就 return 了),review 第 4
+轮补了 4 条(test_one_key_onboarding.py §8):不传 user_id 才走 leg 2;
+claude 反向用例必须 monkeypatch 掉 `_keychain_has_credentials`,否则在
+装了真 claude 登录的 mac 上假绿。
+
+## 2026-08-26 — owner 级 bulk slot 端点（应用默认到全体）
+
+新增三个 owner 范围端点，都经 `_get_user_id` 定身份、委托
+[[slot_service]] 的批量方法（本人 agent 天然隔离）：
+
+- `GET /slots/override-stats` → 各槽有多少 agent 存在覆盖（确认框影响面）。
+- `POST /slots/apply-to-agents` `{slots:[...]}` → 逐槽 clear-to-inherit，返回
+  实际清除数。**fail-closed**：进入清除循环前先校验全部槽名，任一非法即
+  400、不产生部分删除。
+- `GET /slots/agents-overview` → 喂 Dashboard 折叠行 model chip：一次 HTTP
+  调用替代 per-agent llm-config 请求（DB 层非单查询，见 [[slot_service]]）。
+
+**2026-08-27 auto-review 修正**：
+- `apply-to-agents` 的 `slots` 加 `max_length=len(SlotName)` **只封循环基数**
+  （Pydantic 校验在 body 缓冲后才跑，不封字节）；**字节上界**是
+  [[body_size]] `BODY_CAPS` 里新加的真 cap（`MAX_APPLY_TO_AGENTS_BYTES=4KB`，
+  在中间件、缓冲前生效），不再走门禁豁免。
+- 端点回到「validate + delegate」：校验(fail-closed)、去重、单次取 agent
+  列表、逐槽 clear 全部收进 [[slot_service]] `clear_owner_agents_slots`，路由
+  一行委托、`ValueError`→400。
+- `get_db_client` 保持**函数内局部 import**（全仓主流、与 ~10 个 patch
+  `db_factory.get_db_client` 源符号的测试一致；模块顶层 import 会让那些测试
+  连真库——I6 因此反向修回局部 import）。
+
+这三个端点服务于「改默认→一键应用到全体」与「Dashboard 就地看/改单 agent
+模型」两个前端功能。
+
+## 2026-08-06 — NetMind token 的 401 不再等于"会话死了"
+
+`_get_user_id` 的 401 → `AuthError(IDENTITY_UNRESOLVED)`；两处 NetMind
+凭证 401（缺 `X-Netmind-Token` / `KeyAuthError`）→
+`AuthError(NETMIND_TOKEN_INVALID)`。
+
+这条路径是 2026-08-02 事故的实锤之一：8/2 16-17 点的 401 里就有
+`/api/providers`。用户的 NarraNexus 会话完全有效，只是 NetMind 令牌过期，
+但前端的旧豁免清单只写了 `/api/billing/`，于是把人踢回了登录页。分类表见
+[[auth_errors]]。
 
 ## 2026-07-31 — `POST /agent-framework` 响应新增 `slot_cleared`
 
@@ -300,7 +475,7 @@ async def _ensure_codex_installed() -> dict:
 修法：route 层直接 import service 层的常量当 single source of truth：
 
 ```python
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
@@ -336,10 +511,10 @@ route 层 #4 后已经不算独立条目了，因为 import 自动跟 service。
 
 - **被谁用**：`backend/main.py` — `include_router(providers_router, prefix="/api/providers")`；前端设置面板；`backend/auth.py` 的 `AUTH_EXEMPT_PATHS` 包含 `/api/providers/claude-status`
 - **依赖谁**：
-  - `UserProviderService`（来自 `xyz_agent_context.agent_framework.providers.user_service`）— 所有提供商和 Slot 操作
-  - `xyz_agent_context.agent_framework.providers.model_catalog` — 获取已知模型列表和建议值
-  - `xyz_agent_context.schema.provider_schema` — `LLMConfig`、`SlotName`、`SLOT_REQUIRED_PROTOCOLS`
-  - `xyz_agent_context.agent_framework.api_config` — 热重载配置（本地进程内）
+  - `UserProviderService`（来自 `narranexus.platform.agent_framework.providers.user_service`）— 所有提供商和 Slot 操作
+  - `narranexus.platform.agent_framework.providers.model_catalog` — 获取已知模型列表和建议值
+  - `narranexus.platform.schema.provider_schema` — `LLMConfig`、`SlotName`、`SLOT_REQUIRED_PROTOCOLS`
+  - `narranexus.platform.agent_framework.api_config` — 热重载配置（本地进程内）
   - `EmbeddingMigrationService` — 嵌入向量重建
 
 ## 设计决策
@@ -425,3 +600,29 @@ existing_masked}`（**HTTP 200**，非错误），让前端按结构化字段分
 ## 2026-07-07 (bug#3) — hot-reload 传 cli_helper
 
 add/onboard/set-slot/use-subscription 的 4 处 `set_user_config(cfg...)` 均增传 `cfg.cli_helper`，订阅（OAuth）helper 才能在当前进程即时生效。OAuth 登录后 add_provider 自动绑定 agent+helper 两槽。
+
+## 2026-08-28 补(auto-review I-new-6) — _ensure_codex_installed 惰性 activate + 修失效指引
+
+`_ensure_codex_installed` 是插件包 import 的第 6 个站点,原来 import `codex_cli_bin` 前不 activate_pyenv,装完 Codex 不重启会 ImportError;且失效文案叫用户 'Run uv sync'(轻量版 run.sh 的 uv sync 明确不带 --extra plugins,永远装不上)。修:import 前 `plugin_paths.activate_pyenv()`;文案改指 Settings→Plugins(云端才提 uv sync --extra plugins);删 docstring 里 'hard dependency in pyproject.toml' 等 v2 时代过时前提。测试 test_agent_framework_plugin_gate::test_ensure_codex_installed_activates_plugin_pyenv_first 锁定。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+The four edge-triggered job re-arms fire `onDidChangeUserRunnability` (`backend/host_events.notify_user_runnability_changed`) instead of importing job_recovery.
+
+## 2026-09-04 · OAuth drivers from the registry (batch 6b.2)
+
+The codex_oauth / claude_oauth probes resolve their driver class with `get_driver_class` (503 when builtin.providers is disabled) instead of importing the driver modules.
+
+## 2026-09-07 — 框架接口全部注册表驱动（B6）
+
+_SUPPORTED_AGENT_FRAMEWORKS 常量换 _supported_agent_frameworks()；GET agent-framework 的 frameworks[] 每项带 display_name/protocol/oauth_source/available（前端 picker、providerBacksFramework 从此读，不再各自抄表）；_probe_agent_framework_auth 的 leg 1 按 meta.agent_protocols 匹配、leg 2 用 meta.oauth_source 同名的 OAuth driver 探测（无 oauth_source 的框架直接报『仅 API-key』），两段 codex/claude 分支合一；nexus_power 的安装门豁免不再按名字，改由 framework_installed 对无安装配方的框架返回 True。仍按名字判断的只剩 _ensure_codex_installed（codex wheel 内置二进制的复核，属于该插件的 belt-and-suspenders，fail-closed 门已覆盖）。
+
+## 2026-09-07（round-2 P2-I2 / P2-I8）— import moves + the 403 text is built, not literal
+
+`SLOT_REQUIRED_PROTOCOLS` now comes from `agent_framework.providers.framework_binding` (it left the
+schema layer with the two policy functions that read the framework registry).
+`FRAMEWORK_LOCKED_DETAIL` became `framework_locked_detail()`: the body names the frameworks the
+deployment actually allows instead of hardcoding "Claude Code or NexusPower". The route's existing
+`ValueError → 400` / `CloudPolicyViolation → 403` mapping is unchanged and is now what a binding to
+an uninstalled framework hits — it used to escape as a `RuntimeError` and 500 the whole provider
+page, i.e. the one page that can undo the binding.

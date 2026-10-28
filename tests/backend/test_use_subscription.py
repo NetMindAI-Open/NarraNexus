@@ -16,11 +16,11 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes.providers as providers_mod
-import xyz_agent_context.utils.db.db_factory as db_factory
+import narranexus.platform.utils.db.db_factory as db_factory
 import backend.integrations.netmind.netmind_provisioner as prov_mod
-import xyz_agent_context.module.job_module.job_recovery as jr_mod
+import narranexus_plugins.job_module.job_recovery as jr_mod
 from backend.integrations.netmind.netmind_key_client import KeyAuthError, KeyUpstreamError
-from xyz_agent_context.settings import settings
+from narranexus.platform.settings import settings
 
 USER = {"X-User-Id": "user_test"}
 TOK = {"X-Netmind-Token": "jwt"}

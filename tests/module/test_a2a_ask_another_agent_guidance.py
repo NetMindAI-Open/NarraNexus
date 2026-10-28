@@ -11,7 +11,7 @@ Two things went wrong in the incident and only one was the agent_id bug
 1. the model reached for ``get_contact_info`` — a contact-details lookup
    that can never answer "what are they doing" — and
 2. when it errored, the agent told the user the task was impossible, even
-   though ``bus_send_to_agent`` exists and triggers the target.
+   though ``message_agent`` exists and triggers the target.
 
 Tool descriptions and module instructions are the only levers that steer
 tool CHOICE, so they are asserted here like any other contract. These are
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.message_bus_module.message_bus_module import (
+from narranexus_plugins.message_bus_module.message_bus_module import (
     MessageBusModule,
 )
 
@@ -43,7 +43,7 @@ def test_instructions_cover_asking_another_agent_on_the_owners_behalf():
     text = _bus_instructions()
     assert "find something out FROM another agent" in text
     # The route must name the actual capability...
-    assert "bus_send_to_agent" in text
+    assert "message_agent" in text
     # ...and forbid the observed failure mode.
     assert "Never answer that you are unable to reach another agent." in text
 
@@ -59,7 +59,7 @@ def test_instructions_require_relaying_the_reply_to_the_owner():
     """Sending the question is only half the errand — the acceptance
     criterion is 「能实际发起查询并回报」."""
     text = _bus_instructions()
-    assert "send_message_to_user_directly" in text
+    assert "notify_owner" in text
     assert "relay" in text.lower()
 
 
@@ -71,14 +71,24 @@ def test_reply_discipline_is_not_read_as_suppressing_the_owner_report():
     assert "never suppresses reporting back to your owner" in text
 
 
-def test_finished_work_must_be_delivered_not_left_as_plain_text():
+def test_finished_work_must_be_delivered():
     """2026-08-01 briefing squad: five analysts researched for real, ended
     their turns with the results as plain text, and delivered nothing. The
-    discipline section must state that completing asked-for work ends with
-    a bus send — plain text delivers nothing."""
+    discipline section must state that completing asked-for work has to reach
+    the asker.
+
+    This used to also assert the MECHANISM ("plain text delivers nothing —
+    call a bus tool"), which held on every surface that existed when it was
+    written and stopped holding when team rooms arrived: there the plain text
+    IS the reply and a bus tool double-posts, so the assertion was pinning a
+    sentence that contradicted the team prompt in the same context window
+    (2026-08-16). The duty is universal and stays pinned here; which surface
+    delivers how is asserted in `tests/message_bus/test_visibility_wording.py`,
+    next to the other rules that may only say what is true everywhere.
+    """
     text = _bus_instructions()
     assert "Finished work is never ping-pong" in text
-    assert "plain text" in text
+    assert "has to REACH them" in text
 
 
 def test_a_missing_target_is_a_question_not_a_refusal():
@@ -88,8 +98,8 @@ def test_a_missing_target_is_a_question_not_a_refusal():
 
 def test_instructions_stay_byte_stable_across_calls():
     """These parts feed the cacheable system prompt — they must not vary per
-    call (prefix caching is byte-wise; see get_turn_context vs
-    get_instructions in module/base.py)."""
+    call (prefix caching is byte-wise; see contribute_turn_context vs
+    contribute_instructions in module/base.py)."""
     assert _bus_instructions() == _bus_instructions()
 
 
@@ -100,7 +110,7 @@ def test_instructions_stay_byte_stable_across_calls():
 
 @pytest.mark.asyncio
 async def test_get_contact_info_description_disclaims_and_redirects():
-    from xyz_agent_context.module.social_network_module.social_network_module import (
+    from narranexus_plugins.social_network_module.social_network_module import (
         SocialNetworkModule,
     )
 
@@ -112,7 +122,7 @@ async def test_get_contact_info_description_disclaims_and_redirects():
     doc = (tool.description or "")
 
     assert "does NOT contact anyone" in doc
-    assert "bus_send_to_agent" in doc
+    assert "message_agent" in doc
     # And it must still describe its own real purpose.
     assert "contact details" in doc
 

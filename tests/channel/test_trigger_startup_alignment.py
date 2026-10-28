@@ -38,10 +38,12 @@ own check script.
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-MODULE_DIR = REPO_ROOT / "src" / "xyz_agent_context" / "module"
+from tests._paths import engine_source_roots
 
-SUPERVISOR_ENTRYPOINT = "xyz_agent_context.module.run_worker_supervisor"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MODULE_DIR = REPO_ROOT / "src" / "narranexus" / "platform" / "module_system"
+
+SUPERVISOR_ENTRYPOINT = "narranexus.platform.module_system.run_worker_supervisor"
 WORKER_SUPERVISOR_FILE = MODULE_DIR / "run_worker_supervisor.py"
 
 STARTUP_FILES = {
@@ -60,9 +62,12 @@ _SUBCLASS_RE = re.compile(r"class\s+(\w+)\s*\(\s*ChannelTriggerBase\s*\)")
 def discover_channel_trigger_classes() -> set[str]:
     """Class names of every ``ChannelTriggerBase`` subclass under module/*."""
     found: set[str] = set()
-    for path in MODULE_DIR.glob("*_module/*_trigger.py"):
-        text = path.read_text(encoding="utf-8")
-        found.update(_SUBCLASS_RE.findall(text))
+    for root in engine_source_roots():
+        for path in root.glob("narranexus_plugins/*_module/*_trigger.py"):
+            if "__pycache__" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            found.update(_SUBCLASS_RE.findall(text))
     return found
 
 
@@ -78,17 +83,17 @@ def test_every_channel_trigger_is_registered_in_map():
     """A ChannelTriggerBase subclass that isn't registered would never be
     launched by the supervisor — the modern form of the old silent-drop outage.
 
-    Checks the registration INTENT (REGISTERED_TRIGGER_CLASS_NAMES), NOT the
+    Checks the registration INTENT (registered_trigger_class_names()), NOT the
     runtime CHANNEL_TRIGGER_MAP: the map defensively drops channels whose
     optional dependency is missing in this env (e.g. matrix-nio), and a missing
     dep must not read as "forgot to register."
     """
-    from xyz_agent_context.module.channel_trigger_map import (
-        REGISTERED_TRIGGER_CLASS_NAMES,
+    from narranexus.platform.module_system.channel_trigger_map import (
+        registered_trigger_class_names,
     )
 
     on_disk = discover_channel_trigger_classes()
-    missing = on_disk - set(REGISTERED_TRIGGER_CLASS_NAMES)
+    missing = on_disk - set(registered_trigger_class_names())
     assert not missing, (
         "ChannelTriggerBase subclasses not registered in _TRIGGER_SPECS "
         "(the supervisor will never start them):\n" + "\n".join(sorted(missing))
@@ -96,8 +101,8 @@ def test_every_channel_trigger_is_registered_in_map():
 
 
 def test_map_values_are_channel_trigger_subclasses():
-    from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-    from xyz_agent_context.module.channel_trigger_map import CHANNEL_TRIGGER_MAP
+    from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+    from narranexus.platform.module_system.channel_trigger_map import CHANNEL_TRIGGER_MAP
 
     for name, cls in CHANNEL_TRIGGER_MAP.items():
         assert issubclass(cls, ChannelTriggerBase), f"{name} -> {cls} not a trigger"

@@ -1,0 +1,102 @@
+{
+  "id": "builtin.turn",
+  "version": "1.0.0",
+  "displayName": "Turn Pipeline",
+  "description": "The seven-stage turn pipeline: default stage strategies and the builtin profiles.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "stage_strategy": 0,
+    "pipeline_profile": 0,
+    "framework": 0
+  },
+  "provides": {
+    "turn.pipeline": "narranexus_plugins.turn.pipeline:CONTRIBUTION",
+    "turn.pipeline.ingress": [
+      "narranexus_plugins.turn.stages:INGRESS_STRATEGIES"
+    ],
+    "turn.pipeline.recall": [
+      "narranexus_plugins.turn.stages:RECALL_STRATEGIES"
+    ],
+    "turn.pipeline.compose": [
+      "narranexus_plugins.turn.stages:COMPOSE_STRATEGIES"
+    ],
+    "turn.pipeline.assemble": [
+      "narranexus_plugins.turn.stages:ASSEMBLE_STRATEGIES"
+    ],
+    "turn.pipeline.act": [
+      "narranexus_plugins.turn.stages:ACT_STRATEGIES"
+    ],
+    "turn.pipeline.commit": [
+      "narranexus_plugins.turn.stages:COMMIT_STRATEGIES"
+    ],
+    "turn.pipeline.reflect": [
+      "narranexus_plugins.turn.stages:REFLECT_STRATEGIES"
+    ],
+    "turn.profiles": [
+      "narranexus_plugins.turn.profiles:PROFILES"
+    ]
+  },
+  "declares": {
+    "turn.pipeline.ingress": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "kind": "stage_strategy",
+      "doc": "Ingress stage strategies; a profile names one."
+    },
+    "turn.pipeline.recall": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "kind": "stage_strategy",
+      "doc": "Recall stage strategies; a profile names one."
+    },
+    "turn.pipeline.compose": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "kind": "stage_strategy",
+      "doc": "Compose stage strategies; a profile names one."
+    },
+    "turn.pipeline.assemble": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "kind": "stage_strategy",
+      "doc": "Assemble stage strategies; a profile names one."
+    },
+    "turn.pipeline.act": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:ActStrategy",
+      "kind": "stage_strategy",
+      "doc": "Act stage strategies (agent_loop / direct_trigger / silent); a profile names one. Child of the pipeline so replacing the pipeline owns it. ActStrategy is StageStrategy under a path-readable name; every stage slot shares that one contract."
+    },
+    "turn.pipeline.act.framework": {
+      "arity": "one",
+      "contract": "narranexus.contracts.framework:AgentLoopDriver",
+      "kind": "framework",
+      "default": "builtin.frameworks.nexus_power",
+      "caseInsensitive": true,
+      "doc": "Agent-loop framework used by the Act stage (framework plugins provide; names are case-insensitive)."
+    },
+    "turn.pipeline.commit": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "kind": "stage_strategy",
+      "doc": "Commit stage strategies; a profile names one."
+    },
+    "turn.pipeline.reflect": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:StageStrategy",
+      "kind": "stage_strategy",
+      "doc": "Reflect stage strategies; a profile names one."
+    },
+    "turn.profiles": {
+      "arity": "many",
+      "contract": "narranexus.contracts.agent.pipeline:PipelineProfile",
+      "kind": "pipeline_profile",
+      "doc": "Named pipeline profiles (default/fast/voice/job/silent + plugin-defined)."
+    }
+  },
+  "quality": "gold"
+}

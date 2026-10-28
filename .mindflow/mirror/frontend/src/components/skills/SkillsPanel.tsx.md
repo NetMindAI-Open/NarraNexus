@@ -1,7 +1,19 @@
 ---
 code_file: frontend/src/components/skills/SkillsPanel.tsx
-last_verified: 2026-07-21
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03 — `compact` 变体（窄宿主用）
+
+新增 `compact?: boolean`，**默认 false，Skills tab 不受影响**。
+
+起因：`embedded` 只隐藏标题，于是 CardHeader 那一行**只剩一个刷新图标**独占一整
+行。在全宽的 Skills tab 里还能忍，塞进创建工作室的面板里就是浪费——Owner 截图
+里那个空行加下面的 MARKETPLACE/GITHUB/ZIP 行，一共两行。
+
+compact 做三件事：整个 CardHeader 不渲染、刷新按钮移进 action bar、隐藏
+「显示已禁用」勾选框（那是维护用的筛选，创建 agent 时不会去按），并收紧
+action bar 的内边距。结果是**一行**。
 
 ## 2026-07-21 — Marketplace 入口(stage 7)
 

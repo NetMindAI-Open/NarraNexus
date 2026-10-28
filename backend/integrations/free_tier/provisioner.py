@@ -25,11 +25,11 @@ import asyncio
 
 from loguru import logger
 
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletClient,
     WalletError,
 )
-from xyz_agent_context.agent_framework.providers.free_tier import (
+from narranexus.platform.agent_framework.providers.free_tier import (
     FREE_TIER_SOURCE,
     free_tier_default_models,
     is_free_tier_enabled,
@@ -69,13 +69,13 @@ async def ensure_free_tier_provider(
         )
         return False
 
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.providers.resolver import (
         is_user_config_complete,
     )
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
 
     async with _lock(user_id):
         db = await get_db_client()
@@ -119,8 +119,8 @@ async def ensure_free_tier_provider(
         if served:
             models = served
             try:
-                from xyz_agent_context.agent_framework.providers import model_sync
-                from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+                from narranexus.platform.agent_framework.providers import model_sync
+                from narranexus.platform.agent_framework.providers.model_probe_ledger import (
                     load_ledger,
                     load_ledger_db,
                 )

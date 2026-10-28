@@ -5,44 +5,45 @@
 """
 import pytest
 
-from xyz_agent_context.analytics import _hash_distinct_id
-from xyz_agent_context.analytics._impl.fake_sink import FakeSink
-
 
 async def _async_return(v):
     return v
 
 
 @pytest.fixture
-def fake_sink(monkeypatch):
-    sink = FakeSink()
-    import xyz_agent_context.analytics as analytics
-    monkeypatch.setattr(analytics, "_get_sink_cached", lambda: sink)
+def captured_events(monkeypatch):
+    events = []
+    import narranexus.platform.analytics as analytics
+
+    async def _capture(**event):
+        events.append(event)
+
+    monkeypatch.setattr(analytics, "_persist_product_event", _capture)
     monkeypatch.setattr(analytics, "_opted_out", lambda user_id: _async_return(False))
-    return sink
+    return events
 
 
 @pytest.mark.asyncio
-async def test_success_helper_fires(fake_sink):
-    from xyz_agent_context.agent_runtime.background_run import (
+async def test_success_helper_fires(captured_events):
+    from narranexus.platform.agent_runtime.background_run import (
         _fire_message_success,
     )
     await _fire_message_success(user_id="u1", agent_id="a1", run_id="r1")
-    evt = next(e for e in fake_sink.events
-               if e[1] == "message_round_trip_succeeded")
-    assert evt[0] == _hash_distinct_id("u1")
-    assert evt[2].get("agent_id") == "a1"
-    assert evt[2].get("run_id") == "r1"
+    evt = next(e for e in captured_events
+               if e["event"] == "message_round_trip_succeeded")
+    assert evt["user_id"] == "u1"
+    assert evt["properties"].get("agent_id") == "a1"
+    assert evt["properties"].get("run_id") == "r1"
 
 
 @pytest.mark.asyncio
-async def test_success_helper_ignores_empty_user(fake_sink):
-    from xyz_agent_context.agent_runtime.background_run import (
+async def test_success_helper_ignores_empty_user(captured_events):
+    from narranexus.platform.agent_runtime.background_run import (
         _fire_message_success,
     )
     await _fire_message_success(user_id="", agent_id="a1", run_id="r1")
-    assert [e for e in fake_sink.events
-            if e[1] == "message_round_trip_succeeded"] == []
+    assert [e for e in captured_events
+            if e["event"] == "message_round_trip_succeeded"] == []
 
 
 # --- _had_fatal_error gate: a fatal error (e.g. no provider configured) ends
@@ -64,7 +65,7 @@ async def _seed_events_row(db, event_id):
 
 
 async def _make_bg(db, event_id):
-    from xyz_agent_context.agent_runtime.background_run import BackgroundRun
+    from narranexus.platform.agent_runtime.background_run import BackgroundRun
     await _seed_events_row(db, event_id)
     bg = BackgroundRun(
         agent_id="a_funnel", user_id="u_funnel", input_preview="",

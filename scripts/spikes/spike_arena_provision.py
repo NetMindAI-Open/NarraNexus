@@ -37,8 +37,8 @@ from uuid import uuid4
 
 sys.path.insert(0, "src")
 
-from xyz_agent_context.settings import settings  # noqa: E402
-from xyz_agent_context.utils.db.db_factory import get_db_client  # noqa: E402
+from narranexus.platform.settings import settings  # noqa: E402
+from narranexus.platform.utils.db.db_factory import get_db_client  # noqa: E402
 from backend.integrations.arena.arena_onboarding import (  # noqa: E402
     ArenaOnboarder,
     ArenaCredentials,
@@ -79,7 +79,7 @@ async def _resolve_user_id(db, arg_user_id: str | None) -> str:
 
 
 async def _ensure_agent(db, user_id: str, agent_id: str | None, agent_name: str) -> str:
-    from xyz_agent_context.repository.agent_repository import AgentRepository
+    from narranexus.platform.repository.agent_repository import AgentRepository
 
     repo = AgentRepository(db)
     if agent_id:
@@ -103,7 +103,7 @@ async def _ensure_agent(db, user_id: str, agent_id: str | None, agent_name: str)
 
 
 async def _ensure_instances(db, agent_id: str) -> None:
-    from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
+    from narranexus.platform.module_system._module_impl.instance_factory import InstanceFactory
 
     factory = InstanceFactory(db)
     instances = await factory.create_agent_level_instances(agent_id)
@@ -112,8 +112,8 @@ async def _ensure_instances(db, agent_id: str) -> None:
 
 
 async def _set_awareness(db, agent_id: str) -> None:
-    from xyz_agent_context.repository.instance_repository import InstanceRepository
-    from xyz_agent_context.repository.instance_awareness_repository import (
+    from narranexus.platform.repository.instance_repository import InstanceRepository
+    from narranexus.platform.repository.instance_awareness_repository import (
         InstanceAwarenessRepository,
     )
 
@@ -129,7 +129,7 @@ async def _set_awareness(db, agent_id: str) -> None:
 
 
 def _verify(db, agent_id: str, user_id: str, skill_dir: Path) -> None:
-    from xyz_agent_context.module.skill_module.skill_module import SkillModule
+    from narranexus_plugins.skill_module.skill_module import SkillModule
 
     print("\n=== VERIFY (real SkillModule round-trip) ===")
     files = sorted(p.name for p in skill_dir.iterdir())
@@ -155,7 +155,7 @@ async def main() -> None:
     print("=" * 64)
 
     db = await get_db_client()
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     await auto_migrate(db._backend)
 

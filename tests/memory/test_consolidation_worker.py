@@ -27,8 +27,8 @@ import pytest
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
-from xyz_agent_context.memory.spec import get_spec
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.memory.spec import get_spec
+from narranexus.platform.utils.timezone import utc_now
 
 
 _QUEUE = "memory_consolidation_queue"
@@ -71,7 +71,7 @@ async def _seed_agent(db, agent_id, created_by="usr1"):
 
 def _make_worker(db_client, consolidate_return=2):
     """Build a MemoryConsolidationWorker; patch MemoryEngine.consolidate."""
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -90,7 +90,7 @@ async def test_count_threshold_triggers(db_client):
     row = _row(kind="observation", pending_count=spec.consolidate_threshold)
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -108,7 +108,7 @@ async def test_idle_threshold_triggers(db_client):
     row = _row(kind="observation", pending_count=1, last_dirty_at=stale)
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -125,7 +125,7 @@ async def test_fresh_low_count_not_triggered(db_client):
     row = _row(kind="observation", pending_count=spec.consolidate_threshold - 1)
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -141,7 +141,7 @@ async def test_cap_triggers(db_client):
     row = _row(kind="observation", pending_count=20)
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -160,7 +160,7 @@ async def test_successful_consolidation_resets_state(db_client):
     row = _row(kind="observation", pending_count=spec.consolidate_threshold)
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -202,7 +202,7 @@ async def test_failed_consolidation_isolates_scope(db_client):
             raise RuntimeError("simulated LLM failure")
         return 2
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -226,7 +226,7 @@ async def test_processing_rows_skipped(db_client):
     row = _row(kind="observation", pending_count=spec.consolidate_threshold, status="processing")
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -244,7 +244,7 @@ async def test_flush_scope_forces_processing(db_client):
     row = _row(kind="observation", pending_count=1)
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -269,7 +269,7 @@ async def test_failed_rows_not_reprocessed_automatically(db_client):
     row = _row(kind="observation", pending_count=10, status="failed")
     await db_client.insert(_QUEUE, row)
 
-    from xyz_agent_context.services.memory_consolidation_worker import (
+    from narranexus.platform.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
     worker = MemoryConsolidationWorker(db_client=db_client)
@@ -292,7 +292,7 @@ async def test_inject_owner_credentials_resolves_for_agent_owner(db_client):
     db_client.get_one = AsyncMock(return_value={"agent_id": "agent_x", "created_by": "user_owner"})
 
     with patch(
-        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
+        "narranexus.platform.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ) as resolver:
         await worker._inject_owner_credentials("agent_x")
@@ -309,7 +309,7 @@ async def test_inject_owner_credentials_no_owner_is_noop(db_client):
     db_client.get_one = AsyncMock(return_value=None)
 
     with patch(
-        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
+        "narranexus.platform.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ) as resolver:
         await worker._inject_owner_credentials("agent_ghost")
@@ -345,7 +345,7 @@ async def test_resolver_failure_isolates_scope_with_facts_intact(db_client):
 async def test_inject_owner_credentials_never_leaks_previous_tenant(db_client):
     """Scope N sets tenant A's config; scope N+1's agent has no owner row.
     The fallback must be the GLOBAL config — not tenant A's leftovers."""
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.api_config import (
         ClaudeConfig, OpenAIConfig, openai_config, set_user_config,
     )
 
@@ -358,7 +358,7 @@ async def test_inject_owner_credentials_never_leaks_previous_tenant(db_client):
 
     db_client.get_one = AsyncMock(return_value=None)  # deleted agent
     with patch(
-        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
+        "narranexus.platform.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ):
         await worker._inject_owner_credentials("agent_deleted")

@@ -23,6 +23,24 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Setup uv
+        # build-desktop.sh installs the project into the bundled standalone
+        # interpreter with `uv pip install`. It CANNOT be plain pip: the 30
+        # workspace members (narranexus-contracts / -sdk / 28 plugins) resolve
+        # only through `[tool.uv.sources]`, a uv-only table. Without this step
+        # the script dies at "uv: command not found".
+        uses: astral-sh/setup-uv@v4
+        # Pinned. Step 3 of build-desktop.sh runs `uv export --locked`, which
+        # asserts uv.lock would not change — so which uv runs is part of the
+        # build contract, not an implementation detail. An unpinned setup-uv
+        # that one day bumps the lock format would fail this job AFTER the tag
+        # is pushed, which is the most expensive place to find out. Keep in
+        # lockstep with ci.yml. The cloud images are a separate question and
+        # not covered by this pin: they install through `uv sync --frozen`,
+        # which no `--locked` assertion rides on.
+        with:
+          version: "0.12.12"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -75,7 +93,15 @@ jobs:
           which cargo
           which rustc
           rustc -vV
-          cargo install tauri-cli --version "^2"
+          # --locked + exact version. tauri-cli 2.12.x (2.12.2 included) depends on
+          # `zip = "^8"`, and every zip 8.x release is yanked on crates.io, so a
+          # fresh resolve fails before compiling (the v1.21.7 tag build, 2026-10-16).
+          # --locked is what fixes it: it installs from the crate's own bundled
+          # Cargo.lock, which pins zip 8.0.0, and yanked versions already pinned in a
+          # lockfile still resolve. The exact version adds reproducibility: 2.12.2
+          # is what built v1.21.6. Keep it in lockstep with the @tauri-apps/cli pin
+          # in the updater-signing step below.
+          cargo install tauri-cli --version "=2.12.2" --locked
 
       # Import the Developer ID cert into a temp keychain so build-desktop.sh's
       # `codesign --sign "$APPLE_SIGNING_IDENTITY"` calls can find it.
@@ -145,19 +171,18 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Write-only PostHog ingest key, read at compile time by
-          # process_manager.rs via option_env!. Absent on forks/PRs → the
-          # built app falls back to NullSink (no telemetry). Set this repo
-          # secret to enable telemetry from official release builds only.
-          NARRA_POSTHOG_KEY: ${{ secrets.NARRA_POSTHOG_KEY }}
           # NetMind ("Power") account login in the shipped DMG. All wired to repo
-          # Variables (Settings → Variables): UNSET → empty → Power login stays
-          # OFF, so a default release is pure-local (username-only). Set them to
-          # ship a Power-enabled DMG — point at PROD NetMind for a public release
-          # (NOT protago-dev). The frontend VITE_* are baked by vite here; the
-          # backend vars are baked into the launcher via option_env! (both read
-          # from this step's env). VITE_NETMIND_* fall back to compiled dev
-          # defaults if left empty, so set them explicitly for a prod release.
+          # Variables (Settings → Variables), pointing at PROD NetMind. The
+          # frontend VITE_* are baked by vite here; the backend vars are baked
+          # into the launcher via option_env! (both read from this step's env).
+          # scripts/release/check_desktop_netmind_env.sh runs first inside the
+          # script and fails the build on a missing, mismatched, or non-prod
+          # (protago-dev, test.*) value, then scans the built frontend for any
+          # protago-dev reference. On a tag (a public release) Power login is
+          # REQUIRED: if the Variables vanish the release goes red instead of
+          # silently shipping without Power login. A workflow_dispatch test
+          # build may leave them unset (pure-local, username-only).
+          NARRANEXUS_REQUIRE_POWER_LOGIN: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || '' }}
           VITE_ENABLE_POWER_LOGIN: ${{ vars.VITE_ENABLE_POWER_LOGIN }}
           VITE_NETMIND_AUTH_API: ${{ vars.VITE_NETMIND_AUTH_API }}
           VITE_NETMIND_ACCOUNTS_URL: ${{ vars.VITE_NETMIND_ACCOUNTS_URL }}
@@ -169,6 +194,208 @@ jobs:
           BILLING_API_BASE: ${{ vars.BILLING_API_BASE }}
           NETMIND_KEY_API_BASE: ${{ vars.NETMIND_KEY_API_BASE }}
           NETMIND_INFERENCE_BASE: ${{ vars.NETMIND_INFERENCE_BASE }}
+
+      # The only check that sees what a USER sees. Everything before this runs
+      # on the build machine, where the source checkout exists — so a bundle that
+      # silently depends on that checkout passes every earlier gate. v1.21.3 did
+      # exactly that: its workspace packages were editable `.pth` hooks into
+      # /Users/runner/work/..., the import smoke on this runner was green, and
+      # every user's app died with `No module named 'narranexus.contracts'`.
+      # So: copy the final, signed .app out, move the whole checkout out of the
+      # way, give the sidecars the environment a Finder launch gives them, and
+      # bring all four up exactly as state.rs does, in its order — sqlite_proxy
+      # (:8100), backend (:8000, /docs must answer 200), mcp (:7801), workers
+      # (:47831/healthz must answer 200, then stay alive). Any dependency on the
+      # build machine's filesystem or environment that those four startups
+      # exercise fails here — before either upload.
+      # Plain variables, no arrays/eval: the runner's /bin/bash may be 3.2.
+      - name: Verify the shipped app starts without the source tree
+        run: |
+          set -euo pipefail
+          APP_SRC="$GITHUB_WORKSPACE/tauri/src-tauri/target/release/bundle/macos/NarraNexus.app"
+          [ -d "$APP_SRC" ] || { echo "::error::NarraNexus.app not found at $APP_SRC"; exit 1; }
+          VERIFY="$RUNNER_TEMP/relocated"
+          rm -rf "$VERIFY" && mkdir -p "$VERIFY/home"
+          ditto "$APP_SRC" "$VERIFY/NarraNexus.app"
+
+          # Hide the checkout; on the way out stop every sidecar and put the
+          # checkout back — later steps (and the post-job cleanup) need it.
+          HIDDEN="$GITHUB_WORKSPACE.hidden-for-verify"
+          PIDS=""   # space-separated pid:name pairs
+          restore() {
+            for entry in $PIDS; do kill "${entry%%:*}" 2>/dev/null || true; done
+            sleep 2
+            for entry in $PIDS; do kill -9 "${entry%%:*}" 2>/dev/null || true; done
+            if [ -d "$HIDDEN" ]; then mv "$HIDDEN" "$GITHUB_WORKSPACE"; fi
+            # Only the large uncompressed .app copy goes. The sidecar logs stay
+            # on disk for the next step, which uploads them as an artifact if
+            # this one failed; fail() also prints the failing sidecar's log here.
+            rm -rf "$VERIFY/NarraNexus.app"
+          }
+          # INT/TERM restore AND exit (a bare handler would return and let the
+          # script run on with the checkout already moved back); EXIT covers
+          # every normal and `set -e` path.
+          trap 'restore; exit 130' INT
+          trap 'restore; exit 143' TERM
+          trap restore EXIT
+          cd "$RUNNER_TEMP"
+          mv "$GITHUB_WORKSPACE" "$HIDDEN"
+
+          RES="$VERIFY/NarraNexus.app/Contents/Resources/resources"
+          PY="$RES/python/bin/python3"
+          PROJ="$RES/project"
+          # The environment a Finder-launched .app gives its sidecars, and no
+          # more. PATH: the bundled node dirs + the on-demand plugin CLI dir
+          # (state.rs resolve_bundled_node_bins(), in its order) + launchd's
+          # minimal PATH (process_manager.rs). The node dirs are the FIRST of
+          # resolve_bundled_node_bins()'s two candidates, `resources/nodejs` —
+          # the one the real bundle has; if state.rs ever switches to the second
+          # (`nodejs/`), change it here too. A runner PATH (Homebrew, a system
+          # python, preinstalled CLIs) is strictly wider than any user's and
+          # would hide a PATH-shaped dependency on this machine.
+          export PATH="$RES/nodejs/bin:$RES/nodejs/node_modules/.bin:$VERIFY/home/.narranexus/plugins/nodejs/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          # Nothing that selects a deployment mode may leak in from this runner:
+          # with NARRANEXUS_DEPLOYMENT_MODE or DB_HOST set, backend decides it is
+          # cloud and refuses to start without a JWT_SECRET — a failure no user
+          # would ever see. Then what lib.rs + process_manager.rs set.
+          unset NARRANEXUS_DEPLOYMENT_MODE DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME JWT_SECRET
+          export HOME="$VERIFY/home" NARRA_SURFACE=desktop \
+                 DATABASE_URL="sqlite:///$VERIFY/verify.db" \
+                 SQLITE_PROXY_URL=http://localhost:8100 SQLITE_PROXY_PORT=8100
+
+          fail() {  # fail <name> <message> — print that sidecar's log, then fail
+            echo "--- $1 log ---"; cat "$VERIFY/$1.log" 2>/dev/null || true
+            echo "::error::$2"; exit 1
+          }
+
+          echo "--- import smoke, run from the relocated app, checkout hidden ---"
+          # Explicit failure path, not only `set -e`: this is the one command
+          # that reproduces the v1.21.3 failure directly, so it must not be
+          # softenable by a stray `|| true`. The script prints its own problem list.
+          "$PY" "$PROJ/scripts/release/bundle_import_smoke.py" \
+            || { echo "::error::the relocated app failed the import smoke (problem list above)"; exit 1; }
+
+          launch() {  # launch <name> <command...>   (cwd = project, like state.rs)
+            name="$1"; shift
+            ( cd "$PROJ" && exec "$@" ) >"$VERIFY/$name.log" 2>&1 &
+            LAST_PID=$!
+            PIDS="$PIDS $LAST_PID:$name"
+          }
+          port_free() {  # port_free <name> <port> — refuse to test on a taken port
+            if nc -z 127.0.0.1 "$2" 2>/dev/null; then
+              echo "::error::port $2 is already in use before $1 starts — an open port afterwards would prove nothing"
+              lsof -nP -iTCP:"$2" -sTCP:LISTEN || true
+              exit 1
+            fi
+          }
+          wait_port() {  # wait_port <name> <port> <pid> <limit-seconds>
+            for _ in $(seq 1 "$4"); do
+              if nc -z 127.0.0.1 "$2" 2>/dev/null; then
+                # The port being open is only evidence if OUR process is the one
+                # holding it: a sidecar that died on "address already in use"
+                # leaves someone else's listener answering.
+                sleep 2
+                kill -0 "$3" 2>/dev/null || fail "$1" "$1 exited right after :$2 opened"
+                return 0
+              fi
+              kill -0 "$3" 2>/dev/null || fail "$1" "$1 exited before binding :$2"
+              sleep 1
+            done
+            fail "$1" "$1 did not bind :$2 within $4s (process still alive)"
+          }
+          # 8100 / 8000 are state.rs's `port: Some(..)`; 7801 is MCP_PORT's
+          # default (module_system/base.py); 47831 is HEALTHZ_PORT
+          # (channel/channel_health_server.py). Change one there, change it here.
+          for pair in sqlite_proxy:8100 backend:8000 mcp:7801 workers:47831; do
+            port_free "${pair%%:*}" "${pair##*:}"
+          done
+
+          echo "--- 1/4 sqlite_proxy ---"
+          launch sqlite_proxy "$PY" -m narranexus.platform.utils.db.sqlite_proxy_server
+          wait_port sqlite_proxy 8100 "$LAST_PID" 90
+
+          echo "--- 2/4 backend ---"
+          launch backend env DASHBOARD_BIND_HOST=127.0.0.1 "$PY" -m uvicorn backend.main:app \
+            --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60
+          wait_port backend 8000 "$LAST_PID" 90
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:8000/docs || true)"
+          [ "$code" = "200" ] || fail backend "backend /docs answered $code, expected 200"
+
+          # mcp and workers get 150s: state.rs itself gates neither on a port or
+          # a health check, so this step is deliberately stricter than the
+          # product — and must not flake into being softened.
+          echo "--- 3/4 mcp ---"
+          launch mcp "$PY" src/narranexus/platform/module_system/module_runner.py mcp
+          wait_port mcp 7801 "$LAST_PID" 150
+
+          echo "--- 4/4 workers ---"
+          # The supervisor serves its channel health endpoint once every worker
+          # has started, so that — not a fixed sleep — is the readiness signal.
+          launch workers "$PY" -m narranexus.platform.module_system.run_worker_supervisor
+          WORKERS_PID="$LAST_PID"
+          wait_port workers 47831 "$WORKERS_PID" 150
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:47831/healthz || true)"
+          [ "$code" = "200" ] || fail workers "workers /healthz answered $code, expected 200"
+          sleep 10
+
+          # Every sidecar still up, by name.
+          for entry in $PIDS; do
+            kill -0 "${entry%%:*}" 2>/dev/null || fail "${entry##*:}" "${entry##*:} died during verification"
+          done
+          # No sidecar raised OR LOGGED the failure class this step exists for.
+          # Two shapes, both matched: an uncaught exception line (`<Type>: msg`
+          # at the start of the line ending a traceback), and the message text
+          # of one that was caught and logged — the supervisor and the plugin
+          # hooks catch a broken import and log `... spec failed: {exc}`, which
+          # renders only the message (`cannot import name ...`, `No module named
+          # ...`). That caught path is the one ports and /healthz cannot see: the
+          # service comes up with a channel or plugin silently missing. The bare
+          # words ImportError/ModuleNotFoundError are deliberately NOT matched —
+          # a warning that merely names them must not fail a build.
+          # DEBUG-level lines are excluded: they are optional-feature probes, not
+          # failures (litellm logs `Unable to import GenericAPILogger ... No
+          # module named 'litellm_enterprise'` at DEBUG on every start). Three
+          # DEBUG spellings reach these logs: litellm's `LiteLLM:DEBUG:`,
+          # loguru's `| DEBUG |`, and stdlib basicConfig's `DEBUG:name:msg`.
+          # The two shapes we fail on never carry a DEBUG level: caught ones are
+          # logged at WARNING/ERROR, uncaught ones print the bare exception line.
+          # One awk, not `grep -v | grep -q`: under pipefail a grep -q that
+          # matches early SIGPIPEs the grep before it, and the pipeline reports
+          # FAILURE — i.e. a real match would read as "clean".
+          # Iterates $PIDS (launch order, names attached) rather than a
+          # hand-kept list, so a new sidecar's log is scanned automatically.
+          # awk's exit code has THREE meanings here, kept apart: 0 = a failure
+          # line was found, 1 = clean, anything else = awk itself did not run
+          # (parse error, unreadable file). Folding the last into "clean" would
+          # make this the one gate whose green does not prove it ran — and the
+          # release runs macOS's BWK awk, which no local test exercises.
+          for entry in $PIDS; do
+            name="${entry##*:}"
+            rc=0
+            awk '!/:DEBUG|\| DEBUG |^DEBUG:/ && /^(ModuleNotFoundError|ImportError): |cannot import name |No module named / { hit = 1 } END { exit !hit }' "$VERIFY/$name.log" || rc=$?
+            case "$rc" in
+              0) fail "$name" "$name raised or logged an import failure" ;;
+              1) ;;
+              *) fail "$name" "the log scan itself failed on $name.log (awk exit $rc) — this gate did not run" ;;
+            esac
+          done
+          echo "All four sidecars came up from the relocated app with the checkout hidden."
+
+      # On any failure in this job (`failure()` is job-level, not "the step
+      # above"): the verification's sidecar logs, which live under
+      # $RUNNER_TEMP (not the workspace) and vanish with the runner. If the
+      # failure came earlier and verification never ran, the directory does
+      # not exist and if-no-files-found: ignore makes this a no-op. fail()
+      # prints the log that failed; this keeps all four, so a failure after
+      # notarization can be read without paying for another one.
+      - name: Collect relocated-app sidecar logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relocated-app-sidecar-logs
+          path: ${{ runner.temp }}/relocated/*.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Normalize artifact filenames (stable name across versions)
         run: |
@@ -205,7 +432,7 @@ jobs:
           APP_DIR="tauri/src-tauri/target/release/bundle/macos"
           [ -d "$APP_DIR/NarraNexus.app" ] || { echo "::error::NarraNexus.app not found at $APP_DIR"; exit 1; }
           tar -czf dist/NarraNexus.app.tar.gz -C "$APP_DIR" NarraNexus.app
-          npx --yes @tauri-apps/cli@^2 signer sign \
+          npx --yes @tauri-apps/cli@2.12.2 signer sign \
             --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
             --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
             dist/NarraNexus.app.tar.gz

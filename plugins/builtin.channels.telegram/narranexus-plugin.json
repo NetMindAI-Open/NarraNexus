@@ -1,0 +1,32 @@
+{
+  "id": "builtin.channels.telegram",
+  "version": "1.0.0",
+  "displayName": "Telegram",
+  "description": "Builtin module TelegramModule (IM channel: trigger + module + tools).",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0,
+    "trigger": 0,
+    "hook": 0,
+    "channel": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.telegram_module.contribution:MODULES"
+    ],
+    "ingress.triggers": [
+      "narranexus_plugins.telegram_module.contribution:TRIGGERS"
+    ],
+    "backend.hooks": [
+      "narranexus_plugins.telegram_module.plugin_hooks:HOOKS"
+    ],
+    "ingress.channels": [
+      "narranexus_plugins.telegram_module.descriptor:CHANNEL"
+    ]
+  },
+  "quality": "gold"
+}

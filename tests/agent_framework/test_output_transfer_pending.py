@@ -12,7 +12,7 @@ provider streams, and the platform does not paper over the difference
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.loop.output_transfer import (
+from narranexus.platform.agent_framework.loop.output_transfer import (
     tool_call_item,
 )
 

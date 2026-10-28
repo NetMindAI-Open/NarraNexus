@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import backend.integrations.free_tier.provisioner as mod
-from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+from narranexus.platform.integrations.free_tier.wallet_client import (
     ProvisionedWallet,
     WalletBalance,
     WalletUnavailable,
@@ -35,9 +35,9 @@ def _wallet(created=True, api_key="sk-wallet"):
 def wiring(monkeypatch):
     """Stub the four collaborators: the flag, the wallet service, the db, and
     the provider service."""
-    from xyz_agent_context.agent_framework.providers import resolver as resolver_mod
-    from xyz_agent_context.agent_framework.providers import user_service as us_mod
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.agent_framework.providers import resolver as resolver_mod
+    from narranexus.platform.agent_framework.providers import user_service as us_mod
+    from narranexus.platform.utils.db import db_factory
 
     state = {
         "existing_row": None,
@@ -97,7 +97,7 @@ async def test_provisions_and_activates_a_fresh_user(wiring):
 async def test_catalogue_lookup_failure_does_not_block_provisioning(wiring):
     """A dropdown is cosmetic; a wallet is not. Fall back to the inherited
     list rather than leave the user with no free tier at all."""
-    from xyz_agent_context.integrations.free_tier.wallet_client import (
+    from narranexus.platform.integrations.free_tier.wallet_client import (
         WalletUnavailable,
     )
 
@@ -168,7 +168,7 @@ async def test_seed_models_are_gated_by_probe_verdicts(wiring, monkeypatch):
     # The gateway serves three ids; the ledger says "dead" FAILs everywhere
     # and "m-b" FAILs anthropic only. The card seed must be per-protocol and
     # must not offer what the upstream rejects.
-    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+    from narranexus.platform.agent_framework.providers import model_probe_ledger
 
     wiring["served_models"] = ["m-a", "m-b", "dead"]
     ledger = {"generated_at": None, "sources": {"netmind": {"models": {
@@ -190,7 +190,7 @@ async def test_seed_models_are_gated_by_probe_verdicts(wiring, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gate_failure_degrades_to_raw_gateway_list(wiring, monkeypatch):
-    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+    from narranexus.platform.agent_framework.providers import model_probe_ledger
 
     monkeypatch.setattr(
         model_probe_ledger, "load_ledger_db", AsyncMock(side_effect=RuntimeError("db down"))

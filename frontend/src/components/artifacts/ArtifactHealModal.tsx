@@ -91,7 +91,7 @@ export default function ArtifactHealModal({
             {candidates.map((c) => (
               <label
                 key={c.workspace_path}
-                className="flex items-center gap-3 px-3 py-2 cursor-pointer text-sm hover:bg-[var(--bg-secondary)]"
+                className="flex items-center gap-3 px-3 py-2 cursor-pointer text-sm hover:bg-[var(--nm-paper-warm)]"
               >
                 <input
                   type="radio"

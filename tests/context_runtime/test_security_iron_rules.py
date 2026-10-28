@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import inspect
 
-from xyz_agent_context.context_runtime.prompts import SECURITY_IRON_RULES
+from narranexus.platform.context_runtime.prompts import SECURITY_IRON_RULES
 
 
 def test_iron_rules_cover_workspace_and_env_prohibition():
@@ -39,25 +39,27 @@ def test_iron_rules_resist_identity_override():
 
 
 def test_iron_rules_injected_first_in_system_prompt():
-    """Contract: build_complete_system_prompt appends SECURITY_IRON_RULES
-    and does so before any other prompt part (so nothing supersedes it)."""
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
+    """Contract (2026-09-07, the prompt is a slot): the builtin `security` section
+    renders SECURITY_IRON_RULES on cloud only, and sorts FIRST among the builtin
+    sections (lowest order) so no later section can supersede it."""
+    import asyncio
+    from types import SimpleNamespace
 
-    src = inspect.getsource(ContextRuntime.build_complete_system_prompt)
-    assert "SECURITY_IRON_RULES" in src, (
-        "build_complete_system_prompt no longer injects SECURITY_IRON_RULES"
-    )
-    idx_security = src.index("prompt_parts.append(SECURITY_IRON_RULES)")
-    # It must be the first append — appears before the temporal block append.
-    idx_temporal = src.index("prompt_parts.append(temporal_block)")
-    assert idx_security < idx_temporal, (
-        "SECURITY_IRON_RULES must be appended FIRST (before all other "
-        "prompt sections) so no later section can supersede it."
-    )
-    # ...and it must be CLOUD-ONLY: local/desktop deliberately omits it so
-    # the agent can operate across the user's own folders.
-    gate = src.index('get_deployment_mode() == "cloud"')
-    assert gate < idx_security, (
-        "SECURITY_IRON_RULES injection must be gated on cloud mode — local "
-        "agents must NOT be restricted to their workspace."
-    )
+    from narranexus.contracts.prompt import PromptContext
+    from narranexus.kernel.plugins.builtins import load_builtins, slot_tree_with_builtins
+    from narranexus.kernel.plugins.registries import Registries
+    from narranexus.platform.context_runtime.prompts import SECURITY_IRON_RULES
+    from narranexus.platform.prompt_slots import sections_for
+
+    regs = Registries(slot_tree_with_builtins())
+    load_builtins(regs, "backend")
+    providers = sections_for(regs)
+    assert providers[0].id == "security", "the security section must be the first builtin section"
+    assert providers[0].order < min(p.order for p in providers[1:])
+
+    def ctx(mode):
+        return PromptContext(agent_id="a", user_id="u", ctx_data=SimpleNamespace(), narrative_list=[], selected_events=[],
+                             module_instructions=[], db=None, runtime=None, deployment_mode=mode)
+
+    assert asyncio.run(providers[0].render(ctx("cloud"))) == SECURITY_IRON_RULES
+    assert asyncio.run(providers[0].render(ctx("local"))) is None, "local agents must NOT be restricted to their workspace"

@@ -1,0 +1,10 @@
+{
+  "api": {
+    "hook": 0
+  },
+  "provides": {
+    "backend.hooks": [
+      "nxplugins.__PLUGIN_PKG__:HOOKS"
+    ]
+  }
+}

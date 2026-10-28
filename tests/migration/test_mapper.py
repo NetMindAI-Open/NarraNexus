@@ -3,8 +3,8 @@ Migration mapper — standardized JSON → concrete write plan (the convert step
 """
 from __future__ import annotations
 
-from xyz_agent_context.migration.mapper import build_plan
-from xyz_agent_context.schema.migration_schema import (
+from narranexus.platform.migration.mapper import build_plan
+from narranexus.platform.schema.migration_schema import (
     MigrationAgent,
     MigrationCustom,
     MigrationMcpServer,

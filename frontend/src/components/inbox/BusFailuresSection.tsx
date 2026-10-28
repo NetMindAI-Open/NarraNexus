@@ -75,11 +75,11 @@ export function BusFailuresSection({ agentId }: BusFailuresSectionProps) {
   return (
     <div
       data-testid="bus-failures-section"
-      className="mb-3 rounded-lg border px-3 py-2"
-      style={{ borderColor: 'var(--status-error-border, #f0b4b4)' }}
+      className="mb-3 rounded-[var(--radius-lg)] border px-3 py-2"
+      style={{ borderColor: 'color-mix(in srgb, var(--color-error) 30%, transparent)' }}
     >
       <div className="flex items-center gap-2 mb-2">
-        <AlertTriangle className="w-4 h-4" style={{ color: 'var(--status-error, #c0392b)' }} />
+        <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-error)' }} />
         <span className="text-sm font-medium">{t('inbox.busFailures.title')}</span>
         <Badge variant="warning">{failures.length}</Badge>
       </div>

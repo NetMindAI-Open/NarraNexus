@@ -5,7 +5,7 @@
 @description: Platform service for migrating a legacy user id to a NetMind
 userSystemCode (Phase 1 user-system unification).
 
-Shared kernel behind two call sites (铁律 3/8 — one source of truth):
+Shared kernel behind two call sites (binding rules #3/#8 — one source of truth):
   * scripts/data_migrations/migrate_users_to_netmind.py — offline CLI, batch CSV mapping,
     run with the stack stopped (`make app-down`).
   * backend/routes/admin/migration.py — POST /api/admin/migrate-identity,
@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from xyz_agent_context.utils.db import schema_registry
+from narranexus.platform.utils.db import schema_registry
 
 # Identity-shaped column names we scan schema_registry for.
 _IDENTITY_COLUMN_NAMES = {
@@ -215,11 +215,17 @@ async def execute_migration(
         )
         agent_ids = [a["agent_id"] for a in agents or []]
 
-        began = False
-        try:
-            if hasattr(db, "begin_transaction"):
-                await db.begin_transaction()
-                began = True
+        # `db.transaction()` rather than a hand-rolled begin/commit pair: the
+        # hand-rolled version unwound on `except Exception`, and
+        # `asyncio.CancelledError` does not inherit from `Exception`. A client
+        # disconnect makes Starlette cancel the request task, so cancelling
+        # mid-migration skipped the rollback entirely — the connection was never
+        # returned and the transaction stayed open on the server until its lock
+        # timed out, blocking every later write to the same rows. The context
+        # manager handles BaseException. (The `hasattr(db, "begin_transaction")`
+        # guard is gone with it: all three backends implement the protocol, so
+        # it only ever meant "silently run without a transaction".)
+        async with db.transaction():
             for table, column in cols.plain:
                 if merge and _is_unique_identity_column(table, column):
                     result = await db.execute(
@@ -250,12 +256,6 @@ async def execute_migration(
                 # Non-merge: the users row was just rewritten old→new; stamp it.
                 # Merge: the legacy users row was deleted; target stays as-is.
                 await _stamp_user(db, new_id, old_id)
-            if began:
-                await db.commit()
-        except Exception:
-            if began:
-                await db.rollback()
-            raise
 
         # Filesystem renames after the DB commit. A crash between commit
         # and rename leaves old-named dirs; the second pass below recovers
@@ -286,7 +286,7 @@ async def execute_migration(
 def _rename_workspaces(
     base_working_path: str, agent_ids: List[str], old_id: str, new_id: str
 ) -> int:
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.workspace_paths import agent_workspace_path
     renamed = 0
     for agent_id in agent_ids:
         old_dir = agent_workspace_path(agent_id, old_id, base=base_working_path)

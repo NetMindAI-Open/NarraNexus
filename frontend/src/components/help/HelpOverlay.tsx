@@ -30,6 +30,9 @@ import {
 } from './measure';
 import { wobblyArrow, wobblyLeader, wobblyLine } from './wobble';
 
+// design_system.md §2 exemption: chalk-on-dark-glass annotations must NOT
+// flip with the theme (the backdrop is dark in both), so this deliberately
+// pins theme-invariant palette primitives instead of semantic tokens.
 const INK = 'var(--color-gray-50)';
 
 interface HelpOverlayProps {

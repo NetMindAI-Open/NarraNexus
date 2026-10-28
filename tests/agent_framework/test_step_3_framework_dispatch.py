@@ -23,12 +23,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework import (
-    ClaudeAgentSDK,
-    CodexSDK,
-    get_agent_loop_driver,
-)
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_framework import get_agent_loop_driver
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
+from narranexus_plugins.frameworks_codex_cli.cli_sdk import CodexSDK
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _resolve_agent_framework_name,
 )
 
@@ -90,7 +88,7 @@ def test_registry_resolves_codex_cli_to_codex_sdk_v2(tmp_path):
     """Cutover 2026-06-08: ``codex_cli`` now resolves to ``CodexSDKv2``.
     The v1 ``CodexSDK`` class is still importable (revival fallback)
     but no longer registered."""
-    from xyz_agent_context.agent_framework import CodexSDKv2
+    from narranexus_plugins.frameworks_codex_cli.official_sdk import CodexSDKv2
 
     driver = get_agent_loop_driver(
         framework="codex_cli", working_path=str(tmp_path)
@@ -142,18 +140,18 @@ async def test_dispatch_per_agent_override_wins():
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_row_missing():
-    """Owner with no user_slots agent row → claude_code default."""
+    """Owner with no user_slots agent row → nexus_power default."""
     db = _FakeDB(owner_framework=None)
     name = await _resolve_agent_framework_name("ag1", db)
-    assert name == "claude_code"
+    assert name == "nexus_power"
 
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_owner_missing():
-    """Agent with no owner row → defensive claude_code."""
+    """Agent with no owner row → defensive nexus_power."""
     db = _FakeDB(owner=None)
     name = await _resolve_agent_framework_name("ag1", db)
-    assert name == "claude_code"
+    assert name == "nexus_power"
 
 
 @pytest.mark.asyncio
@@ -164,16 +162,20 @@ async def test_dispatch_passes_unknown_framework_through():
     behaviour deliberately chosen over silent fallback."""
     db = _FakeDB(owner_framework="future_framework_X")
     name = await _resolve_agent_framework_name("ag1", db)
-    assert name == "future_framework_X"
+    # Normalised to the registry's case-insensitive key (the overlay now goes
+    # through the ONE accessor ``resolve_framework_name``), but NOT rewritten to
+    # the default — the unknown name still reaches get_agent_loop_driver, which
+    # raises ValueError so a typo surfaces.
+    assert name == "future_framework_x"
     with pytest.raises(ValueError):
         get_agent_loop_driver(framework=name, working_path="/tmp")
 
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_on_db_error():
-    """Any DB error (connection lost, etc) → defensive claude_code."""
+    """Any DB error (connection lost, etc) → defensive nexus_power."""
     name = await _resolve_agent_framework_name("ag1", _DeadDB())
-    assert name == "claude_code"
+    assert name == "nexus_power"
 
 
 # ----- DB query shape ----------------------------------------------
@@ -190,3 +192,70 @@ async def test_dispatch_reads_override_then_owner_default():
         ("agents", {"agent_id": "ag1"}),
         ("user_slots", {"user_id": "u1", "slot_name": "agent"}),
     ]
+
+
+def test_step3_splits_build_context_from_run_agent_phase():
+    """The pipeline exposes context assembly and the model actually running
+    as two DISTINCT phases, so the process panel can tell "still preparing"
+    from "in the loop". These step ids are the cross-file contract the
+    frontend whitelists (processShared PHASE_STEP_IDS / PHASE_LABEL_KEYS) and
+    the tool sub-steps nest under (``3.4.{n}``)."""
+    # Canonical home is the leaf schema module (importable by both the emitter
+    # and run_recorder without a circular import).
+    from narranexus.platform.schema import (
+        PHASE_BUILD_CONTEXT_STEP,
+        PHASE_BUILD_CONTEXT_TITLE,
+        PHASE_RUN_AGENT_STEP,
+        PHASE_RUN_AGENT_TITLE,
+    )
+
+    assert PHASE_BUILD_CONTEXT_STEP == "3"
+    assert PHASE_BUILD_CONTEXT_TITLE == "Build Context"
+    assert PHASE_RUN_AGENT_STEP == "3.4"
+    assert PHASE_RUN_AGENT_TITLE == "Run Agent"
+    # Two different phases — not the old single "Execute Agent Loop" that
+    # was emitted before context was even built.
+    assert PHASE_BUILD_CONTEXT_STEP != PHASE_RUN_AGENT_STEP
+
+
+def test_step3_body_wires_both_phases_and_drops_the_old_loop_title():
+    """Guard the EMIT wiring, not just the constants. The prior test pins the
+    constant values; this one pins that the generator body actually uses them
+    to yield a build-context phase AND a distinct run-agent phase, and that the
+    misleading single "Execute Agent Loop" title (emitted before context was
+    built) is gone from the body. Reverting any emit site back to that literal
+    — without touching the constants — turns THIS red, closing the gap the
+    constants-only test leaves. (Source-inspection invariant, same style as
+    test_origin_declaration_plumbing / test_executor_seam.)"""
+    import inspect
+
+    from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+        step_3_agent_loop,
+        step_3_assemble_context,
+    )
+
+    # The build-context phase lives in step_3_assemble_context (the Assemble
+    # stage) and the run-agent phase in step_3_agent_loop (the Act stage) since
+    # the pipeline split; the invariant spans both bodies.
+    # @timed wraps the loop — unwrap to the real generator before reading source.
+    src = inspect.getsource(step_3_assemble_context) + inspect.getsource(inspect.unwrap(step_3_agent_loop))
+
+    # The old single-phase title must not be emitted anywhere in the body...
+    assert "Execute Agent Loop" not in src
+    # ...nor the old loop-completion title (the emit that used to settle on
+    # step 3; reverting the run-agent COMPLETED back to it turns this red).
+    assert "Agent Loop Complete" not in src
+    # Both phases are wired through the named constants.
+    for token in (
+        "PHASE_BUILD_CONTEXT_STEP",
+        "PHASE_BUILD_CONTEXT_TITLE",
+        "PHASE_RUN_AGENT_STEP",
+        "PHASE_RUN_AGENT_TITLE",
+    ):
+        assert token in src, f"emit wiring dropped {token}"
+    # The run-agent phase is emitted BOTH as RUNNING (loop start) and its OWN
+    # COMPLETED (loop end), so its panel row settles instead of hanging
+    # forever. `step=PHASE_RUN_AGENT_STEP` (the emit form, not the bare
+    # constant name in a comment) must appear at least twice — revert either
+    # emit and the count drops below 2.
+    assert src.count("step=PHASE_RUN_AGENT_STEP") >= 2

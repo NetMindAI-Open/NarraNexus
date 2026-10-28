@@ -28,6 +28,7 @@ Auth: same gateway-token middleware as the rest of ``/manyfold/...``.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -36,8 +37,9 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.settings import settings as core_settings
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.settings import settings as core_settings
+from narranexus.platform.utils.db.db_factory import get_db_client
+from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
 
 router = APIRouter()
@@ -60,9 +62,9 @@ def _require_manyfold_auth(request: Request) -> None:
     rather than imported so this module has no inbound dependency on
     its sibling file — keeps the file-tree API self-contained."""
     if not getattr(request.state, "manyfold_authed", False):
-        raise HTTPException(
-            status_code=401,
-            detail="missing or invalid MANYFOLD_GATEWAY_TOKEN",
+        raise AuthError(
+            GATEWAY_TOKEN_INVALID,
+            "missing or invalid MANYFOLD_GATEWAY_TOKEN",
         )
 
 
@@ -89,7 +91,7 @@ async def _resolve_workspace_root(agent_id: str) -> tuple[Path, str]:
             status_code=500,
             detail=f"agent {agent_id!r} has no created_by user",
         )
-    from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
     workspace = resolve_existing_workspace(
         agent_id, user_id, str(core_settings.base_working_path)
     )
@@ -380,45 +382,116 @@ async def write_file(
     so the caller can reference it on the wire.
     """
     _require_manyfold_auth(request)
-    workspace, _user_id = await _resolve_workspace_root(agent_id)
-    root = workspace.resolve(strict=False)
-    target = _safe_resolve(workspace, path)
-    if target == root:
-        raise HTTPException(
-            status_code=400,
-            detail="path must name a file inside the workspace, not the root",
-        )
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > _MAX_WRITE_BYTES:
+    # Auth passed → every outcome from here down gets an audit row. The
+    # 2026-08-05 staging diagnosis had to infer write outcomes from the
+    # PLATFORM's code because this gateway kept no account of the ingest
+    # leg (lesson #5: a missing DB row is reliable evidence, a missing
+    # log line is not).
+    try:
+        workspace, _user_id = await _resolve_workspace_root(agent_id)
+        root = workspace.resolve(strict=False)
+        target = _safe_resolve(workspace, path)
+        if target == root:
             raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"body too large: exceeds {_MAX_WRITE_BYTES} bytes"
-                ),
+                status_code=400,
+                detail="path must name a file inside the workspace, not the root",
             )
-        chunks.append(chunk)
-    body = b"".join(chunks)
-    if target.exists() and target.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail=f"path is a directory: {path!r}",
-        )
-    if target.exists() and not overwrite:
-        raise HTTPException(
-            status_code=409,
-            detail=f"file exists and overwrite=false: {path!r}",
-        )
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > _MAX_WRITE_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"body too large: exceeds {_MAX_WRITE_BYTES} bytes"
+                    ),
+                )
+            chunks.append(chunk)
+        body = b"".join(chunks)
+        if target.exists() and target.is_dir():
+            raise HTTPException(
+                status_code=400,
+                detail=f"path is a directory: {path!r}",
+            )
+        if target.exists() and not overwrite:
+            raise HTTPException(
+                status_code=409,
+                detail=f"file exists and overwrite=false: {path!r}",
+            )
+        def _write() -> None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(body)
 
-    def _write() -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(body)
-
-    await asyncio.to_thread(_write)
-    rel = str(target.relative_to(root))
+        await asyncio.to_thread(_write)
+        rel = str(target.relative_to(root))
+    except HTTPException as e:
+        await _audit_files_write(
+            agent_id, path=path, ok=False, error=f"{e.status_code}: {e.detail}"
+        )
+        raise
+    except Exception as e:
+        # Infrastructure failures (OSError on the disk write, an
+        # unexpected workspace-resolution error) are exactly the cases
+        # "did the platform write get in?" must stay answerable for.
+        await _audit_files_write(
+            agent_id, path=path, ok=False, error=f"{type(e).__name__}: {e}"
+        )
+        raise
     logger.info(
         f"[manyfold-files:{agent_id}] wrote {len(body)} bytes to {rel!r}"
     )
+    await _audit_files_write(agent_id, path=rel, ok=True, size=len(body))
     return {"ok": True, "path": rel, "size": len(body)}
+
+
+# Same retention as the trigger audits (ChannelTriggerBase
+# .AUDIT_RETENTION_DAYS) — restated here because "manyfold" is not a
+# registered trigger channel, so no trigger's daily cleanup tick ever
+# covers these rows; without a cleanup driver of their own they grow
+# without bound. The sweep piggybacks on the write path, throttled to
+# once per process-day.
+_AUDIT_RETENTION_DAYS = 30
+_audit_cleanup_next: float = 0.0
+
+
+async def _audit_files_write(
+    agent_id: str, *, path: str, ok: bool, size: int = 0, error: str = ""
+) -> None:
+    """Best-effort audit row for one write attempt. Never raises — losing
+    an audit row must not fail (or double-fail) the write itself."""
+    global _audit_cleanup_next
+    try:
+        from narranexus.platform.channel.channel_audit_events import (
+            EVENT_MANYFOLD_FILES_WRITE,
+        )
+        from narranexus.platform.repository.channel_trigger_audit_repository import (
+            ChannelTriggerAuditRepository,
+        )
+
+        db = await get_db_client()
+        repo = ChannelTriggerAuditRepository("manyfold", db)
+        await repo.append(
+            EVENT_MANYFOLD_FILES_WRITE,
+            agent_id=agent_id,
+            details={
+                "path": path[:512],
+                "ok": ok,
+                "size": size,
+                "error": error[:200],
+            },
+        )
+        now = time.monotonic()
+        if now >= _audit_cleanup_next:
+            _audit_cleanup_next = now + 24 * 3600
+            deleted = await repo.cleanup_older_than_days(_AUDIT_RETENTION_DAYS)
+            if deleted:
+                logger.info(
+                    f"[manyfold-files] audit retention: dropped {deleted} "
+                    f"rows older than {_AUDIT_RETENTION_DAYS}d"
+                )
+    except Exception as e:  # noqa: BLE001 — audit is a side-channel
+        logger.warning(
+            f"[manyfold-files:{agent_id}] write audit failed "
+            f"({type(e).__name__}: {e})"
+        )

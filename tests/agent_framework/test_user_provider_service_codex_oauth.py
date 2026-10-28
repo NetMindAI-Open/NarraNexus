@@ -12,14 +12,14 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.agent_framework.providers.driver import (
+from narranexus.platform.agent_framework.api_config import ClaudeConfig
+from narranexus.platform.agent_framework.providers.driver import (
     resolve_user_runtime_llm_configs,
 )
-from xyz_agent_context.agent_framework.providers.driver.backfill import (
+from narranexus.platform.agent_framework.providers.driver.backfill import (
     backfill_provider_metadata,
 )
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.user_service import (
     CODEX_CURATED_MODELS,
     UserProviderService,
 )
@@ -265,7 +265,7 @@ def test_codex_curated_models_stay_registered_in_catalog():
     (see the constant's comment) — this pin only guards the cheap half: every
     curated id must stay a registered catalog model so dropdown display names
     and metadata don't silently rot when either side is edited alone."""
-    from xyz_agent_context.agent_framework.providers.model_catalog import (
+    from narranexus.platform.agent_framework.providers.model_catalog import (
         get_all_known_models,
     )
 

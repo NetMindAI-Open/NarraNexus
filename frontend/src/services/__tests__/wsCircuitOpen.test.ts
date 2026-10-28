@@ -8,6 +8,8 @@ import {
   circuitOpenReason,
   dispatchAgentCircuitOpen,
   isCircuitOpenMessage,
+  shouldClearCircuitBanner,
+  syncCircuitBannerReason,
 } from '../wsCircuitOpen';
 
 describe('isCircuitOpenMessage', () => {
@@ -38,6 +40,44 @@ describe('circuitOpenReason', () => {
 
   it('returns "" for a non-matching frame', () => {
     expect(circuitOpenReason({ type: 'error', error_type: 'AuthError' })).toBe('');
+  });
+});
+
+describe('shouldClearCircuitBanner', () => {
+  it('keeps the banner while the backend still reports paused', () => {
+    expect(shouldClearCircuitBanner('paused')).toBe(false);
+  });
+
+  it('clears the banner once the breaker is active again (self-heal)', () => {
+    expect(shouldClearCircuitBanner('active')).toBe(true);
+  });
+
+  it('clears the banner for cooling too (no longer paused)', () => {
+    expect(shouldClearCircuitBanner('cooling')).toBe(true);
+  });
+
+  it('keeps the banner while a half-open probe is still in flight', () => {
+    // The verdict is unknown and the next message would still be refused;
+    // closing now only to re-open on a failed probe would flap.
+    expect(shouldClearCircuitBanner('probing')).toBe(false);
+  });
+});
+
+describe('syncCircuitBannerReason', () => {
+  it('closes the banner once the breaker is active or merely cooling', () => {
+    expect(syncCircuitBannerReason('probing', 'active', null)).toBeNull();
+    expect(syncCircuitBannerReason('paused:auth', 'cooling', null)).toBeNull();
+  });
+
+  it('escalates a probing banner to the real pause when the probe failed', () => {
+    expect(syncCircuitBannerReason('probing', 'paused', 'auth')).toBe('paused:auth');
+    expect(syncCircuitBannerReason('probing', 'paused', null)).toBe('paused:unknown');
+  });
+
+  it('keeps the current reason while a probe is in flight or the status is unknown', () => {
+    expect(syncCircuitBannerReason('probing', 'probing', null)).toBe('probing');
+    expect(syncCircuitBannerReason('paused:quota', 'probing', null)).toBe('paused:quota');
+    expect(syncCircuitBannerReason('probing', 'something_new', null)).toBe('probing');
   });
 });
 

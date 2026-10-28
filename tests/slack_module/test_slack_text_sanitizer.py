@@ -18,7 +18,7 @@ contract (idempotent, code-block-aware, existing-entity-aware).
 
 from __future__ import annotations
 
-from xyz_agent_context.module.slack_module._slack_text_sanitizer import (
+from narranexus_plugins.slack_module._slack_text_sanitizer import (
     sanitize_slack_mrkdwn,
 )
 

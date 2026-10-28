@@ -50,7 +50,7 @@ export function SkillCard({
   return (
     <div
       className={cn(
-        'p-4 rounded-xl transition-colors duration-150',
+        'p-4 rounded-[var(--radius-xl)] transition-colors duration-150',
         'border bg-[var(--bg-elevated)]',
         skill.disabled
           ? 'border-[var(--border-subtle)] opacity-60'
@@ -58,7 +58,7 @@ export function SkillCard({
       )}
     >
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-[var(--accent-secondary)]/10">
+        <div className="w-10 h-10 rounded-[var(--radius-lg)] flex items-center justify-center shrink-0 bg-[var(--accent-secondary)]/10">
           <Puzzle className="w-5 h-5 text-[var(--accent-secondary)]" />
         </div>
 
@@ -103,7 +103,7 @@ export function SkillCard({
           {/* Env config warning */}
           {skill.requires_env && skill.requires_env.length > 0 && skill.env_configured === false && (
             <div
-              className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg bg-[var(--color-warning)]/5 border border-[var(--color-warning)]/10 cursor-pointer hover:bg-[var(--color-warning)]/10 transition-colors"
+              className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-[var(--radius-lg)] bg-[var(--color-warning)]/5 border border-[var(--color-warning)]/10 cursor-pointer hover:bg-[var(--color-warning)]/10 transition-colors"
               onClick={() => onConfigure(skill)}
             >
               <CircleAlert className="w-3 h-3 text-[var(--color-warning)]" />
@@ -115,7 +115,7 @@ export function SkillCard({
 
           {/* Study status display */}
           {studying && (
-            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg bg-[var(--accent-primary)]/5 border border-[var(--accent-primary)]/10">
+            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-[var(--radius-lg)] bg-[var(--accent-primary)]/5 border border-[var(--accent-primary)]/10">
               <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
               <span className="text-xs font-medium text-[var(--accent-primary)]">{t('skills.card.studying')}</span>
             </div>
@@ -123,7 +123,7 @@ export function SkillCard({
 
           {/* Study failed */}
           {skill.study_status === 'failed' && skill.study_error && (
-            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg bg-[var(--color-error)]/5 border border-[var(--color-error)]/10">
+            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-[var(--radius-lg)] bg-[var(--color-error)]/5 border border-[var(--color-error)]/10">
               <AlertCircle className="w-3 h-3 text-[var(--color-error)]" />
               <span className="text-xs font-medium text-[var(--color-error)] truncate">{skill.study_error}</span>
             </div>
@@ -145,7 +145,7 @@ export function SkillCard({
                 {t('skills.card.studyResult')}
               </button>
               {showResult && (
-                <ScrollArea className="mt-1.5 max-h-48 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)]" viewportClassName="p-2.5">
+                <ScrollArea className="mt-1.5 max-h-48 rounded-[var(--radius-lg)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)]" viewportClassName="p-2.5">
                   <div className="text-xs text-[var(--text-secondary)] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                     <Markdown content={skill.study_result!} />
                   </div>

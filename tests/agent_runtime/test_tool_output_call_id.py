@@ -22,7 +22,7 @@ not, and the existing positional display lookup keeps working either way.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
 
 
 def test_tool_output_records_the_call_id():

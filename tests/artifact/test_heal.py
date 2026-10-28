@@ -18,13 +18,13 @@ import os
 
 import pytest
 
-from xyz_agent_context.artifact import (
+from narranexus.platform.artifact import (
     ArtifactNotFound,
     ArtifactPathEscape,
     ArtifactService,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -33,7 +33,7 @@ WS_REL = agent_workspace_relpath("agent_x", "user_y")
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     workspace = base / WS_REL
@@ -167,3 +167,180 @@ async def test_heal_scan_multiple_matches_returns_candidates_newest_first(env):
     # Not registered onto anything — pointer stays broken until the user picks.
     row = await env["repo"].get_by_id(env["artifact_id"])
     assert row.file_path == f"{WS_REL}/report/index.html"
+
+
+# ---------------------------------------------------------------------------
+# Hash tier + guardrails (2026-08-18, spec artifact-events §5): heal verifies
+# candidates against the stored content_hash before guessing by extension,
+# never offers another live artifact's file, and every repoint is attributed
+# (history action="healed") and broadcast (outbox action="repointed").
+# ---------------------------------------------------------------------------
+
+async def _history_actions(db, artifact_id):
+    rows = await db.execute(
+        "SELECT action FROM instance_artifact_history WHERE artifact_id = %s ORDER BY id",
+        params=(artifact_id,), fetch=True)
+    return [r["action"] for r in rows]
+
+
+async def _outbox_events(db, agent_id="agent_x"):
+    import json
+    rows = await db.execute(
+        "SELECT payload_json FROM instance_artifact_events WHERE agent_id = %s ORDER BY id",
+        params=(agent_id,), fetch=True)
+    return [json.loads(r["payload_json"]) for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_heal_hash_match_beats_extension_ambiguity(env):
+    """Two .html candidates, one with identical bytes → hash picks it
+    deterministically where the extension tier would have gone to a modal."""
+    original_bytes = env["entry"].read_bytes()
+    renamed = env["workspace"] / "report" / "draft.html"
+    renamed.write_bytes(original_bytes)
+    decoy = env["workspace"] / "report" / "unrelated.html"
+    decoy.write_text("<p>something else</p>", encoding="utf-8")
+    os.remove(env["entry"])
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+
+    assert result.recovered is True
+    assert result.artifact.file_path.endswith("report/draft.html")
+    assert (await _history_actions(env["db"], env["artifact_id"]))[-1] == "healed"
+    last = (await _outbox_events(env["db"]))[-1]
+    assert last["action"] == "repointed"
+    assert last["extra"]["hash_matched"] is True
+    assert last["extra"]["new"].endswith("draft.html")
+
+
+@pytest.mark.asyncio
+async def test_heal_multiple_hash_matches_go_to_modal(env):
+    """Copies (same bytes) are ambiguous intent — never auto-pick one."""
+    original_bytes = env["entry"].read_bytes()
+    copy_a = env["workspace"] / "report" / "copy_a.html"
+    copy_a.write_bytes(original_bytes)
+    copy_b = env["workspace"] / "report" / "copy_b.html"
+    copy_b.write_bytes(original_bytes)
+    os.remove(env["entry"])
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+
+    assert result.recovered is False
+    names = {c.workspace_path for c in result.candidates}
+    assert names == {"report/copy_a.html", "report/copy_b.html"}
+
+
+@pytest.mark.asyncio
+async def test_heal_falls_back_to_extension_tier_when_hash_misses(env):
+    """Renamed AND edited → hash can't claim it; the single-extension-match
+    auto-recover stays (declared boundary), flagged as unverified."""
+    changed = env["workspace"] / "report" / "rewritten.html"
+    changed.write_text("<p>edited after rename</p>", encoding="utf-8")
+    os.remove(env["entry"])
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+
+    assert result.recovered is True
+    assert result.artifact.file_path.endswith("report/rewritten.html")
+    last = (await _outbox_events(env["db"]))[-1]
+    assert last["action"] == "repointed"
+    assert last["extra"]["hash_matched"] is False
+
+
+@pytest.mark.asyncio
+async def test_heal_never_offers_another_live_artifacts_file(env):
+    """Guardrail: a candidate that is some OTHER artifact's current pointer
+    target must be excluded — repointing there would collapse two artifacts
+    onto one file."""
+    other_entry = env["workspace"] / "report" / "other.html"
+    other_entry.write_bytes(env["entry"].read_bytes())  # same bytes: worst case
+    await env["service"].register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="text/html", entry_path=str(other_entry),
+        title="other", description=None, target_artifact_id=None,
+    )
+    os.remove(env["entry"])
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+
+    assert result.recovered is False
+    assert result.candidates == []
+
+
+@pytest.mark.asyncio
+async def test_heal_user_pick_is_attributed_and_broadcast(env):
+    """The modal path (explicit entry_path) gets the same honesty treatment
+    as auto-repoints: history says healed, the outbox says repointed."""
+    picked = env["workspace"] / "report" / "picked.html"
+    picked.write_text("<p>picked</p>", encoding="utf-8")
+    os.remove(env["entry"])
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+        entry_path="report/picked.html",
+    )
+
+    assert result.recovered is True
+    assert (await _history_actions(env["db"], env["artifact_id"]))[-1] == "healed"
+    last = (await _outbox_events(env["db"]))[-1]
+    assert last["action"] == "repointed"
+    assert last["extra"]["hash_matched"] is False
+
+
+# --- heal never scans or hashes another tenant's tree --------------------------
+
+def _victim_workspace(env):
+    """A different tenant's workspace next to ours, under the same base."""
+    victim = env["workspace"].parent.parent / agent_workspace_relpath("agent_v", "user_v")
+    (victim / "report").mkdir(parents=True)
+    (victim / "report" / "index.html").write_text("<p>victim</p>", encoding="utf-8")
+    (victim / "notes.html").write_text("<p>victim notes</p>", encoding="utf-8")
+    return victim
+
+
+@pytest.mark.asyncio
+async def test_heal_refuses_a_workspace_swapped_for_a_link(env):
+    """The tenant replaces its own workspace dir with a link to the victim's.
+    Heal must neither call the pointer "already valid" (the victim happens to
+    hold report/index.html), nor list or hash the victim's files, nor repoint."""
+    import shutil
+
+    victim = _victim_workspace(env)
+    before = await env["repo"].get_by_id(env["artifact_id"])
+    shutil.rmtree(env["workspace"])
+    os.symlink(victim, env["workspace"])
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+    assert result.recovered is False
+    assert result.candidates == []
+    assert "victim" not in result.message
+    row = await env["repo"].get_by_id(env["artifact_id"])
+    assert row.file_path == before.file_path
+    assert row.content_hash == before.content_hash
+
+
+@pytest.mark.asyncio
+async def test_heal_skips_a_file_link_that_points_outside_the_workspace(env):
+    """A link inside the workspace whose target is the victim's file (same bytes
+    as our lost entry, so the hash tier would match) is not a candidate: it is
+    neither offered, nor stat-ed for size/mtime, nor hashed."""
+    victim = _victim_workspace(env)
+    (victim / "report" / "index.html").write_bytes(env["entry"].read_bytes())
+    env["entry"].unlink()
+    os.symlink(victim / "report" / "index.html", env["workspace"] / "report" / "leak.html")
+
+    result = await env["service"].heal(
+        agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+    )
+    assert result.recovered is False
+    assert result.candidates == []

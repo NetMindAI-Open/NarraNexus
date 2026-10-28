@@ -1,0 +1,237 @@
+"""
+@file_name: _slack_mcp_tools.py
+@date: 2026-05-08
+@description: Slack MCP tools — generic Web API dispatcher + skill lookup
++ binding management.
+
+Tools exposed (5 total):
+  - slack_cli(agent_id, method, args)    — call ANY Slack Web API method
+  - slack_skill(agent_id, method)        — fetch markdown docs for a method
+  - slack_bind(agent_id, bot_token, app_token)   — bind a bot to an agent
+  - slack_status(agent_id)               — sanitised status / health
+  - slack_unbind(agent_id)               — remove binding
+
+Mirror of Lark's `lark_cli` + `lark_skill` pair (one generic dispatcher +
+one docs fetcher) so the agent-facing shape of "interact with channel X"
+stays uniform across Lark / Slack / Telegram.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+from loguru import logger
+
+from narranexus.platform.channel.channel_reactions import best_effort_react
+
+from narranexus.platform.module_system.data_access import get_channel_credential_store
+
+from ._slack_credential_manager import _cred_from_raw
+from ._slack_skill_loader import get_skill_loader
+from .slack_sdk_client import SlackSDKClient
+
+
+# Semantic reaction vocabulary → Slack emoji names (shared cross-channel set;
+# each IM module maps it to its own platform tokens).
+_SLACK_REACTIONS = {
+    "on_it": "eyes",
+    "searching": "mag",
+    "done": "white_check_mark",
+    "celebrate": "tada",
+    "thumbs_up": "thumbsup",
+    "heart": "heart",
+    "thanks": "pray",
+    "applause": "clap",
+    "hundred": "100",
+    "warning": "warning",
+    "problem": "x",
+}
+
+
+# Loose validation: dotted lowercase identifiers (Slack convention)
+_VALID_METHOD_RE = re.compile(r"^[a-z][a-zA-Z0-9._]+$")
+
+
+async def _get_credential(agent_id: str):
+    # Read path via the ChannelCredentialStore seam (blueprint P2): DirectStore
+    # locally, HttpStore -> owner-gated backend endpoint in cloud. Rebuild the
+    # dataclass so every caller keeps using cred.bot_token / cred.app_token.
+    raw = await get_channel_credential_store().get_credential("slack", agent_id)
+    return _cred_from_raw(raw) if raw is not None else None
+
+
+def register_slack_mcp_tools(mcp: Any) -> None:
+    """Register Slack MCP tools on the given FastMCP server.
+
+    Cross-agent guard note (2026-05-12): an earlier draft pinned the
+    server to a single ``deployment_agent_id`` and rejected mismatching
+    caller agent_ids. That broke the actual deployment model: the dev
+    MCP server (``module_runner mcp``) is **multi-tenant** — one
+    process serves every agent in the workspace, demuxing on the
+    ``agent_id`` parameter of each tool call. Pinning broke legitimate
+    calls because every module was constructed with the placeholder
+    ``agent_id="mcp_deploy"``. Defence-in-depth against cross-agent
+    tool calls needs to happen at the AgentRuntime → MCP transport
+    layer (tagging the calling agent_id, not relying on tool
+    parameters); a tool-level check can't distinguish "wrong caller"
+    from "legitimate multi-tenant demux".
+    """
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def slack_cli(agent_id: str, method: str, args: dict) -> dict:
+        """Call any Slack Web API method with the agent's bound bot token.
+
+        ``method`` is the dotted method name (e.g. ``chat.postMessage``,
+        ``conversations.history``, ``reactions.add``, ``users.info``). See
+        full method list at https://api.slack.com/methods.
+
+        ``args`` is a JSON object of method-specific arguments. ALWAYS call
+        ``slack_skill(agent_id, method)`` first if you don't already know
+        the exact arg shape for that method — it returns the params table
+        and example call from the OpenAPI-derived skill doc.
+
+        Returns the raw Slack response envelope:
+          - on success: ``{"ok": true, ...method-specific data...}``
+          - on failure: ``{"ok": false, "error": "<slack_error_code>"}``
+
+        Common Slack error codes:
+          - ``invalid_auth`` — bot token revoked or wrong; bind again
+          - ``channel_not_found`` — bot isn't in that channel; ask user to
+            invite the bot
+          - ``missing_scope`` — bot's OAuth scopes don't permit this
+            method; user needs to add the scope in the Slack App config
+          - ``rate_limited`` — back off + retry; do NOT spam
+        """
+        if not method or not _VALID_METHOD_RE.match(method):
+            return {
+                "ok": False,
+                "error": "invalid_method_name",
+                "hint": "method must be dotted lowercase, e.g. chat.postMessage",
+            }
+        if not isinstance(args, dict):
+            return {"ok": False, "error": "args_must_be_object"}
+
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {
+                "ok": False,
+                "error": "no_credential",
+                "hint": "no Slack bot bound; use slack_bind first",
+            }
+
+        # Warn (don't block) if the agent is calling a method we don't have
+        # a skill doc for — could be brand new, but also could be a typo
+        loader = get_skill_loader()
+        if method not in loader.list_methods():
+            logger.warning(
+                f"[slack:{agent_id}] slack_cli called for unknown-to-us method '{method}'"
+            )
+
+        client = SlackSDKClient(cred.bot_token)
+        return await client.api_call(method, args)
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without a full message. ``room_id`` is the Slack channel,
+        ``message_id`` the inbound message ts (both shown in your channel
+        instructions). ``emoji`` is a semantic reaction name — see the channel
+        instruction for the full menu (unknown → ``on_it``).
+
+        Best-effort: needs ``reactions:write``; a failure returns
+        ``{"success": false, "reason": ...}`` and never breaks your turn.
+        """
+        if not room_id or not message_id:
+            return {"success": False, "reason": "room_id and message_id are required"}
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "reason": "no_credential"}
+        client = SlackSDKClient(cred.bot_token)
+        return await best_effort_react(
+            _SLACK_REACTIONS,
+            emoji,
+            lambda token: client.add_reaction(room_id, message_id, token),
+            log_label=f"slack:{agent_id}",
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def slack_skill(agent_id: str, method: str) -> str:
+        """Fetch the docs (args, scope, examples) for a Slack Web API method.
+
+        Always call this BEFORE ``slack_cli`` for an unfamiliar method. The
+        returned markdown has the exact arg shape, required OAuth scope,
+        and an example invocation — saves you guessing and getting
+        ``missing_scope`` / ``invalid_arguments`` errors.
+
+        ``method`` is the dotted method name (e.g. ``chat.postMessage``).
+
+        For an unknown method this returns a helpful hint listing
+        same-category methods.
+        """
+        # agent_id is currently unused — kept in signature for symmetry with
+        # lark_skill and to allow per-agent skill overrides in a later phase.
+        del agent_id
+        loader = get_skill_loader()
+        return loader.get(method)
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def slack_bind(
+        agent_id: str, bot_token: str = "", app_token: str = ""
+    ) -> dict:
+        """Bind a Slack workspace to this agent.
+
+        Call with NO tokens to get the full step-by-step setup guide
+        (where to create the app and copy both tokens). Then call again
+        with ``bot_token`` (``xoxb-...``) and ``app_token`` (``xapp-...``).
+
+        Returns ``{"success": bool, "error"?: str, "data"?: {team_id,
+        team_name, bot_user_id}}``; the no-argument form returns
+        ``{"success": True, "setup_guide": str}``.
+        """
+        if not bot_token or not app_token:
+            # Setup-residency (B++): the onboarding walkthrough left the
+            # per-turn system prompt; it is served here on demand instead.
+            # Lazy import avoids a module-level cycle (slack_module imports
+            # this file for register_slack_mcp_tools).
+            from narranexus_plugins.slack_module.slack_module import (
+                _NO_BOT_INSTRUCTION,
+            )
+            return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
+        return await get_channel_credential_store().bind(
+            "slack", agent_id, {"bot_token": bot_token, "app_token": app_token}
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def slack_status(agent_id: str) -> dict:
+        """Return sanitised Slack binding status (NO raw tokens).
+
+        Re-runs ``auth.test`` so you see live connectivity, not just DB state.
+        """
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": True, "data": None, "bound": False}
+
+        live = await get_channel_credential_store().test_connection("slack", agent_id)
+        public = cred.to_public_dict()
+        public["bound"] = True
+        public["live_check"] = live
+        return {"success": True, "data": public}
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def slack_unbind(agent_id: str) -> dict:
+        """Remove this agent's Slack binding."""
+        return await get_channel_credential_store().unbind("slack", agent_id)
+
+    logger.info("Slack MCP tools registered: slack_cli, slack_skill, slack_bind, slack_status, slack_unbind")

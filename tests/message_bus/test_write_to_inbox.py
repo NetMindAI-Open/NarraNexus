@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema.inbox_schema import InboxMessageType
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.schema.inbox_schema import InboxMessageType
 
 
 @pytest.mark.asyncio
@@ -38,7 +38,7 @@ async def test_write_to_inbox_persists_row_with_correct_schema(
     row appears in inbox_table with the documented schema (user_id,
     message_id, message_type, source) and NO bogus columns."""
     # Patch get_db_client to return our in-memory test client.
-    from xyz_agent_context.message_bus import message_bus_trigger as bus_mod
+    from narranexus.platform.message_bus import message_bus_trigger as bus_mod
 
     async def _async_db():
         return db_client
@@ -48,7 +48,7 @@ async def test_write_to_inbox_persists_row_with_correct_schema(
     )
     # Also patch the lazy import inside _write_to_inbox.
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         _async_db,
     )
 
@@ -92,14 +92,14 @@ async def test_write_to_inbox_persists_row_with_correct_schema(
 @pytest.mark.asyncio
 async def test_write_to_inbox_swallows_missing_agent(db_client, monkeypatch):
     """If the agent is unknown, log a warning and skip — don't raise."""
-    from xyz_agent_context.message_bus import message_bus_trigger as bus_mod
+    from narranexus.platform.message_bus import message_bus_trigger as bus_mod
 
     async def _async_db():
         return db_client
 
     monkeypatch.setattr(bus_mod, "get_db_client", _async_db, raising=False)
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         _async_db,
     )
 

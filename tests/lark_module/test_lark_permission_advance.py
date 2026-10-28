@@ -12,11 +12,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredential,
     LarkCredentialManager,
 )
-from xyz_agent_context.module.lark_module import _lark_mcp_tools as tools
+from narranexus_plugins.lark_module import _lark_mcp_tools as tools
 
 
 # ───────────────────────── Fixtures ─────────────────────────
@@ -35,27 +35,46 @@ def _make_cred(permission_state: dict | None = None) -> LarkCredential:
 
 
 class _FakeDB:
-    """Minimal DB stub capable of round-tripping permission_state."""
+    """Minimal in-memory db: equality filters over dict rows per table, ``update``
+    returns the affected count (the generic credential store's version CAS relies on it)."""
 
     def __init__(self):
-        self.rows: dict[str, dict] = {}
+        self.tables: dict[str, list[dict]] = {}
+
+    @staticmethod
+    def _match(row, filters):
+        return all(row.get(k) == v for k, v in filters.items())
 
     async def get_one(self, table, filters):
-        return self.rows.get(filters.get("agent_id"))
+        for row in self.tables.get(table, []):
+            if self._match(row, filters):
+                return dict(row)
+        return None
 
     async def get(self, table, filters):
-        return list(self.rows.values())
+        return [dict(r) for r in self.tables.get(table, []) if self._match(r, filters)]
 
     async def insert(self, table, data):
-        self.rows[data["agent_id"]] = dict(data)
+        self.tables.setdefault(table, []).append(dict(data))
 
     async def update(self, table, filters, data):
-        aid = filters.get("agent_id")
-        if aid in self.rows:
-            self.rows[aid].update(data)
+        n = 0
+        for row in self.tables.get(table, []):
+            if self._match(row, filters):
+                row.update(data)
+                n += 1
+        return n
 
     async def delete(self, table, filters):
-        self.rows.pop(filters.get("agent_id"), None)
+        rows = self.tables.get(table, [])
+        keep = [r for r in rows if not self._match(r, filters)]
+        self.tables[table] = keep
+        return len(rows) - len(keep)
+
+    @property
+    def rows(self) -> dict[str, dict]:
+        """agent_id → stored lark credential (the shape the assertions read)."""
+        return {r["agent_id"]: r for r in self.tables.get("channel_credentials", []) if r.get("channel") == "lark"}
 
 
 @pytest.fixture
@@ -66,7 +85,7 @@ def fake_db(monkeypatch):
         return db
 
     monkeypatch.setattr(
-        "xyz_agent_context.module.base.XYZBaseModule.get_mcp_db_client",
+        "narranexus.platform.module_system.base.XYZBaseModule.get_mcp_db_client",
         AsyncMock(return_value=db),
     )
     return db
@@ -106,6 +125,31 @@ async def test_event_empty_from_scratch_generates_click2(fake_db, monkeypatch):
     assert saved.permission_state["admin_request_url"] == "https://lark.example/click2"
     assert saved.permission_state["admin_request_device_code"] == "DC_CLICK2"
     assert saved.current_click_stage() == "waiting_admin"
+
+
+@pytest.mark.asyncio
+async def test_event_empty_surfaces_seam_write_failure_not_silent_success(fake_db, monkeypatch):
+    # Finding #1: the seam never raises — a cloud write failure comes back as
+    # {"success": False, ...}. _advance_start MUST check it and surface an error,
+    # not hand the model a Click-2 URL whose device_code was never persisted
+    # (the next click would fail with a misleading "no device_code").
+    await _seed(fake_db, _make_cred())
+    cred = await LarkCredentialManager(fake_db).get_credential("agent_test")
+
+    monkeypatch.setattr(tools._cli, "_run_with_agent_id", AsyncMock(return_value={
+        "success": True,
+        "data": {"verification_url": "https://lark.example/click2", "device_code": "DC"},
+    }))
+
+    class _FailingStore:
+        async def patch_credential(self, channel, agent_id, patch):
+            return {"success": False, "error": "backend unreachable"}
+
+    monkeypatch.setattr(tools, "get_channel_credential_store", lambda *a, **k: _FailingStore())
+
+    result = await tools._advance_start("agent_test", cred)
+    assert result["success"] is False
+    assert "backend unreachable" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -226,6 +270,38 @@ async def test_event_user_authorized_success_flips_completed(fake_db, monkeypatc
     assert ps["user_authz_device_code"] is None  # cleared
     assert saved.current_click_stage() == "completed"
     assert saved.auth_status == "user_logged_in"
+
+
+@pytest.mark.asyncio
+async def test_event_user_authorized_completion_write_failure_surfaces(fake_db, monkeypatch):
+    # The token is minted (CLI login OK) and the auth_status flip succeeds, but
+    # the COMPLETION permission_state write (the marker current_click_stage()
+    # reads to derive "completed") fails in cloud. The tool must NOT report
+    # stage_after="completed" — it must surface the persist failure.
+    await _seed(fake_db, _make_cred({
+        "user_authz_url": "https://lark.example/click3",
+        "user_authz_device_code": "DC_CLICK3",
+    }))
+    cred = await LarkCredentialManager(fake_db).get_credential("agent_test")
+
+    monkeypatch.setattr(tools._cli, "_run_with_agent_id", AsyncMock(return_value={
+        "success": True, "data": {"scopes": ["im:message"]},
+    }))
+
+    class _FailCompletionStore:
+        # auth_status flip (_patch_fields) succeeds; the permission_state
+        # completion write (_patch_ps) fails.
+        async def patch_credential(self, channel, agent_id, patch):
+            if "permission_state" in patch:
+                return {"success": False, "error": "backend unreachable"}
+            return {"success": True}
+
+    monkeypatch.setattr(tools, "get_channel_credential_store", lambda *a, **k: _FailCompletionStore())
+
+    result = await tools._advance_user_authorized("agent_test", cred)
+    assert result["success"] is False
+    assert "completion state" in result["error"]
+    assert "backend unreachable" in result["error"]
 
 
 @pytest.mark.asyncio

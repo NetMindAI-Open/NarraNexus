@@ -26,14 +26,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.agent_runtime.admission import (
+from narranexus.platform.agent_runtime.admission import (
     AgentAdmissionController,
     reset_admission_controller_for_test,
 )
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 
 # ---------------------------------------------------------------------------
@@ -178,11 +178,11 @@ async def test_drive_enters_slot_before_iterating_runtime_run():
     # we must patch it there — not in background_run's namespace.
     with (
         patch(
-            "xyz_agent_context.agent_runtime.background_run.get_admission_controller",
+            "narranexus.platform.agent_runtime.background_run.get_admission_controller",
             return_value=spy_controller,
         ),
         patch(
-            "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+            "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
             _FakeAgentRuntime,
         ),
     ):
@@ -281,7 +281,7 @@ async def test_drive_respects_global_loop_cap():
                 pass
 
         with patch(
-            "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+            "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
             _FakeAgentRuntimeFactory,
         ):
             # Start both drives concurrently.

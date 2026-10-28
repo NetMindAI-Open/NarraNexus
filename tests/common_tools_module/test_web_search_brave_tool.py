@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+from narranexus_plugins.common_tools_module._common_tools_impl import (
     web_search_brave_tool as brave,
 )
 
@@ -91,12 +91,36 @@ async def test_happy_path_single_query_returns_formatted_results(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_multiple_queries_run_in_parallel(monkeypatch):
-    """N queries dispatched concurrently — wall time ≈ single-query time."""
-    call_times: list[float] = []
+    """N queries are in flight AT THE SAME TIME, not one after another.
+
+    Asserted via peak concurrent occupancy, NOT wall-clock elapsed time.
+
+    The wall-clock version of this test ("3 x 200ms sequential = 600ms, so
+    assert elapsed < 0.5") could not tell "the code became sequential" from
+    "the runner is slow", and on 2026-08-19 CI it started reporting 0.79s for
+    a dispatch that is provably parallel (same test, same commit, 0.30s
+    locally; it failed on dev at 568eb5fd with none of the PR's changes).
+    A test that fails when the machine is busy trains people to re-run it,
+    which is how a real regression gets waved through.
+
+    Peak occupancy is a structural property of the dispatch: with
+    asyncio.gather every handler is entered before any of them resumes from
+    its await, so peak == N. If the implementation ever awaits each request in
+    turn, peak == 1 on the fastest machine in the world and on the slowest.
+    Timing is still present (the sleep keeps handlers overlapping) but nothing
+    is asserted about it.
+    """
+    in_flight = 0
+    peak = 0
 
     async def handler(url, params, headers):
-        call_times.append(time.monotonic())
-        await asyncio.sleep(0.2)  # each "request" takes 200ms
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        # Long enough that every sibling is dispatched before the first one
+        # resumes; the event loop drains ready callbacks before timer ones.
+        await asyncio.sleep(0.2)
+        in_flight -= 1
         return _make_response(200, {
             "web": {"results": [
                 {"title": f"t-{params['q']}", "url": "https://x/", "description": "s"}
@@ -104,12 +128,9 @@ async def test_multiple_queries_run_in_parallel(monkeypatch):
         })
 
     _patch_async_client(monkeypatch, handler)
-    start = time.monotonic()
     bundles = await brave._search_with_retry(["q1", "q2", "q3"], 5, "test-key")
-    elapsed = time.monotonic() - start
 
-    # 3 queries × 200ms sequential = 600ms; parallel = ~200ms + overhead
-    assert elapsed < 0.5, f"queries ran sequentially ({elapsed:.2f}s)"
+    assert peak == 3, f"queries ran sequentially (peak concurrency {peak}, want 3)"
     assert len(bundles) == 3
     assert {b["query"] for b in bundles} == {"q1", "q2", "q3"}
 
@@ -145,6 +166,25 @@ async def test_max_results_respected(monkeypatch):
 
     await brave._search_with_retry(["x"], max_results=3, api_key="test-key")
     assert captured_params["count"] == 3
+
+
+# -------- the ladder itself ---------------------------------------------
+
+
+def test_the_brave_timeout_ladder_keeps_its_order_and_floors():
+    """The shipped numbers need somewhere to be checked.
+
+    The two timeout tests below scale these constants down to 0.2s / 0.3s to run
+    fast — correct, and the same trick `test_web_search_timeouts.py` uses — but
+    it means nothing in the suite had ever asserted the values that actually
+    ship. Order matters (a per-query cap above the overall cap is dead code, and
+    the incident behind this three-layer defense was every layer delegating its
+    timeout to the next one down); floors matter too, because a ladder scaled to
+    milliseconds in production would turn a slow network into a fast failure.
+    """
+    assert 0 < brave._PER_QUERY_TIMEOUT_S < brave._OVERALL_TIMEOUT_S
+    assert brave._PER_QUERY_TIMEOUT_S >= 5
+    assert brave._OVERALL_TIMEOUT_S >= 15
 
 
 # -------- per-query timeout ---------------------------------------------

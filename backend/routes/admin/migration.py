@@ -19,13 +19,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.settings import settings
+from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.integrations.netmind.identity_migration import execute_migration
+
+from ._admin_secret import admin_secret_dependency
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -45,26 +47,11 @@ class MigrateIdentityResponse(BaseModel):
     dirs_renamed: int
 
 
-def _require_admin_secret(provided: str) -> None:
-    """Gate the endpoint on the platform admin secret.
-
-    No configured secret in cloud-grade deployments is a misconfiguration, not
-    an open door — refuse rather than allow. A wrong / missing header is 403.
-    """
-    expected = (settings.admin_secret_key or "").strip()
-    if not expected:
-        raise HTTPException(status_code=503, detail="admin secret not configured")
-    if not provided or provided.strip() != expected:
-        raise HTTPException(status_code=403, detail="invalid admin secret")
-
-
 @router.post("/migrate-identity", response_model=MigrateIdentityResponse)
 async def migrate_identity(
     request: MigrateIdentityRequest,
-    x_admin_secret: str = Header(default=""),
+    _: None = Depends(admin_secret_dependency),
 ) -> MigrateIdentityResponse:
-    _require_admin_secret(x_admin_secret)
-
     if len(request.to_power_hex) != 32:
         raise HTTPException(
             status_code=400,

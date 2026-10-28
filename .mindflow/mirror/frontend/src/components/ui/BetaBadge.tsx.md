@@ -30,7 +30,7 @@ copies drifting apart.
 ## Upstream / Downstream
 
 Used by [[Sidebar.tsx]] (expanded header), [[LoginPage.tsx]] (brand header),
-[[SetupPage.tsx]] (header). Exported from the ui barrel ([[index.ts]]).
+[[WelcomePage.tsx]] (header). Exported from the ui barrel ([[index.ts]]).
 Pinned by [[BetaBadge.test.tsx]].
 
 ## Gotchas

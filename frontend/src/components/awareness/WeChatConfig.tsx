@@ -40,7 +40,7 @@ import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { WeChatCredentialData } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { t } = useTranslation();
@@ -66,7 +66,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.getWeChatCredential(agentId);
+      const res = await api.channelCredential<WeChatCredentialData>('wechat', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -176,7 +176,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindWeChat(agentId);
+      const res = await api.channelUnbind('wechat', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();
@@ -195,7 +195,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // the bot's single connection slot.
   const handleToggleActive = async (next: boolean) => {
     if (!agentId) return;
-    const res = await api.setWeChatActive(agentId, next);
+    const res = await api.channelSetActive('wechat', agentId, next);
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();
@@ -216,7 +216,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         <button
           onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="p-1 rounded hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -224,7 +224,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -236,7 +236,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             <p className="text-xs text-[var(--text-secondary)]">
               {t('awareness.wechat.intro')}
             </p>
-            <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+            <div className="text-xs text-[var(--color-warning)]" role="note">
               {t('awareness.wechat.warning')}
             </div>
             <Button
@@ -302,7 +302,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   {credential.owner_name || credential.bot_wx_id || t('awareness.wechat.accountFallback')}
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
@@ -311,7 +311,7 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 {t('awareness.common.owner')}: <span className="text-[var(--text-primary)]">{credential.owner_name || credential.owner_wx_id}</span>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 {t('awareness.wechat.ownerPending')}
                 <div className="mt-1 text-[var(--text-secondary)]">
                   {t('awareness.wechat.ownerPendingNote')}
@@ -338,7 +338,11 @@ export function WeChatConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         )}
 
         {credential && (
-          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
+          <ChannelActiveToggle
+            active={!!credential.enabled}
+            reason={credential.disabled_reason}
+            onToggle={handleToggleActive}
+          />
         )}
       </CardContent>
     </Card>

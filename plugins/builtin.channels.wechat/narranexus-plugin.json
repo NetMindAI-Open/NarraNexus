@@ -1,0 +1,36 @@
+{
+  "id": "builtin.channels.wechat",
+  "version": "1.0.0",
+  "displayName": "WeChat",
+  "description": "Builtin module WeChatModule (IM channel: trigger + module + tools).",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0,
+    "trigger": 0,
+    "route": 0,
+    "hook": 0,
+    "channel": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.wechat_module.contribution:MODULES"
+    ],
+    "ingress.triggers": [
+      "narranexus_plugins.wechat_module.contribution:TRIGGERS"
+    ],
+    "backend.routes": [
+      "narranexus_plugins.wechat_module.routes:ROUTES"
+    ],
+    "backend.hooks": [
+      "narranexus_plugins.wechat_module.plugin_hooks:HOOKS"
+    ],
+    "ingress.channels": [
+      "narranexus_plugins.wechat_module.descriptor:CHANNEL"
+    ]
+  },
+  "quality": "gold"
+}

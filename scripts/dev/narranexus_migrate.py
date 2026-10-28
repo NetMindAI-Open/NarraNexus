@@ -18,7 +18,7 @@ import argparse
 import json
 import sys
 
-from xyz_agent_context.migration import detect, scan
+from narranexus.platform.migration import detect, scan
 
 
 def main() -> int:

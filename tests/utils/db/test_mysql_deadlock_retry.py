@@ -22,8 +22,8 @@ from __future__ import annotations
 import pymysql.err
 import pytest
 
-from xyz_agent_context.utils.db import db_backend_mysql
-from xyz_agent_context.utils.db.db_backend_mysql import _retry_on_deadlock
+from narranexus.platform.utils.db import db_backend_mysql
+from narranexus.platform.utils.db.db_backend_mysql import _retry_on_deadlock
 
 
 @pytest.fixture(autouse=True)

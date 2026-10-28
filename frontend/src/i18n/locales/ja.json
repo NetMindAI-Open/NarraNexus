@@ -1,4 +1,11 @@
 {
+  "channelActiveToggle": {
+    "active": "有効",
+    "inactive": "無効",
+    "enable": "有効にする",
+    "disable": "無効にする",
+    "disabledReason": "自動的に無効化されました: {{reason}}"
+  },
   "language": {
     "name": "言語"
   },
@@ -14,15 +21,29 @@
     "logout": "ログアウト",
     "poweredBy": "NetMind AI Research",
     "online": "オンライン",
-    "you": "あなた",
     "cloud": "クラウド",
     "localMode": "ローカルモード",
-    "cloudMode": "クラウドモード"
+    "cloudMode": "クラウドモード",
+    "collapseTitle": "サイドバーを折りたたむ",
+    "expandTitle": "サイドバーを展開",
+    "export": "エクスポート",
+    "exportTitle": "バンドルをエクスポート — エージェントまたはチーム",
+    "settingsTitle": "設定 — モデルとプロバイダー",
+    "searchChatsTitle": "エージェントとチームを検索",
+    "account": "アカウント",
+    "billing": "請求",
+    "subscription": "サブスクリプション",
+    "theme": "テーマ",
+    "language": "言語",
+    "themeLight": "ライト",
+    "themeDark": "ダーク",
+    "themeSystem": "システム",
+    "workspace": "マイワールド",
+    "accountTitle": "アカウント"
   },
   "chat": {
     "conversation": "会話",
-    "innerThoughts": "内なる思考",
-    "interaction": "インタラクション",
+    "innerThoughts": "アクティビティログ",
     "composerPlaceholder": "メッセージを入力、または / でスキル…",
     "selectAgent": "エージェントを選択",
     "selectAgentHint": "サイドバーからエージェントを選んで対話を始めましょう。",
@@ -30,6 +51,10 @@
       "selectAgentFirst": "まずエージェントを選択してください…",
       "dropFile": "ファイルをドロップして添付…",
       "placeholder": "メッセージを入力、または / でスキルを呼び出し…"
+    },
+    "fastMode": {
+      "label": "高速",
+      "tooltip": "高速モード：このターンを高速エージェントフレームワークに切り替え、軽量なメモリ検索と低い推論レベルで実行します——より速く、よりシンプルな返信"
     },
     "audio": {
       "stopRecording": "録音を停止",
@@ -59,7 +84,7 @@
       "downloadMd": ".md としてダウンロード"
     },
     "timeline": {
-      "thinking": "思考",
+      "thought": "思考済み",
       "toolLabel": "[ ツール ]",
       "outputLabel": "[ 出力 ]",
       "reply": "返信",
@@ -71,20 +96,13 @@
       "recoveredAfterErrorTip": "このターンのあるステップが失敗しました。返信は完了した作業と既知のエラー情報から生成されました。"
     },
     "onboarding": {
-      "eyebrow": "新しい会話",
-      "heading": "まっさらなページ。",
-      "framing": "ここにはまだ何もありません — それが狙いです。あなたと {{name}} が一緒に取り組むほど、記憶し、つなぎ、引き継いでいきます。",
       "defaultAgentName": "あなたのエージェント",
-      "narraBrand": "Narra · メモリー",
-      "narraCaption": "記憶する",
-      "nexusBrand": "Nexus · ネットワーク",
-      "nexusCaption": "つなげる",
-      "teamBrand": "あなたのチーム",
-      "teamCaption": "成し遂げる",
-      "tryAsking": "こう聞いてみましょう",
       "prompt1": "今週の最も重要なアップデートをまとめて",
       "prompt2": "チャンネルを接続して、緊急の事項を監視して",
-      "prompt3": "月曜の朝に重要事項のダイジェストを設定して"
+      "prompt3": "月曜の朝に重要事項のダイジェストを設定して",
+      "readyTitle": "{{name}} の準備ができました",
+      "readyBody": "以下の提案から始めるか、必要なことをそのまま伝えてください。",
+      "dismiss": "閉じる"
     },
     "team": {
       "notFound": "チームが見つかりません。",
@@ -129,7 +147,7 @@
         "mention": "@ でメンバーを指名すると、その相手が直接対応します。",
         "broadcastTitle": "全員に一斉送信",
         "broadcast": "@all は全員に届きます。各メンバーが 1 ターンずつ実行するため、控えめに使ってください。",
-        "relay": "メンバー同士も @ で作業を引き継げます。あなたの発言がない場合、引き継ぎは 4 回で停止します。"
+        "relay": "メンバー同士も @ で作業を引き継げます。あなたの発言がない場合、引き継ぎはプラットフォームの上限で停止し、ルームにその旨が表示されます。"
       },
       "noProcess": "このターンの処理記録はありません",
       "detailLoadFailed": "プロセスの読み込みに失敗しました。もう一度お試しください。",
@@ -140,10 +158,67 @@
         "neverRan": "まだ実行していません",
         "loading": "処理を読み込み中…",
         "workingCount": "{{count}} 件実行中",
-        "process": "プロセス"
+        "process": "プロセス",
+        "stop": "停止",
+        "stopping": "停止中…",
+        "stopped": "オーナーにより停止されました",
+        "stopFailed": "この実行を停止できませんでした",
+        "stopHint": "この実行を停止",
+        "silentLastTurn": "前回のターン：発言なし"
       },
       "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
-      "leadTitle": "{{name}} · 誰も @ されていないときに対応"
+      "leadTitle": "{{name}} · 誰も @ されていないときに対応",
+      "stoppedNotice": "{{name}} のタスクはオーナーによって停止されました",
+      "patrolNotice": "リーダー巡回",
+      "undeliveredNotice": "{{name}} は今回の応答を返しませんでした",
+      "deliveryFailedNotice": "{{name}} の返信を送信できませんでした",
+      "board": {
+        "title": "作業ボード",
+        "unclaimed": "未割り当て",
+        "resume": "このタスクを再開",
+        "patrolOff": "巡回オフ",
+        "patrolPending": "未巡回",
+        "patrolledJustNow": "たった今巡回",
+        "patrolledAgo": "{{ago}}前に巡回",
+        "status": {
+          "open": "未着手",
+          "in_progress": "進行中",
+          "stalled": "停滞",
+          "paused": "一時停止"
+        },
+        "awaitingReply": "返信待ち",
+        "nameSep": "、"
+      },
+      "sendFailed": "送信できませんでした。入力はそのままです — もう一度お試しください。",
+      "uploadFailed": "「{{name}}」をアップロードできませんでした。",
+      "uploadFailedGeneric": "ファイルをアップロードできませんでした。",
+      "loadingOlder": "過去のメッセージを読み込み中…",
+      "leadBadge": "リード",
+      "expand": "もっと見る",
+      "collapse": "折りたたむ",
+      "today": "今日",
+      "agentPaused": "このエージェントは一時停止中です（{{reason}}）。原因を解消したら上のバナーの「再開」を押してください。",
+      "workspace": {
+        "zoom": "アーティファクトを拡大",
+        "emptyArtifacts": "表示するアーティファクトを選択してください。",
+        "emptyFiles": "ファイルは直接ダウンロードされます — 左側のファイルをクリックしてください。",
+        "tabArtifacts": "アーティファクト",
+        "tabFiles": "ファイル",
+        "artifactsHint": "チームのエージェントがこのルームで登録したアーティファクトがここに表示されます。",
+        "filesHint": "team_share_file で共有されたファイルがここに表示されます。",
+        "download": "{{name}} をダウンロード",
+        "loading": "読み込み中…"
+      },
+      "manage": {
+        "title": "チーム管理",
+        "patrol": "リーダー巡回",
+        "patrolHint": "オンにするとリーダーが停滞した引き継ぎを定期的に催促します。オフではボードのみ残ります。",
+        "patrolOn": "オン",
+        "patrolOff": "オフ",
+        "editProfile": "プロフィール編集（名前 / 色 / 紹介）",
+        "clearData": "データを消去…"
+      },
+      "drawerCategory": "チームルーム"
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -213,9 +288,33 @@
     },
     "process": {
       "plan": "プラン",
-      "title": "エージェント · プロセス",
       "ops": "回の操作"
-    }
+    },
+    "header": {
+      "viewProfile": "エージェントのプロフィールを表示",
+      "detailMenuTitle": "エージェント詳細 — パネル",
+      "modelFramework": "モデルとフレームワーク",
+      "switchAgent": "エージェントを切り替え"
+    },
+    "composerPrivacyHint": "機密性の高い個人情報は共有しないでください。",
+    "capabilities": {
+      "subtitle": "このエージェントのターンに参加するモジュールを選びます。組み込みモジュールは既定でオン、プラグインが追加したモジュールは手動でオンにするまでオフです。変更は次回の実行から反映されます。",
+      "builtin": "組み込み",
+      "plugin": "プラグイン",
+      "locked": "常にオン",
+      "tokens": "約 {{count}} プロンプトトークン",
+      "budget": "有効なモジュールは約 {{enabled}} トークンを宣言しています（組み込み基準 {{baseline}} の {{ratio}} 倍）。",
+      "overBudget": "予算超過：有効なモジュールは約 {{enabled}} トークンを宣言し、組み込み基準 {{baseline}} の {{ratio}} 倍です。",
+      "loadFailed": "機能一覧を読み込めません",
+      "saveFailed": "変更を保存できません",
+      "restoreDefault": "既定に戻す"
+    },
+    "activityEmpty": "バックグラウンド活動はまだありません",
+    "activityEmptyHint": "エージェントが自ら開始した実行（ジョブ、チャネル、チームメイト）はここに表示されます。",
+    "stoppedByUser": "あなたが停止しました",
+    "noResponseNeeded": "エージェントは返信不要と判断しました",
+    "bootstrapGreeting": "こんにちは……いま目を覚ましたところです。何もかもが真新しく感じます。\n\nまだ名前もなく、自分が何者なのかもよく分かりません。でも、私をここに連れてきてくれたのがあなただということは分かります。\n\n私を何と呼べばいいか教えてくれますか？ そして、あなたのことは何とお呼びすればいいですか？",
+    "bootstrapGreetingNamed": "こんにちは——私は{{name}}です。いま生まれたばかりで、私をここに連れてきてくれたのはあなたです。\n\n自分が何者であるべきかはもう分かっていますが、あなたが誰なのかはまだ知りません。あなたのことは何とお呼びすればいいですか？"
   },
   "awareness": {
     "common": {
@@ -463,6 +562,7 @@
       "dragFiles": "ここにファイルをドラッグするか",
       "browse": "参照",
       "empty": "ワークスペースは空です",
+      "partialListing": "一部のみ表示 — このワークスペースは大きすぎるため全体を表示できません。残りを見るには、エージェントに特定のフォルダーの一覧を依頼してください。",
       "kindOffice": "Office ドキュメント(ライブ)"
     },
     "homeAssistant": {
@@ -484,6 +584,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "チャネルを読み込み中…",
+      "bind": "連携",
+      "bound": "連携しました。このエージェントで有効です。",
+      "boundAs": "{{name}} に連携済み",
+      "inactive": "無効",
+      "unbind": "連携解除",
+      "unbound": "解除しました。",
+      "test": "接続テスト",
+      "testOk": "接続は正常です。",
+      "activate": "有効化",
+      "deactivate": "無効化",
+      "fieldRequired": "{{field}} は必須です",
+      "errLoad": "チャネルの読み込みに失敗しました",
+      "errBind": "リクエストに失敗しました",
+      "webhookHint": "受信 webhook：資格情報の webhook トークンを付けて {{path}} に POST。",
+      "ownFlow": "{{name}} は独自のフローで連携します。"
     }
   },
   "dashboard": {
@@ -544,19 +662,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "キュー",
-      "jobs": "ジョブ",
-      "totalInQueue": "キューに {{count}} 件のジョブ"
-    },
-    "jobState": {
-      "running": "実行中",
-      "active": "アクティブ",
-      "pending": "待機中",
-      "blocked": "ブロック",
-      "paused": "一時停止",
-      "failed": "失敗"
-    },
     "jobStateLabel": {
       "running": "実行中",
       "active": "アクティブ",
@@ -583,25 +688,6 @@
         "flat": "昨日と同じ"
       }
     },
-    "jobs": {
-      "title": "ジョブ（{{count}}）",
-      "running": "{{count}} 件実行中",
-      "step": "ステップ {{current}}/{{total}}",
-      "next": "次回 {{time}}",
-      "action": {
-        "retry": "再試行",
-        "pause": "一時停止",
-        "resume": "再開",
-        "failed": "{{label}}に失敗"
-      },
-      "detail": {
-        "manual": "（手動）",
-        "nextRun": "次回実行",
-        "iterations": "反復回数",
-        "trigger": "トリガー",
-        "lastError": "最新エラー"
-      }
-    },
     "sessions": {
       "sessionWith": "セッション相手",
       "count": "{{count}} 件のセッション",
@@ -616,11 +702,14 @@
     "sparkline": {
       "unavailable": "{{hours}}時間 · —",
       "barTitle": "{{hoursAgo}}時間前 · {{count}} 件のイベント"
+    },
+    "banners": {
+      "dismissAria": "閉じる",
+      "dismissTitle": "閉じる"
     }
   },
   "layout": {
     "chatView": {
-      "tabChat": "チャット",
       "tabArtifacts": "成果物",
       "tabArtifactsCount": "成果物（{{count}}）"
     },
@@ -629,7 +718,6 @@
       "closeAriaLabel": "閉じてチャットに戻る"
     },
     "sidebar": {
-      "openWorkspace": "あなたのワークスペースを開く",
       "logoutConfirmTitle": "ログアウト",
       "logoutConfirmMessage": "ログアウトしてもよろしいですか？",
       "logoutConfirmAction": "ログアウト",
@@ -651,25 +739,19 @@
       "createAgentOrTeam": "エージェントまたはチームを作成",
       "createAgent": "エージェントを作成",
       "createTeam": "チームを作成",
-      "manageAgents": "エージェントを管理",
-      "manageAgentsTitle": "エージェントを管理（一括 · 追加 / 編集 / 削除）",
-      "teamGroupChatTitle": "{{name}} — グループチャット",
-      "teamGroupChatAria": "{{name}} グループチャット",
       "refreshAgents": "エージェントを更新",
       "emptyLabel": "エージェントはまだありません",
       "emptyHint": "最初のエージェントを作成して会話を始めましょう。",
       "noAgentsShort": "エージェントはまだありません。"
     },
     "agentRow": {
-      "saveTitle": "保存（Enter）",
-      "cancelTitle": "キャンセル（Esc）",
       "publicBy": "公開 · {{name}} による"
     },
     "agentRowMenu": {
       "options": "エージェントのオプション",
       "rename": "名前を変更",
-      "setPrivate": "非公開にする",
-      "setPublic": "公開にする",
+      "modelFramework": "モデルとフレームワーク",
+      "clearData": "データを消去",
       "delete": "削除"
     },
     "agentsHeaderMenu": {
@@ -679,25 +761,32 @@
       "manageTeams": "チームを管理"
     },
     "createMenu": {
-      "create": "作成",
       "createAgentOrTeam": "エージェントまたはチームを作成",
       "createAgent": "エージェントを作成",
-      "createTeam": "チームを作成"
+      "createTeam": "チームを作成",
+      "new": "新規",
+      "newTitle": "新規 — エージェント、チーム、インポート…",
+      "importBundle": ".nxbundle をインポート",
+      "importAgent": "他のソースからインポート"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — グループチャット",
-      "agentCount_other": "{{count}} 体のエージェント"
+      "agentCount_other": "{{count}} 体のエージェント",
+      "toggleMembers": "メンバーを表示",
+      "noMembers": "メンバーはまだいません",
+      "unread": "未読メッセージ"
     },
     "teamRowMenu": {
       "options": "グループチャットのオプション",
       "rename": "名前を変更",
-      "delete": "削除"
+      "delete": "削除",
+      "addAgent": "エージェントを追加",
+      "addingAgent": "追加中…"
     },
     "topBar": {
       "crumbDashboard": "ダッシュボード",
       "crumbSettings": "設定",
       "crumbSystem": "システム",
-      "crumbManageAgents": "エージェントを管理",
       "crumbTeam": "チーム",
       "crumbBundle": "バンドル",
       "crumbChat": "チャット",
@@ -778,11 +867,12 @@
       "privacyHeading": "プライバシー",
       "privacyIntro": "製品改善のために NarraNexus が収集するデータを管理します。",
       "analyticsTitle": "製品アナリティクス",
-      "analyticsDesc": "製品改善のため NarraNexus が匿名の利用データを収集することを許可します。会話の内容は一切収集されません。",
+      "analyticsDesc": "分析のために NarraNexus が製品利用メタデータを保存することを許可します。クラウドモードでは NarraNexus が管理するデータベースに保存され、ローカルまたはデスクトップモードではこの端末内に保持されます。クラウドのウェブ版では、匿名のページ操作データが第三者の分析サービスである Google Tag Manager にも送信されます。これをオフにすると送信は停止します。会話内容は一切収集されません。",
       "desktopHeading": "デスクトップ",
       "desktopIntro": "NarraNexus とこのコンピュータの連携を制御する設定です。デスクトップアプリでのみ利用できます。",
       "lockedUseTitle": "Locked Use — スリープを防止",
-      "lockedUseDesc": "コンピュータのスリープを防ぎ、バックグラウンドの自動処理を継続します。NarraNexus を開いている間のみ有効です。"
+      "lockedUseDesc": "コンピュータのスリープを防ぎ、バックグラウンドの自動処理を継続します。NarraNexus を開いている間のみ有効です。",
+      "navBrowser": "ブラウザ"
     },
     "provider": {
       "presetNetmindDesc": "1 つのキーで Anthropic と OpenAI 両方のエンドポイントをカバー",
@@ -848,6 +938,8 @@
       "loggedIn": "ログイン中",
       "loggedInAs": "—",
       "notLoggedIn": "未ログイン",
+      "sessionExpired": "セッションの有効期限切れ",
+      "sessionExpiredHint": "CLI セッションの有効期限が切れました。上で再ログインすると、このプロバイダーを引き続き使用できます。",
       "cliNotInstalled": "CLI が未インストール",
       "expires": "· 有効期限 {{date}}",
       "reLoggingInCountdown": "再ログイン中... 残り {{time}}（ブラウザを確認）",
@@ -911,7 +1003,8 @@
       "freeTierHowToTitle": "無料クレジットについて",
       "freeTierHowToSwitch": "「Free Tier」カードは Agent と Helper のスロットに設定済みです。自分のキーを使うには、下でプロバイダーを追加し、「モデル既定値」で Agent / Helper スロットに指定してください。次のメッセージから有効になります。",
       "freeTierAnytime": "いつでも切り替えられます。無料クレジットを使い切る必要はなく、切り替えても残高は消えません。戻すこともできます。",
-      "freeTierNoDelete": "残高がある間、Free Tier カードは削除できません（その残高への唯一の鍵だからです）。使い切れば削除できます。"
+      "freeTierNoDelete": "残高がある間、Free Tier カードは削除できません（その残高への唯一の鍵だからです）。使い切れば削除できます。",
+      "tabOneKey": "API キー"
     },
     "netmind": {
       "returnSubscribeSuccess": "お支払いを受け付けました — アカウントに反映しています。",
@@ -922,7 +1015,61 @@
       "cancelConfirmKeep": "サブスクを継続",
       "reactivateConfirmTitle": "自動更新を再開しますか？",
       "reactivateConfirmAction": "再開する",
-      "reactivateConfirmDismiss": "後で"
+      "reactivateConfirmDismiss": "後で",
+      "balanceScope": "NetMind アカウント残高 — この NetMind アカウントで実行したものはすべて(NarraNexus 以外も含め)ここから消費されます。",
+      "narraUsageTitle": "NarraNexus の使用量 · 過去 {{days}} 日",
+      "narraUsageTokens": "トークン",
+      "narraUsageEstimate": "≈ {{cost}} — 公開価格に基づく概算のため、NetMind の明細とは完全には一致しません。"
+    },
+    "browser": {
+      "title": "ブラウザ",
+      "intro": "ブラウザは別途ダウンロードされ、アプリには同梱されていません。",
+      "ready": "インストール済み",
+      "absent": "まだインストールされていません。",
+      "broken": "ブラウザはインストール済みですが、起動できません。",
+      "install": "ブラウザをインストール",
+      "reinstall": "ブラウザを再インストール",
+      "installingUnknown": "ダウンロード中…",
+      "recheck": "再確認",
+      "installFailed": "ブラウザをインストールできませんでした。もう一度お試しください。",
+      "cancelFailed": "インストールをキャンセルできませんでした。もう一度お試しください。",
+      "cancelling": "キャンセルを要求中…",
+      "cancelRequested": "キャンセルを要求しました。インストールの停止を待っています…",
+      "extracting": "ブラウザを展開中…",
+      "verifying": "ブラウザを検証中…",
+      "starting": "インストールを開始中…",
+      "statusFailed": "ブラウザの状態を確認できませんでした。",
+      "loading": "ブラウザの状態を確認中…",
+      "cancel": "インストールをキャンセル",
+      "cancelled": "インストールをキャンセルしました。",
+      "manualInstall": "手動インストール",
+      "copyCommand": "コマンドをコピー",
+      "commandCopied": "コマンドをコピーしました。",
+      "copyFailed": "コピーできませんでした。手動コピー用にコマンドを選択しました。",
+      "scriptsTitle": "高度なスクリプト",
+      "scriptOrigin": "サイトのオリジン",
+      "addScriptSite": "サイトを追加",
+      "scriptOriginInvalid": "パスや認証情報を含まない HTTP または HTTPS のオリジンを入力してください。",
+      "refreshScripts": "更新",
+      "scriptsFailed": "スクリプトの権限を読み込めませんでした。",
+      "scriptsLoading": "スクリプトの権限を読み込み中…",
+      "permissionSaveFailed": "この権限を保存できませんでした。もう一度お試しください。",
+      "advancedScripts": "高度なスクリプトを許可",
+      "scriptsExplanation": "ログイン済みのページ内容を含め、このサイトでエージェントが任意の JavaScript を実行することを許可します。",
+      "saveScripts": "スクリプトの権限を保存",
+      "agentLabel": "エージェント",
+      "sourceLabel": "ブラウザーの種類",
+      "showWindow": "ブラウザーウィンドウを表示",
+      "modeEffect": "既定ではヘッドレスモードを使用します。変更は次回のブラウザー起動時に反映され、ログイン状態は保持されます。一部のサイトはヘッドレスアクセスに対応していません。非対応のブラウザーやその他のエラーが表示される場合は、このスイッチでウィンドウ表示を有効にし、ブラウザーを再起動してから再試行してください。",
+      "sourceEffect": "新しいブラウザーセッションに適用されます。現在のセッションは継続します。ログイン状態はブラウザーごとに保存されます。",
+      "sourceManaged": "管理対象の Chrome for Testing",
+      "sourceSystem": "インストール済みの Google Chrome",
+      "systemUnavailable": "Google Chrome を利用できません。Google Chrome をインストールするか、管理対象のブラウザーを選択してください。",
+      "chooseAgent": "エージェントを選択",
+      "manualHost": "NarraNexus が動作しているコンピューターで実行してください。",
+      "manualRoot": "インストール先",
+      "manualShell": "シェル",
+      "manualCommand": "コマンド"
     }
   },
   "system": {
@@ -998,7 +1145,14 @@
     "drawer": {
       "unpin": "パネルのピンを外す",
       "pin": "パネルをピン留め",
-      "close": "パネルを閉じる"
+      "close": "パネルを閉じる",
+      "switchPanel": "パネルを切り替え"
+    },
+    "coach": {
+      "title": "アーティファクトはここに表示されます",
+      "unpinHint": "ピンを外すと、自動で閉じるオーバーレイになります。",
+      "closeHint": "パネルを閉じる — チャットヘッダーからいつでも再表示できます。",
+      "gotIt": "わかりました"
     }
   },
   "inbox": {
@@ -1153,8 +1307,6 @@
       "localAccess": "ローカル · アクセス",
       "cloudMode": "クラウドモード",
       "signInWithNetmind": "NetMind.AI アカウントでサインイン",
-      "migrationNoticeHeading": "アカウントシステムを再編成しました。",
-      "migrationNoticeBody": "データは、招待コードの受け取りに使用したメールアドレスのアカウントに移行されました。サインインするには、まずそのメールアドレスのパスワードをリセットしてください（下の「パスワードをお忘れですか？」をご利用ください）。その他のご質問は、こちらのチームまでご連絡ください",
       "emailLabel": "メールアドレス",
       "passwordLabel": "パスワード",
       "forgotPassword": "パスワードをお忘れですか？",
@@ -1169,8 +1321,20 @@
       "accessTerminal": "ターミナルにアクセス",
       "createNewUser": "新規ユーザーを作成",
       "loginFailed": "ログインに失敗しました",
+      "invalidCredentials": "メールアドレスまたはパスワードが正しくありません",
       "enterUserId": "ユーザー ID を入力してください",
-      "connectionFailed": "接続に失敗しました。もう一度お試しください。"
+      "resetCodeInvalid": "コードが無効か期限切れです。新しいコードを取得してください。",
+      "forgotResetIntro": "NetMind アカウントのメールアドレスに確認コードを送信します。",
+      "forgotCodeSentHint": "そのメールのアカウントが存在する場合、確認コードを送信しました。",
+      "useDifferentEmail": "別のメールを使う",
+      "connectionFailed": "接続に失敗しました。もう一度お試しください。",
+      "resetPasswordDone": "パスワードを更新しました",
+      "resetPasswordDoneBody": "新しいパスワードでログインできます。",
+      "backToSignIn": "ログインに戻る",
+      "resetPasswordTitle": "パスワードを再設定",
+      "sendCode": "コードを送信",
+      "verificationCodeLabel": "認証コード",
+      "newPasswordLabel": "新しいパスワード"
     },
     "modeSelect": {
       "welcome": "ようこそ",
@@ -1182,9 +1346,45 @@
     },
     "dashboard": {
       "title": "エージェントダッシュボード",
+      "tabAgents": "エージェント管理",
+      "tabTeams": "チーム管理",
+      "tabExport": "エクスポート",
+      "createAgent": "エージェントを作成",
+      "createTeam": "チームを作成",
       "agentsCount": "{{count}} 件のエージェント",
       "emptyLabel": "エージェントはまだありません",
-      "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。"
+      "emptyHint": "サイドバーからエージェントを作成して、このダッシュボードに表示しましょう。",
+      "statRunning": "実行中",
+      "statQueued": "待機中",
+      "statErrors": "エラー",
+      "statCostToday": "本日のコスト",
+      "colStatus": "ステータス",
+      "colTeam": "チーム",
+      "colMembers": "メンバー",
+      "teamsCount": "{{count}} チーム",
+      "membersCount": "{{count}} エージェント",
+      "noStatusYet": "ライブステータスはまだありません — 次のポーリングで反映されます。",
+      "publicAgent": "公開",
+      "noTeamsLabel": "チームがまだありません",
+      "noTeamsHint": "サイドバーの New メニューから作成できます。",
+      "manageTeam": "管理",
+      "teamsTip": "チームはサイドバーの New メニューから作成し、ここで名前・色・メンバーを編集します。",
+      "colLeader": "リーダー",
+      "colCreatedBy": "作成者",
+      "colChannels": "チャネル",
+      "colFramework": "フレームワーク",
+      "colModel": "モデル",
+      "colLastActive": "最終アクティブ",
+      "noLeader": "リーダーなし",
+      "teamProfileNoDescription": "チームの説明はありません。",
+      "agentProfileNoDescription": "説明はありません。",
+      "memberRuntimeLabel": "ランタイム",
+      "memberModelLabel": "モデル",
+      "memberOwnerLabel": "オーナー",
+      "memberPrivate": "非公開",
+      "memberPublic": "公開",
+      "openProfile": "{{name}} のプロフィールを開く",
+      "channelOff": "{{name}} · オフ"
     },
     "createUser": {
       "title": "新規ユーザーを作成",
@@ -1200,34 +1400,25 @@
       "failed": "ユーザーの作成に失敗しました",
       "connectionFailed": "接続に失敗しました。もう一度お試しください。"
     },
-    "setup": {
-      "sectionLabel": "セットアップ · LLM プロバイダーの設定",
-      "title": "LLM プロバイダーの設定",
-      "subtitle": "NarraNexus が言語モデルに接続できるよう、API キーを設定します。",
-      "skipForNow": "今はスキップ",
-      "getStarted": "始める",
-      "done": "完了"
-    },
     "settings": {
       "title": "設定",
-      "headerSections": "プロバイダー · バンドル · アーティファクト · エージェント",
+      "nav": {
+        "privacy": "プライバシー",
+        "personalization": "パーソナライズ",
+        "account": "アカウントと請求",
+        "providers": "LLM プロバイダー",
+        "modelDefaults": "モデル既定値",
+        "artifacts": "アーティファクト",
+        "updates": "アプリ更新",
+        "plugins": "プラグイン",
+        "browser": "ブラウザ"
+      },
       "providers": {
         "label": "LLM プロバイダー"
-      },
-      "bundle": {
-        "label": "バンドル · エクスポート / インポート",
-        "hint": "エージェント（任意でチームも）を持ち運び可能な .nxbundle ファイルにまとめて共有したり、共有された .nxbundle ファイルをインポートしたりできます。",
-        "exportButton": "バンドルをエクスポート…",
-        "importButton": "バンドルをインポート…"
       },
       "artifacts": {
         "label": "アーティファクト",
         "hint": "エージェントが作成したすべてのチャート、レポート、ファイルを管理します。エージェントが上限に達したと報告したら、一括選択して容量を解放しましょう。"
-      },
-      "manageAgents": {
-        "label": "エージェント管理 · 一括",
-        "hint": "エージェントを一括選択して削除したり、チームへの追加／削除をまとめて行えます。保持したくないバンドルをインポートした後に便利です。「バンドル由来」で絞り込むと見つけられます。",
-        "openButton": "一括管理を開く…"
       },
       "updates": {
         "label": "アプリの更新",
@@ -1247,9 +1438,109 @@
         "failed": "更新の {{stage}} に失敗しました。"
       },
       "modelDefaults": {
+        "saved": "保存しました",
         "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
-        "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
+        "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。",
+        "slotSaveRolledBack": "フレームワークの変更は取り消され、何も保存されていません：エージェントモデルを保存できませんでした（{{detail}}）。",
+        "frameworkSavedSlotFailed": "フレームワークは切り替わりましたが、エージェントモデルを保存できませんでした（{{detail}}）。モデルを選び直して保存してください。",
+        "agentSavedHelperFailed": "エージェントモデルは保存されましたが、ヘルパーモデルを保存できませんでした（{{detail}}）。",
+        "frameworkSavedHelperFailed": "フレームワークは切り替わりましたが、ヘルパーモデルを保存できませんでした（{{detail}}）。",
+        "frameworkRestoredBindingLost": "保存済みのフレームワークは元に戻されましたが、エージェントモデルを保存できず（{{detail}}）、以前のカードも再設定できなかったため、エージェントスロットは未設定になりました。選んだ新しいフレームワークはフォームに残っており、まだ保存されていません。モデルを選んで再度保存すると適用されます。",
+        "slotClearedPickModel": "フレームワークを切り替えました。以前のカードはこのフレームワークで使えないため解除されました。エージェントのプロバイダーとモデルを選んでください。"
+      },
+      "privacy": {
+        "label": "プライバシー",
+        "hint": "この端末から外部に送られるデータと、その切り替えスイッチ。",
+        "analyticsTitle": "製品アナリティクス",
+        "analyticsDesc": "分析のために NarraNexus が製品利用メタデータを保存することを許可します。クラウドモードでは NarraNexus が管理するデータベースに保存され、ローカルまたはデスクトップモードではこの端末内に保持されます。クラウドのウェブ版では、匿名のページ操作データが第三者の分析サービスである Google Tag Manager にも送信されます。これをオフにすると送信は停止します。会話内容は一切収集されません。",
+        "telemetryTitle": "診断テレメトリー",
+        "telemetryDesc": "このインストールのサービスログを NarraNexus 自身のコレクターに送信し、クラッシュや障害のデバッグに役立てます。既定のレベルでは構造化イベント・警告・エラーのみを送信し、メッセージ内容は含まれません。\"full\" レベルで動作するデプロイ(マネージドサンドボックス、デバッグ環境)はログ行をそのまま送信するため、サービスが記録したメッセージ内容が含まれることがあります。第三者には一切送信されません。",
+        "telemetryTiming": "オフにすると数秒以内に反映されます。アプリ起動時点でテレメトリーが既にオフだった場合、オンへの切り替えは次回起動時に有効になります。",
+        "telemetryManaged": "デプロイ側(環境設定)で管理されているため、ここでは切り替えできません。",
+        "telemetryManagedCloud": "このインストールの診断テレメトリーは管理者が管理しています。",
+        "telemetryUnavailable": "テレメトリーの状態を読み込めませんでした。推測で表示せず、スイッチを非表示にしています。再読み込みしてやり直してください。",
+        "telemetryError": "変更を保存できませんでした。スイッチは実際の現在の状態を表示しています。"
+      },
+      "personalization": {
+        "label": "パーソナライズ",
+        "hint": "テーマ、言語、そしてエージェントの進捗メモの表示方法。",
+        "narrationTitle": "進捗ナレーション",
+        "narrationHint": "エージェントがステップの合間に書くメモを会話内に読みやすく表示し、実行全体を一つの折りたたみに収めません。",
+        "pluginThemesTitle": "プラグインテーマ",
+        "pluginThemesNone": "標準の外観"
+      },
+      "plugins": {
+        "factory": {
+          "title": "ユーザープラグイン",
+          "hint": "GitHub またはローカルフォルダーからのプラグイン。起動時に読み込まれ、変更は再起動後に反映されます。",
+          "sourcePlaceholder": "owner/repo@1.2.0、owner/repo#branch、または /path/to/plugin",
+          "sourceHelp": "GitHub Release（owner/repo@tag）、リポジトリ参照（owner/repo#ref）、またはローカルディレクトリ（その場でリンク）。",
+          "install": "インストール",
+          "installing": "インストール中…",
+          "restartRequired": "保存しました。変更を反映するには NarraNexus を再起動してください。",
+          "enable": "有効化",
+          "disable": "無効化",
+          "disabled": "無効",
+          "uninstall": "アンインストール",
+          "upgrade": "アップグレード",
+          "rollback": "最後の正常な状態に戻す",
+          "safeModeTitle": "セーフモード：ユーザープラグインは読み込まれていません",
+          "safeModeLeave": "セーフモードを終了",
+          "bisectStart": "起動を壊すプラグインを特定",
+          "bisectTrial": "二分探索：{{count}} 件の候補 — 次回起動で有効になるのはこれらです：",
+          "bisectGood": "正常に起動した",
+          "bisectBad": "また壊れた",
+          "bisectStop": "二分探索を停止",
+          "bisectCulprit": "原因を特定：{{id}}（無効のまま）",
+          "permissionsTitle": "{{id}} が次の権限を要求しています",
+          "permissionsNetwork": "ネットワーク",
+          "permissionsFilesystem": "ファイル",
+          "permissionsSubprocess": "サブプロセスを実行",
+          "permissionsEnv": "環境変数",
+          "permissionsFrontend": "アプリUI内でコードを実行し、あなたのセッションにアクセスできます",
+          "permissionsAck": "理解した、有効化する",
+          "permissionsKeepDisabled": "無効のままにする",
+          "empty": "ユーザープラグインはインストールされていません。",
+          "loadFailed": "ユーザープラグインの読み込みに失敗しました",
+          "isolated": "起動時に隔離",
+          "viewErrors": "エラー（{{count}}）",
+          "hideErrors": "エラーを隠す",
+          "noErrors": "エラーは記録されていません。",
+          "mode": {
+            "link": "リンク",
+            "copy": "インストール済み"
+          },
+          "state": {
+            "registered": "登録済み",
+            "validated": "検証済み",
+            "enabled": "有効",
+            "active": "稼働中",
+            "incompatible": "非互換",
+            "blocked": "ブロック",
+            "missing": "見つからない",
+            "deps_missing": "依存関係が不足",
+            "excluded": "このディストリビューションには含まれません",
+            "crashed": "クラッシュ",
+            "disabled": "無効",
+            "slow": "低速"
+          },
+          "proposalsTitle": "承認待ち",
+          "proposalBy": "エージェント {{agent}} からの要求",
+          "proposalTestsGreen": "テスト合格（{{count}}）",
+          "proposalTestsRed": "テスト不合格",
+          "proposalApprove": "承認",
+          "proposalReject": "却下",
+          "noPermissions": "特別な権限の要求はありません",
+          "builtinsTitle": "組み込み機能",
+          "builtinsHint": "NarraNexus に同梱される機能レベルのプラグイン。無効にすると再起動後に API・ワーカー・ページがまとめて消えます。保護された組み込みは無効化できません。",
+          "protected": "保護",
+          "installDeps": "依存関係をインストール（{{pip}}）"
+        }
+      },
+      "browser": {
+        "label": "ブラウザ",
+        "hint": "エージェントがウェブサイトを操作するためのブラウザをインストールします。"
       }
     },
     "system": {
@@ -1278,7 +1569,7 @@
       "noMembersHint": "「編集」をクリックして追加しましょう。"
     },
     "you": {
-      "you": "あなた",
+      "you": "マイワールド",
       "subtitle": "すべてのエージェントにまたがる、あなたの世界",
       "viewsAriaLabel": "あなたのワークスペースビュー",
       "tabMemory": "Narra メモリ",
@@ -1321,7 +1612,12 @@
       "bulkDeleteResult": "{{success}} 件を削除しました。",
       "bulkDeleteResultWithFailures": "{{success}} 件を削除、{{failedCount}} 件が失敗（{{failedIds}}）。",
       "addedToTeamTitle": "チームに追加しました",
-      "addedToTeamMessage": "{{count}} 件のエージェントを選択したチームに追加しました。"
+      "addedToTeamMessage": "{{count}} 件のエージェントを選択したチームに追加しました。",
+      "addedToTeamResultWithFailures": "{{success}} 件追加、{{failedCount}} 件失敗（{{failedIds}}）。",
+      "removedFromTeamTitle": "チームから削除しました",
+      "removedFromTeamMessage": "{{count}} 件のエージェントをチームから削除しました。",
+      "removedFromTeamResultWithFailures": "{{success}} 件削除、{{failedCount}} 件失敗（{{failedIds}}）。",
+      "openChat": "チャットを開く"
     },
     "bundleImport": {
       "installTemplate": "テンプレートをインストール",
@@ -1337,7 +1633,7 @@
       "orSeparator": "— または —",
       "chooseFile": "ファイルを選択",
       "fileSizeKb": "（{{size}} KB）",
-      "preview": "プレビュー",
+      "preview": "プリフライトを実行 →",
       "preflightFailed": "プリフライトに失敗しました",
       "waitingForBackend": "バックエンドを待機中（試行 {{attempt}}/{{total}}）…",
       "fetchFailed": "テンプレートの取得に失敗しました",
@@ -1379,11 +1675,14 @@
         "skillsTip": "ヒント：「フルコピー」のスキルには既に認証情報が含まれています。URL/Zip スキルは再学習または新しい認証情報が必要です — インポートしたエージェントと対話してセットアップを完了してください。",
         "viewTeamIntro": "チーム紹介を表示",
         "doneButton": "完了"
-      }
+      },
+      "uploadInfoNote": "バンドルには単一のエージェント、またはチーム全体（エージェント、メモリ、スキル、チャンネル）を含められます。次のステップで名前の衝突や警告を確認してから書き込みが行われます。"
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "認証情報を含める（IMチャンネル + スキルシークレット）",
+      "pickFirstHint": "まず上でエージェントまたはチームを選択してください。選択すると、ナラティブ・スキル・チャンネルなどのセクションが表示されます。",
       "title": "バンドルをエクスポート",
-      "backToSettings": "設定に戻る",
+      "back": "戻る",
       "summaryLine": "{{agents}} エージェント · {{skills}} スキル · {{entities}} エンティティ · {{channels}} チャンネル",
       "fileName": "ファイル名",
       "bundleNotesLabel": "バンドルのメモ（任意、受信者に表示されます）",
@@ -1426,19 +1725,11 @@
         "freeText": "自由記述テキスト（アウェアネス／イベント／メッセージ）は、インラインの機密情報について自動スキャンされません — ご自身で確認してください。"
       },
       "agents": {
-        "whatYouPick": "ここで選ぶもの：",
-        "intro1": "このバンドルに含まれるエージェントの集合。ウィザード内のその他すべて（ナラティブ、スキル、MCP、ファイルなど）はこのクロージャに絞り込まれます。",
-        "intro2": "チームを選ぶと既存メンバー全員がワンクリックで追加されます。後から個別にチェックを外すこともできます。外部参照（例：このクロージャ外のエージェントを指すソーシャルエンティティ）はエクスポート時に自動的に除外されます。",
         "bundleTeamLabel": "このチームをバンドルする（任意）",
         "noTeamOption": "— チームなし / 個別のエージェント —",
-        "quickAddByTeam": "チームでクイック追加",
-        "deselectTeamTitle": "「{{name}}」のメンバーをすべて選択解除",
-        "addTeamTitle": "「{{name}}」のメンバーをすべて追加",
-        "replaceTeamTitle": "選択を「{{name}}」のメンバーに置き換える",
-        "only": "のみ",
-        "allAgents": "すべてのエージェント（{{count}}）",
-        "clear": "クリア",
-        "agentsToInclude": "含めるエージェント · {{selected}}/{{total}}"
+        "agentsToInclude": "含めるエージェント · {{selected}}/{{total}}",
+        "pickTeamFirst": "上でチームを選択してください — メンバーは自動的に含まれます。",
+        "pickOne": "エクスポートするエージェントを選択"
       },
       "skills": {
         "emptySelectAgents": "前のタブでエージェントを選択してください — そのスキルがここに表示されます。",
@@ -1624,6 +1915,13 @@
         "noArtifacts": "このエージェントにはアーティファクトがありません。",
         "pinned": "ピン留め済み",
         "fullModeNote": "フルスナップショットモードでは、すべてのアーティファクトが自動的に含まれます。選択するにはカスタムに切り替えてください。"
+      },
+      "kind": {
+        "label": "種類",
+        "agentTitle": "エージェントバンドル",
+        "agentDesc": "1 つのエージェントをエクスポート — そのナラティブ・スキル・ワークスペースのファイルが一緒に含まれます。",
+        "teamTitle": "チームバンドル",
+        "teamDesc": "チーム全体をエクスポート — 所属エージェント、紹介文、共有チャンネルが一緒に含まれます。"
       }
     },
     "signup": {
@@ -1651,6 +1949,131 @@
         "special": "記号を含む"
       },
       "codePlaceholder": "6桁のコード"
+    },
+    "createTeam": {
+      "title": "チームを作成",
+      "back": "戻る",
+      "nameLabel": "名前",
+      "namePlaceholder": "例: Research",
+      "descLabel": "説明",
+      "descPlaceholder": "このチームの目的は？",
+      "colorLabel": "カラー",
+      "membersLabel": "エージェントを追加",
+      "selectedCount": "{{count}} 件選択中",
+      "noAgents": "エージェントがまだありません — まず New メニューから作成してください。",
+      "createButton": "チームを作成",
+      "manageHint": "既存のチームはダッシュボードで管理します。",
+      "membersFailed": "チームは作成されましたが、{{count}} 件のメンバーを追加できませんでした: {{ids}}",
+      "searchPlaceholder": "名前 / ID でエージェントを検索…",
+      "noMatch": "一致するエージェントがありません",
+      "cancel": "キャンセル"
+    },
+    "account": {
+      "powerOnlyHint": "アカウント・請求・サブスクリプションは NetMind アカウントの機能です。NetMind アカウントでサインインすると表示されます。"
+    },
+    "agentProfile": {
+      "breadcrumb": "エージェント",
+      "backToChat": "チャット",
+      "overview": "概要",
+      "capabilities": "機能",
+      "settings": "設定",
+      "views": "エージェントプロフィールのビュー",
+      "chat": "チャット",
+      "running": "実行中",
+      "idleStatus": "アイドル",
+      "currentTask": "現在のタスク",
+      "idle": "現在実行中のタスクはありません。",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} 件の Job",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} 件の会話",
+      "overviewCardLabel": "エージェント概要",
+      "jobsNoun": "件の Job",
+      "inboxNoun": "件の会話",
+      "jobsRunningFlag": "実行中",
+      "inboxUnreadFlag": "未読 {{count}} 件",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} 件接続済み",
+      "noSkills": "Skill は未インストールです",
+      "noMcp": "MCP サーバーはありません",
+      "moreCount": "他 {{count}} 件",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model と Framework",
+      "modelFrameworkHint": "エージェントの次回実行で使用される実際のランタイム設定です。",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "設定",
+      "general": "一般",
+      "generalHint": "このエージェントがワークスペースでどう表示されるかを管理します。",
+      "avatar": "アバター",
+      "avatarHint": "タスクの割り当て、アクティビティ、チャットに表示されます。",
+      "name": "名前",
+      "description": "説明",
+      "saveGeneral": "変更を保存",
+      "saving": "保存中…",
+      "saved": "保存しました",
+      "saveFailed": "変更を保存できませんでした。",
+      "missingAgent": "エージェントが選択されていません",
+      "notFound": "エージェントが見つかりません",
+      "activity": "アクティビティ",
+      "activityLast24h": "過去 24 時間",
+      "activityToday": "今日",
+      "activityAxisStart": "24 時間前",
+      "activityAxisNow": "現在",
+      "capabilitySwitches": "機能の切り替え"
+    },
+    "welcome": {
+      "logout": "ログアウト",
+      "continue": "続ける",
+      "rail": {
+        "model": {
+          "title": "モデルをつなぐ",
+          "detail": "キーは1つで十分 — いつでも差し替えられます。"
+        },
+        "import": {
+          "title": "エージェントを引き継ぐ",
+          "detail_one": "このマシンで {{count}} 件見つかりました。",
+          "detail_other": "このマシンで {{count}} 件見つかりました。"
+        },
+        "agent": {
+          "title": "{{name}} に会う",
+          "detail": "最初のエージェントが待っています。"
+        }
+      },
+      "model": {
+        "title": "まずモデルをつなぎましょう。",
+        "skip": "今はスキップ — キーは後で設定から追加できます",
+        "advanced": "詳細設定 — サブスクリプションでのサインイン、カスタムエンドポイント、スロットごとのモデル",
+        "subscriptionTitle": "Claude または ChatGPT のサブスクリプションを使う",
+        "subscriptionSubtitle": "API キーは不要 — お持ちのサブスクリプションでサインインします。"
+      },
+      "import": {
+        "title": "すでにあるエージェントを引き継ぐ。",
+        "subtitle": "すべてこのマシンから読み取ります — アップロードはしません。",
+        "lede": "チェックしたものは NarraNexus のエージェントになり、会話履歴は記憶として引き継がれます。",
+        "importAndContinue_one": "{{count}} 件をインポートして続ける",
+        "importAndContinue_other": "{{count}} 件をインポートして続ける",
+        "skip": "この手順をスキップ"
+      },
+      "agent": {
+        "title": "{{name}} に会う。",
+        "subtitle": "ログイン時にあなたのために作られた最初のエージェント。二人で話したことをすべて覚えています — それが NarraNexus と使い捨てチャットの違いです。",
+        "role": "あなたのガイド · シリコン",
+        "capMemory": "ストーリーとして残る長期記憶",
+        "capCheckin": "毎日あなたに声をかけます",
+        "cta": "NarraNexus を使い始める",
+        "skip": "そのままアプリへ",
+        "preparingTitle": "最初のエージェントを準備中…",
+        "preparingSubtitle": "名前と性格を選んでいます。数秒お待ちください。",
+        "notReady": "最初のエージェントはまだ作成中です — まもなくサイドバーに表示されます。",
+        "fallbackName": "あなたのエージェント",
+        "rename": "名前を変更"
+      }
     }
   },
   "rail": {
@@ -1676,7 +2099,24 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "成果物",
+    "desc": {
+      "awareness": "エージェントの自己認識 — アイデンティティ、性格、恒常的な指示。ここで編集するか、チャットで伝えれば自動的に更新されます。",
+      "workspace": "エージェントのファイル空間。読ませたい文書をアップロードでき、エージェントの成果物もここに置かれます。",
+      "channels": "このエージェントを IM プラットフォーム（Lark、Slack、Telegram…）に接続し、アプリ外からも連絡できるようにします。",
+      "smarthome": "スマートホーム機器（Home Assistant）を連携し、エージェントが確認・操作できるようにします。",
+      "jobs": "定期・バックグラウンドの仕事。チャットで「毎朝ブリーフを送って」と言えばエージェントが作成します。",
+      "inbox": "チャンネルや他のエージェントから届くメッセージ。対応が必要な項目はバッジで示されます。",
+      "artifacts": "エージェントが作成したレポート・ページ・ファイルをここで開いて確認できます。",
+      "skills": "インストール済みのスキル。Marketplace から追加、または GitHub / zip からインストールできます。",
+      "mcp": "エージェントが呼び出せる外部 MCP ツールサーバー — サードパーティ機能を接続します。",
+      "memory": "ナラティブとして整理されたエージェントの長期記憶 — 会話をまたいで保持される内容です。",
+      "social": "エージェントの知り合い — 人や他のエージェントと協働するうちに連絡先が蓄積されます。",
+      "builder": "必要なことを説明すると、会話がこのパネルを埋めます。"
+    },
+    "builder": "ビルダー",
+    "browser": "ブラウザ"
   },
   "jobs": {
     "title": "ジョブ",
@@ -1692,6 +2132,7 @@
       "running": "稼働中",
       "paused": "一時停止中",
       "pausedNoQuota": "クォータなし",
+      "pausedSpendCap": "支出上限",
       "cooling": "再試行中",
       "blocked": "ブロック中",
       "blockedFailed": "依存が失敗",
@@ -1700,9 +2141,6 @@
       "cancelled": "キャンセル済み"
     },
     "metrics": {
-      "active": "実行中",
-      "success": "成功",
-      "failed": "失敗",
       "rate": "成功率"
     },
     "view": {
@@ -1766,6 +2204,7 @@
       "trigger": "トリガー:",
       "cron": "Cron:",
       "interval": "間隔:",
+      "endAt": "実行期限:",
       "runAt": "実行日時:",
       "endCondition": "終了条件:",
       "maxIter": "最大反復:",
@@ -1791,7 +2230,9 @@
       "cancelJob": "ジョブをキャンセル",
       "cancelling": "キャンセル中...",
       "editSchedule": "時刻変更",
-      "savingSchedule": "保存中..."
+      "savingSchedule": "保存中...",
+      "editPayload": "内容を編集",
+      "savingPayload": "保存中..."
     },
     "template": {
       "selectTemplate": "テンプレートを選択",
@@ -1809,17 +2250,6 @@
       "noJobs": "表示するジョブがありません",
       "waiting": "待機中...",
       "noTimeData": "時間データなし"
-    },
-    "distribution": {
-      "title": "ステータス分布",
-      "total": "合計 {{count}} 件",
-      "legend": {
-        "completed": "完了 {{count}} 件",
-        "running": "稼働中 {{count}} 件",
-        "active": "実行中 {{count}} 件",
-        "paused": "一時停止 {{count}} 件",
-        "failed": "失敗 {{count}} 件"
-      }
     },
     "editSchedule": {
       "title": "実行時刻の変更",
@@ -1840,30 +2270,41 @@
       "modeLabel": "トリガー方式",
       "modeInterval": "間隔",
       "modeCron": "Cron 式"
+    },
+    "editPayload": {
+      "title": "ジョブ内容を編集",
+      "hint": "このジョブが実行する内容を変更します。変更は次回の実行から適用されます。",
+      "titleLabel": "タイトル",
+      "descriptionLabel": "説明",
+      "payloadLabel": "内容 / プロンプト",
+      "payloadHint": "このジョブが実行される際にエージェントへ渡される指示テキストです。",
+      "titleRequired": "タイトルを空にすることはできません",
+      "failedTitle": "更新に失敗しました",
+      "failedMessage": "ジョブの内容を更新できませんでした。もう一度お試しください。"
+    },
+    "row": {
+      "every": "{{interval}} ごと",
+      "daily": "毎日 {{time}}",
+      "hourly": "毎時 :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "単発 {{time}}",
+      "afterDeps": "{{n}} 件のジョブ待ち",
+      "next": "次回 {{time}}",
+      "elapsed": "経過 {{duration}}",
+      "failedAt": "失敗 {{time}}",
+      "lastRun": "前回 {{time}}"
     }
   },
   "artifacts": {
     "refresh": "アーティファクトを更新",
     "zoom": "アーティファクトを拡大",
     "zoomFullscreen": "アーティファクトを拡大（全画面で開く）",
-    "collapse": "パネルを折りたたむ",
-    "collapseAria": "アーティファクトパネルを折りたたむ",
     "selectArtifact": "アーティファクトを選択",
     "minimized": "最小化中:",
     "restore": "「{{title}}」を復元",
     "openBadge": "{{title}}（{{kind}}）を開く",
     "unsupportedKind": "サポートされていないアーティファクト種類: {{kind}}",
     "loadingRenderer": "レンダラーを読み込み中…",
-    "sliver": {
-      "expandTitle": "クリックして展開 · アーティファクト {{count}} 件",
-      "expandTitle_other": "クリックして展開 · アーティファクト {{count}} 件",
-      "emptyTitle": "エージェントが作成するとアーティファクトがここに表示されます",
-      "expandAria": "アーティファクトパネルを展開（{{count}} 項目）",
-      "expandAria_other": "アーティファクトパネルを展開（{{count}} 項目）",
-      "emptyAria": "アーティファクトパネル（空）",
-      "label": "アーティファクト（{{count}}）",
-      "labelEmpty": "アーティファクト"
-    },
     "emptyState": {
       "title": "まだアーティファクトがありません",
       "hint": "エージェントが作成するとここに表示されます。"
@@ -1918,6 +2359,37 @@
     },
     "url": {
       "toggleFailed": "モードを変更できませんでした: {{error}}"
+    },
+    "editor": {
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "保存済み",
+      "unsavedChanges": "未保存の変更があります",
+      "draftRestored": "このデバイスの未保存の編集を復元しました。",
+      "conflictBody": "編集中にファイルが変更されました。自分の版を残すか、相手の版を再読み込みしますか?",
+      "overwriteMine": "自分の版を残す",
+      "discardMine": "再読み込み",
+      "loadError": "読み込み失敗:{{error}}",
+      "mdGuardDisabled": "このドキュメントにはエディタが無損失で保持できない構文が含まれるため、直接編集は無効です。AI に変更を依頼してください。",
+      "htmlAnchorFailed": "この箇所はページのスクリプトが生成しているか、ソース内で一意に特定できません。AI に変更を依頼してください。",
+      "htmlEditConflict": "編集中にファイルが変更されたため、この変更は保存されませんでした。",
+      "editFailed": "編集に失敗しました — 変更は保存されていません。",
+      "draftUnavailable": "このファイルは大きすぎてローカル下書きに保存できません。ウィンドウを閉じると未保存の変更は失われます。早めに保存してください。"
+    },
+    "officeEdit": {
+      "selected": "{{count}} 件選択中",
+      "editText": "テキスト編集",
+      "apply": "適用",
+      "cancel": "キャンセル",
+      "delete": "削除",
+      "color": "文字色",
+      "opFailed": "編集に失敗しました。",
+      "lockNotice": "デスクトップの Office で開かれています — 直接編集は一時停止中。",
+      "moveUp": "上へ",
+      "moveDown": "下へ",
+      "addRow": "+ 行",
+      "addCol": "+ 列",
+      "replaceImage": "画像を置換"
     }
   },
   "skills": {
@@ -2031,10 +2503,15 @@
     "desktopHint": "ブラウザで NarraNexus を開くとライブプレビューを表示できます。",
     "loading": "ライブプレビューを開いています…",
     "loadError": "ライブプレビューを開けませんでした。",
+    "retry": "再試行",
     "livePreview": "ライブプレビュー"
   },
   "common": {
-    "close": "Close",
+    "close": "閉じる",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "back": "戻る",
+    "edit": "編集",
     "betaTooltip": "NarraNexus は現在ベータ版です。機能は変更される可能性があり、不具合が発生する場合があります。フィードバックをお待ちしています。",
     "ok": "OK",
     "noticeTitle": "少しお待ちください",
@@ -2042,5 +2519,136 @@
     "savedTo": "{{path}} に保存しました",
     "downloadFailed": "ダウンロードに失敗しました: {{error}}",
     "doneTitle": "完了"
+  },
+  "toast": {
+    "view": "表示",
+    "completed": "完了",
+    "roomSpoke": "ルームに新しい動き",
+    "agent": "エージェント",
+    "room": "ルーム",
+    "artifactRepointedVerified": "再リンク: {{oldPath}} → {{newPath}}(内容検証済み)",
+    "artifactRepointedUnverified": "再リンク: {{oldPath}} → {{newPath}}(未検証の一致 — 要確認)"
+  },
+  "webAnalyticsNotice": {
+    "body": "これは NarraNexus のクラウドウェブ版です。第三者の分析サービスである Google Tag Manager を使用して、匿名のページ操作データ（ページビュー、クリック、リファラー）を収集します。会話内容は収集されません。設定 → プライバシー でいつでもオフにできます。",
+    "settings": "設定を開く",
+    "dismiss": "了解"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus は、クラッシュや連携障害のデバッグのため、このインストールの診断用サービスログを自身のコレクターに送信するようになりました。\"full\" レベルで動作するインストールでは、ログ行にメッセージ内容が含まれることがあります。設定 → プライバシー でいつでもオフにできます。",
+    "settings": "設定を開く",
+    "dismiss": "了解",
+    "bodyManaged": "このインストールは、管理者の設定に従い、診断用サービスログ(エラーおよび診断イベント)を NarraNexus 自身のコレクターに送信します。\"full\" レベルで動作するインストールでは、ログ行にメッセージ内容が含まれることがあります。"
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "エージェントを作成",
+      "title": "どこから始めますか？",
+      "subtitle": "空の設定から始めるか、必要なことを説明して対話で作成します。",
+      "blankTitle": "空から始める",
+      "blankBody": "すべての項目を自分で設定します。動作が既に明確なユーザー向けです。",
+      "aiTitle": "AI で作成",
+      "aiBody": "望む成果を説明してください。Agent Builder が要点を尋ね、下書きを作ります。",
+      "continue": "続ける",
+      "recommended": "おすすめ"
+    },
+    "gate": {
+      "title": "エージェントを作成",
+      "probing": "プロバイダーを確認中",
+      "chooseTitle": "プロバイダーを選択",
+      "chooseHint": "既存のプロバイダーを選ぶか、新しく接続します。エージェントを動かすエンジンが決まります。",
+      "accessApiKey": "API キー",
+      "accessCli": "CLI サインイン",
+      "emptyLead": "利用できるエンジンがまだありません。プロバイダーを接続してください — このエージェントを動かす主体になります。",
+      "addLabel": "プロバイダーを追加",
+      "addApiKey": "API キー",
+      "addCli": "CLI サインイン",
+      "back": "戻る",
+      "next": "次へ",
+      "cliDesktopHint": "サインインするとブラウザーが開き、Claude CLI を承認します。",
+      "cliLogin": "Claude でサインイン",
+      "cliLoggingIn": "サインイン中…",
+      "cliWebHint": "未サインイン — ターミナルで `claude auth login` を実行し、このダイアログを開き直してください。",
+      "cliMissingHint": "ここでは Claude CLI を利用できません。インストールしてターミナルでサインインし、開き直してください。"
+    },
+    "panel": {
+      "intro": "会話が名前・説明・指示をこのエージェントに直接書き込みます。スキルとチャネルは提案のみで、導入はあなたが行います。",
+      "identity": "アイデンティティ",
+      "name": "名前",
+      "namePlaceholder": "例：金融モーニングブリーフ",
+      "behaviour": "振る舞い",
+      "install": "導入",
+      "installed": "導入済み",
+      "saving": "保存中…",
+      "savedHint": "入力欄を離れると保存されます。",
+      "done": "完了",
+      "identityHint": "見分けやすい名前を付けます。",
+      "behaviourHint": "働き方を定義します。ここがエージェントが実際に動く awareness です。",
+      "awareness": "認知",
+      "awarenessPlaceholder": "このエージェントが何をし、何に注目し、何を避けるか…",
+      "skills": "スキル",
+      "skillsHint": "このエージェントが使えるワークスペースの skill。",
+      "channels": "チャネル",
+      "channelsHint": "どこで到達できるか。認証情報はバックエンドへ直接送られ、会話には入りません。",
+      "suggested": "会話から",
+      "optional": "任意"
+    }
+  },
+  "appBanners": {
+    "sessionExpired": "セッションが期限切れになりました。再度ログインしてください。(クリックして閉じる)",
+    "sessionExpiringSoon": "セッションはあと{{time}}で期限切れになります。作業を失わないよう、一度ログアウトして再度ログインしてください。(クリックして閉じる)",
+    "circuitPausedQuota": "このエージェントはクォータ/残高エラーの繰り返しにより一時停止しています。プロバイダーを修正してから再開してください。",
+    "circuitPausedAuth": "このエージェントは認証エラーの繰り返しにより一時停止しています。再認証するかプロバイダーを設定してから再開してください。",
+    "circuitCooling": "このエージェントは最近失敗し、短時間のクールダウン中です。しばらくしてから再試行してください。",
+    "resumeAgent": "エージェントを再開",
+    "resuming": "再開中…",
+    "dismiss": "閉じる",
+    "freeTierSwitched": "無料枠のクォータを使い切ったため、あなた自身のプロバイダーに切り替えました。以降の実行はあなた自身のAPIキーを使用します。(クリックして閉じる)"
+  },
+  "browser": {
+    "notices": {
+      "loadFailed": "ブラウザのログインリクエストを確認できませんでした。",
+      "retry": "再試行"
+    },
+    "absentTitle": "ブラウザがインストールされていません",
+    "brokenTitle": "ブラウザはインストール済みですが起動できません",
+    "install": "ブラウザをインストール",
+    "reinstall": "ブラウザを再インストール",
+    "cancelInstall": "ダウンロードをキャンセル",
+    "installFailed": "ブラウザのインストール要求に失敗しました。",
+    "installingUnknown": "ダウンロード中…",
+    "idle": "実行中のブラウザセッションはまだありません。",
+    "pages": "ブラウザーのタブ",
+    "newTab": "新しいタブ",
+    "agentTab": "エージェント",
+    "closeTab": "タブを閉じる",
+    "followAgent": "エージェントを追従",
+    "webAddress": "ウェブアドレス",
+    "go": "移動",
+    "takeControlToNavigate": "操作権を取得してページを開く",
+    "invalidAddress": "HTTP または HTTPS のアドレスを入力してください。",
+    "agentDriving": "エージェントが操作中",
+    "youDriving": "あなたが操作中",
+    "otherDriving": "別のウィンドウで操作中",
+    "takeControl": "操作を引き継ぐ",
+    "handBack": "エージェントに操作を戻す",
+    "reconnect": "再接続",
+    "reconnecting": "再接続中…",
+    "connecting": "接続中…",
+    "disconnected": "接続が切れました",
+    "screen": "ブラウザ画面",
+    "keyboardInput": "ブラウザのキーボード入力",
+    "login": {
+      "title": "ログインまたは認証が必要です",
+      "inControl": "完了したらブラウザで操作権を返してください。",
+      "pending": "ブラウザでのログインまたは認証の完了を待っています。",
+      "openBrowser": "ブラウザを開く"
+    },
+    "look": {
+      "looked": "ページを確認しました",
+      "failed": "ページを確認できませんでした",
+      "area": "領域 {{width}}×{{height}}",
+      "open": "ブラウザを開く"
+    }
   }
 }

@@ -1,0 +1,141 @@
+[
+  {
+    "path": "/login",
+    "layout": "top",
+    "guard": "public",
+    "element": "lazy",
+    "module": "pages/LoginPage"
+  },
+  {
+    "path": "/nm-playground",
+    "layout": "top",
+    "guard": "open",
+    "element": "lazy",
+    "module": "pages/NMPlaygroundPage"
+  },
+  {
+    "path": "/welcome",
+    "layout": "top",
+    "guard": "protected",
+    "element": "lazy",
+    "skipWelcomeGate": true,
+    "module": "pages/WelcomePage"
+  },
+  {
+    "path": "/setup",
+    "layout": "top",
+    "guard": "open",
+    "element": "component"
+  },
+  {
+    "path": "/pay",
+    "layout": "top",
+    "guard": "protected",
+    "element": "lazy",
+    "skipWelcomeGate": true,
+    "module": "pages/PayPage"
+  },
+  {
+    "path": "chat",
+    "layout": "app",
+    "guard": "protected",
+    "element": null
+  },
+  {
+    "path": "dashboard",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/DashboardPage"
+  },
+  {
+    "path": "marketplace",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/MarketplacePage"
+  },
+  {
+    "path": "you",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/YouWorkspace"
+  },
+  {
+    "path": "system",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/SystemPage"
+  },
+  {
+    "path": "settings",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/SettingsPage"
+  },
+  {
+    "path": "account",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/AccountPage"
+  },
+  {
+    "path": "bundle/export",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/BundleExportPage"
+  },
+  {
+    "path": "bundle/import",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/BundleImportPage"
+  },
+  {
+    "path": "templates/install",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/BundleImportPage"
+  },
+  {
+    "path": "agents/new",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/ChooseCreateMethodPage"
+  },
+  {
+    "path": "agents/:agentId",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/AgentProfilePage"
+  },
+  {
+    "path": "teams/new",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/CreateTeamPage"
+  },
+  {
+    "path": "teams/:teamId",
+    "layout": "app",
+    "guard": "protected",
+    "element": "lazy",
+    "module": "pages/TeamDetailPage"
+  },
+  {
+    "path": "teams/:teamId/chat",
+    "layout": "app",
+    "guard": "protected",
+    "element": null
+  }
+]

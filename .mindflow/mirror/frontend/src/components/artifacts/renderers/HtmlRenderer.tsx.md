@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/HtmlRenderer.tsx
-last_verified: 2026-05-27
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -120,3 +120,20 @@ The combination of `allow-scripts` **without** `allow-same-origin` is the idioma
 **Test this file's sandbox attribute with `HtmlRenderer.test.tsx`.** The test asserts the exact sandbox tokens. If someone adds `allow-same-origin` believing it is harmless, the test will fail and surface the regression.
 
 **CSP on the FastAPI `/raw` endpoint must be verified separately.** This component alone cannot enforce the `default-src 'none'` header — that is a backend concern. If the backend omits the CSP header, network requests from the agent HTML will succeed (limited only by the null-origin sandbox itself, which blocks same-origin reads but not outbound fetches to third-party URLs).
+
+## 2026-08-19 — 逐元素编辑接线(spec A §3.2/3.3)
+
+①iframe src / blob 取源都带 `edit_bridge=1`(blob 内容也含桥;
+postMessage 跨 blob origin 可达);②message 监听:只认**自己 iframe**
+的 contentWindow(防其它 tab 的 iframe 冒充);③提交:fetch **干净源**
+(无桥参数)→ applyBridgeEdit 客户端锚定替换 → PUT(base_hash=刚取
+字节的 hash);409 重试一次(重取源重锚定),再败→冲突横幅;锚定失败
+(脚本生成/多义)→降 AI 横幅,**绝不写盘**;④自回声抑制:seedState
+(render 期状态调整)——自己提交引发的 updated_at bump(content_hash
+与 selfHash 相等)不换 url seed、不重挂 iframe,滚动与光标不丢;agent
+的真更新照常重挂。iframe key 从 updated_at 改为 seed——回退时注意。
+
+## 2026-08-20 — 非 UTF-8 源的严格拒绝分支(#334 r2 C3 补记)
+
+提交侧 TextDecoder fatal:true——解码失败按 anchor-failed 走「交给 AI」
+横幅,**绝不 PUT**(I4 的第四个落点,此前三处已记本处漏记)。

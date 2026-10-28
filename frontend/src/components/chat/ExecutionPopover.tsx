@@ -19,11 +19,22 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import type { TFunction } from 'i18next';
 import type { Step } from '@/types';
 import { cn } from '@/lib/utils';
+import { PHASE_LABEL_KEYS } from './process/processShared';
 
 export interface ExecutionPopoverProps {
   steps: Step[];
+}
+
+/** The label to show for a step — the SAME localized phase name RunPhases
+ *  uses for the top-level phases, so the two surfaces never disagree. Genuine
+ *  sub-steps (tool calls "3.4.x", fallbacks) aren't mapped and keep their own
+ *  backend title, which is the detail this popover is meant to surface. */
+function stepLabel(step: Step, t: TFunction): string {
+  const key = PHASE_LABEL_KEYS[step.step];
+  return key ? t(key) : step.title;
 }
 
 function StepStatusIcon({ status }: { status: Step['status'] }) {
@@ -56,7 +67,7 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
   // is what's actually happening now.
   const current =
     [...steps].reverse().find((s) => s.status === 'running') ?? steps[steps.length - 1];
-  const currentStage = current?.title ?? '';
+  const currentStage = current ? stepLabel(current, t) : '';
 
   return (
     <Popover>
@@ -133,7 +144,7 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
                         >
                           {s.step}
                         </span>
-                        {s.title}
+                        {stepLabel(s, t)}
                       </span>
                       {/* Detail already flows here in Step.description / .details
                           (e.g. the narrative match summary + why it was chosen)

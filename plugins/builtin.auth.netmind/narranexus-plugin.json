@@ -1,0 +1,18 @@
+{
+  "id": "builtin.auth.netmind",
+  "version": "1.0.0",
+  "displayName": "NetMind auth",
+  "description": "Authentication provider of the cloud distribution: the NetMind-issued JWT bearer token names the user (authProviders, distribution-only).",
+  "hosts": [
+    "backend"
+  ],
+  "api": {
+    "auth": 0
+  },
+  "distributionOnly": true,
+  "protected": true,
+  "provides": {
+    "kernel.auth": "narranexus_plugins.auth_netmind.provider:CONTRIBUTION"
+  },
+  "quality": "gold"
+}

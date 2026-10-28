@@ -22,10 +22,10 @@ runs.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _fallback_skip_decision,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     ErrorMessage,
     SELF_SERVICEABLE_ERROR_TYPE,

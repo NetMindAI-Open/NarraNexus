@@ -4,7 +4,7 @@
 @date: 2026-07-30
 @description: Interrupted turns persist as real history, correctly marked.
 
-Before interrupt continuity, a user stop skipped hook_persist_turn
+Before interrupt continuity, a user stop skipped persist_turn
 entirely: neither the user's message nor any assistant row was written —
 the next turn had no idea the exchange happened. Now the pair persists;
 the assistant placeholder must read "cut short by the user", never
@@ -19,14 +19,14 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -79,11 +79,11 @@ def _params(
 def _reply(content: str) -> ProgressMessage:
     return ProgressMessage(
         step="3.4.1",
-        title="send_message_to_user_directly",
+        title="reply_owner",
         description="reply",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
         },
     )
@@ -98,7 +98,7 @@ async def _rows(chat_module) -> list:
 
 @pytest.mark.asyncio
 async def test_interrupted_turn_without_reply_persists_marked_pair(chat_module):
-    await chat_module.hook_persist_turn(_params(interrupted=True))
+    await chat_module.persist_turn(_params(interrupted=True))
     messages = await _rows(chat_module)
     assert [m["role"] for m in messages] == ["user", "assistant"]
     assert messages[0]["meta_data"].get("status") != "failed"
@@ -110,7 +110,7 @@ async def test_interrupted_turn_without_reply_persists_marked_pair(chat_module):
 async def test_interrupted_after_reply_keeps_the_reply(chat_module):
     """The agent spoke, THEN the user stopped the follow-up work: the
     real reply persists, still marked interrupted."""
-    await chat_module.hook_persist_turn(
+    await chat_module.persist_turn(
         _params(
             interrupted=True,
             agent_loop_response=[_reply("Here is the first half of the analysis.")],
@@ -123,7 +123,7 @@ async def test_interrupted_after_reply_keeps_the_reply(chat_module):
 
 @pytest.mark.asyncio
 async def test_uninterrupted_no_reply_placeholder_unchanged(chat_module):
-    await chat_module.hook_persist_turn(_params(interrupted=False))
+    await chat_module.persist_turn(_params(interrupted=False))
     messages = await _rows(chat_module)
     assert messages[-1]["content"] == "(Agent decided no response needed)"
     assert "interrupted" not in messages[-1]["meta_data"]

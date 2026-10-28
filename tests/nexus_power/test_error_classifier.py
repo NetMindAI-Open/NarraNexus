@@ -8,8 +8,8 @@ names beat messages, unknown is conservative, chains are traversed.
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.errors import ErrorType
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.errors import ErrorType
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
     NoRetry,
     StepRetry,
@@ -68,6 +68,30 @@ def test_prefill_rejection_stays_invalid_request_for_legacy_consumers(classifier
     assert err.legacy_error_type() == ErrorType.INVALID_REQUEST.value
 
 
+@pytest.mark.parametrize("message", [
+    # OpenAI chat completions on a text-only model.
+    "litellm.BadRequestError: OpenAIException - Invalid content type. "
+    "image_url is only supported by certain models.",
+    # DeepSeek's strict deserializer.
+    "litellm.BadRequestError: OpenAIException - Failed to deserialize the JSON body "
+    "into the target type: messages[3]: unknown variant `image_url`, expected `text`",
+    # vLLM serving a text-only checkpoint.
+    "litellm.BadRequestError: OpenAIException - deepseek-ai/DeepSeek-V3 is not a multimodal model",
+    "litellm.BadRequestError: AnthropicException - This model does not support image input",
+    "litellm.BadRequestError: model does not support images",
+])
+def test_image_input_rejection_is_its_own_signal(classifier, message):
+    err = classifier.classify(BadRequestError(message))
+    assert err.error_type is ErrorType.IMAGE_INPUT_REJECTED
+    assert err.retryable is False  # only the loop's one-shot repair retries it
+    assert err.legacy_error_type() == ErrorType.INVALID_REQUEST.value
+
+
+def test_unrelated_image_words_are_not_an_image_rejection(classifier):
+    err = classifier.classify(BadRequestError("tool `image_resize` does not exist"))
+    assert err.error_type is ErrorType.INVALID_REQUEST
+
+
 def test_other_bad_requests_are_not_mistaken_for_prefill(classifier):
     err = classifier.classify(BadRequestError("model `nope` does not exist"))
     assert err.error_type is ErrorType.INVALID_REQUEST
@@ -121,7 +145,7 @@ def test_step_retry_backs_off_between_attempts():
     schedule is exponential and capped so a long turn riding out a
     provider hiccup never stalls for minutes.
     """
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
         StepRetry,
     )
 
@@ -132,10 +156,10 @@ def test_step_retry_backs_off_between_attempts():
 
 @pytest.mark.asyncio
 async def test_step_retry_stops_at_the_attempt_bound_without_sleeping():
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
         StepRetry,
     )
-    from xyz_agent_context.agent_framework.nexus_power.contracts.errors import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.errors import (
         ErrorType,
         LoopError,
     )

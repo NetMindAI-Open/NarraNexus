@@ -14,21 +14,22 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
+from narranexus.platform.agent_framework.providers.user_service import UserProviderService
 
 
 class _FakeDB:
     def __init__(self):
         self.providers: dict[str, dict] = {}
+        # Every other table is kept too: add_provider writes the agent
+        # framework to user_slots BEFORE binding the slot, and set_slot's
+        # protocol check reads it back — a fake that drops the write would
+        # validate against the default framework instead.
+        self.tables: dict[str, list[dict]] = {}
 
     async def get(self, table, filters=None):
-        if table != "user_providers":
-            return []
         filters = filters or {}
-        return [
-            r for r in self.providers.values()
-            if all(r.get(k) == v for k, v in filters.items())
-        ]
+        rows = self.providers.values() if table == "user_providers" else self.tables.get(table, [])
+        return [r for r in rows if all(r.get(k) == v for k, v in filters.items())]
 
     async def get_one(self, table, filters):
         rows = await self.get(table, filters)
@@ -37,6 +38,8 @@ class _FakeDB:
     async def insert(self, table, data):
         if table == "user_providers":
             self.providers[data["provider_id"]] = dict(data)
+        else:
+            self.tables.setdefault(table, []).append(dict(data))
 
     async def update(self, table, filters, data):
         rows = await self.get(table, filters)

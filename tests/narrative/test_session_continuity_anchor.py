@@ -13,7 +13,7 @@ conversational anchor:
    message hours/days later.
 
 2. `_turn_delivered_user_message` detects whether a turn delivered a
-   user-visible message (via send_message_to_user_directly / IM reply tools),
+   user-visible message (via reply_owner / notify_owner / IM reply tools),
    so step_4 can anchor the session even for background-trigger turns that
    messaged the user.
 
@@ -27,13 +27,13 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.narrative.models import ConversationSession
-from xyz_agent_context.narrative.session_service import SessionService
-from xyz_agent_context.narrative._narrative_impl.continuity import ContinuityDetector
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results import (
+from narranexus.platform.narrative.models import ConversationSession
+from narranexus.platform.narrative.session_service import SessionService
+from narranexus.platform.narrative._narrative_impl.continuity import ContinuityDetector
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_4_persist_results import (
     _turn_delivered_user_message,
 )
-from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+from narranexus.platform.schema import ProgressMessage, ProgressStatus
 
 
 # --------------------------------------------------------------------------
@@ -76,22 +76,31 @@ async def test_cleanup_expired_sessions_is_noop(tmp_path):
 # 2. _turn_delivered_user_message
 # --------------------------------------------------------------------------
 
-def _reply_pm(content: str) -> ProgressMessage:
+def _reply_pm(content: str, tool: str = "reply_owner") -> ProgressMessage:
+    """One owner-facing tool call. `tool` is a parameter, not a constant.
+
+    The owner-facing tool has two names and the turn's desk carries exactly one:
+    `reply_owner` when the owner spoke and is waiting, `notify_owner` on every
+    other surface. A helper hardcoding either would make half the cases below
+    assert against a call the agent could not have made on that surface.
+    """
     return ProgressMessage(
         step="3.4.1",
         title="reply",
         description="",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": f"mcp__chat_module__{tool}",
             "arguments": {"content": content},
         },
     )
 
 
 def test_delivered_true_when_message_sent_even_from_job():
-    pm = _reply_pm("Confirm and I'll delete all 7.")
-    # A JOB-source turn that called send_message_to_user_directly counts.
+    # A job desk carries `notify_owner` — the owner is not part of a scheduled
+    # run and anything it puts in their window is an interruption, not an
+    # answer. The anchor must still count it: the owner saw something.
+    pm = _reply_pm("Confirm and I'll delete all 7.", tool="notify_owner")
     assert _turn_delivered_user_message([pm], "job") is True
 
 
@@ -136,7 +145,7 @@ async def test_continuity_short_circuits_only_when_no_visible_history(monkeypatc
 
     async def _fake_call_llm(**kwargs):
         called["n"] += 1
-        from xyz_agent_context.narrative.models import ContinuityResult
+        from narranexus.platform.narrative.models import ContinuityResult
         return ContinuityResult(is_continuous=True, confidence=0.9, reason="stub")
 
     monkeypatch.setattr(detector, "_call_llm", _fake_call_llm)

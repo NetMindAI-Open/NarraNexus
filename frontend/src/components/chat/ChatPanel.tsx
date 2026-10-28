@@ -14,29 +14,35 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic, SlidersHorizontal } from 'lucide-react';
+import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
-import { CostPopover } from '@/components/cost/CostPopover';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, BracketSectionLabel, BindingDot, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
+import { ChatHeader } from './ChatHeader';
 import { ComposerModelBadge } from './ComposerModelBadge';
+import { ComposerFastToggle } from './ComposerFastToggle';
 import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
-import { useAgentWebSocket } from '@/hooks';
-import { cn } from '@/lib/utils';
+import { useAgentWebSocket, useFastMode } from '@/hooks';
+import { cn, generateId } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { localizeBootstrapGreeting as localizeBootstrapGreetingWith } from '@/lib/bootstrapGreeting';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
+import { streamForTab } from '@/lib/chatStreams';
 import { chatDayInfo } from '@/lib/chatDays';
+import { capturePrependAnchor, restorePrependAnchor } from '@/lib/scrollAnchor';
 import { getChatDraft } from '@/lib/chatDrafts';
-import { artifactsApi } from '@/services/artifactsApi';
+import { captureProductEvent } from '@/lib/productAnalytics';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
-import { ProcessPanel } from './ProcessPanel';
+import { RunPhases } from './process/RunPhases';
+import { PlanStrip } from './process/PlanStrip';
 import { SegmentedReply } from './SegmentedReply';
+import ResumedRunChip from './ResumedRunChip';
 import { segmentTurn } from '@/lib/segmentTurn';
-import { ExecutionPopover } from './ExecutionPopover';
+import { useStudioTurn } from '@/hooks/useStudioTurn';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -46,59 +52,21 @@ import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 
 // Artifact tool names that produce an artifact_id in tool_output.
 //
-// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
-// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name.
-// An exact-match Set silently never matched, so artifact tool calls were
-// never recognised and the artifact panel only updated on an unrelated
-// reload (agent switch). Match the bare suffix instead so both the
-// qualified and unqualified forms are recognised.
+// DISPLAY-ONLY since 2026-08-18 (spec artifact-events §3.3): discovery moved
+// to backend-pushed `artifact_changed` events (useRunObservation → store's
+// applyEvent), so this matching no longer feeds the artifact panel. It only
+// anchors the inline badge chip to the tool call that produced the artifact —
+// a rename here costs a missing chip in old transcripts, never a missing tab.
 //
-// Pointer model (2026-05-14): the single tool is `register_artifact`; the
-// older `create_artifact` / `upload_artifact_file` names are gone — see the
-// artifact_runner + artifact_tool mirror md files.
+// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
+// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name,
+// so match the bare suffix.
 const ARTIFACT_TOOL_BASE_NAMES = ['register_artifact'];
 
 function isArtifactToolName(toolName: string): boolean {
   return ARTIFACT_TOOL_BASE_NAMES.some(
     (base) => toolName === base || toolName.endsWith(`__${base}`),
   );
-}
-
-/**
- * Fetch the latest Artifact metadata and upsert into the store, deduped by
- * tool_call_id so we run at most once per emitted tool call.
- *
- * Why always refetch (not just "if missing"): a `register_artifact` call
- * with `target_artifact_id=<existing>` is the agent's refresh signal — same
- * `artifact_id` returns but with a bumped `updated_at`. If we short-circuit
- * on "already in store" the renderers never see the new timestamp and the
- * iframe doesn't reload. Refetching every NEW tool call ensures the
- * downstream `useArtifactRawUrl(refreshKey=updated_at)` keys re-mint and
- * the artifact's iframe / blob reloads with the latest bytes.
- *
- * The seen-Set lives at module scope so the React render loop (which fires
- * this from inside the timeline map) doesn't re-trigger fetches that would
- * race with the upsert and cause an infinite re-render. A tool_call_id is
- * globally unique within an agent session, so collisions across panels
- * don't happen.
- */
-const _seenArtifactToolCallIds = new Set<string>();
-
-function refreshArtifactFromToolCall(
-  agentId: string,
-  artifactId: string,
-  toolCallId: string,
-): void {
-  if (_seenArtifactToolCallIds.has(toolCallId)) return;
-  _seenArtifactToolCallIds.add(toolCallId);
-  artifactsApi
-    .getDetail(agentId, artifactId)
-    // focus: a register_artifact success must bring the doc to front even
-    // if a list refresh already inserted it (or it is a re-register) —
-    // otherwise the panel stays on the previous tab and the user reads
-    // the successful generation as a failure.
-    .then((d) => useArtifactStore.getState().upsert(d, { focus: true }))
-    .catch(() => undefined);
 }
 
 /**
@@ -114,17 +82,17 @@ function refreshArtifactFromToolCall(
  */
 interface ArtifactToolCallCardsProps {
   toolCalls: AgentToolCall[];
-  agentId: string;
   allArtifacts: ReturnType<typeof useArtifactStore.getState>['artifacts'];
 }
 
 const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
-  toolCalls, agentId, allArtifacts,
+  toolCalls, allArtifacts,
 }: ArtifactToolCallCardsProps) {
-  // Collect unique artifact_ids in first-seen order across the turn's
-  // tool calls. Re-register on the same artifact yields the same id; we
-  // still refresh its metadata (via refreshArtifactFromToolCall) but
-  // render one badge.
+  // Collect unique artifact_ids in first-seen order across the turn's tool
+  // calls — PURELY for badge placement. The store is fed by backend
+  // artifact_changed events (and the full pull on open/switch/reconnect);
+  // this render path issues no fetches and mutates nothing, so it is safe
+  // inside the timeline map and a parse miss costs a chip, never a tab.
   const seenIds = new Set<string>();
   const orderedIds: string[] = [];
 
@@ -144,13 +112,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
     }
 
     if (!artifactId) continue;
-
-    // Refetch fresh metadata for this tool call (deduped per call). Same
-    // `artifact_id` from a re-register lands here with a new tool_output
-    // string (new token+timestamp), so the dedup key naturally distinguishes
-    // first-register vs. subsequent refresh signals.
-    const dedupKey = `${tc.step ?? ''}::${tc.tool_output ?? ''}`;
-    refreshArtifactFromToolCall(agentId, artifactId, dedupKey);
 
     if (!seenIds.has(artifactId)) {
       seenIds.add(artifactId);
@@ -188,7 +149,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
   // sufficient. allArtifacts swaps when the artifact store updates (exactly
   // when we want to re-render to upgrade a placeholder chip to a real badge).
   return (
-    prev.agentId === next.agentId &&
     prev.toolCalls === next.toolCalls &&
     prev.allArtifacts === next.allArtifacts
   );
@@ -229,8 +189,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
   const [transcriptionReason, setTranscriptionReason] = useState<string>('');
   const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
-  // Per-agent model/framework panel, opened from the header. A bump on save
-  // tells the composer model chip to re-read the (possibly changed) model.
+  // Per-agent model & framework panel, opened from the header (Owner-required
+  // entry, reinstated 2026-09-11). A bump on save tells the composer model
+  // chip to re-read the (possibly changed) model.
   const [agentCfgOpen, setAgentCfgOpen] = useState(false);
   const [modelReloadKey, setModelReloadKey] = useState(0);
   // Tracks how many uploads are in-flight so the send button can wait.
@@ -241,14 +202,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // narrations (turns whose working_source isn't chat/manyfold) so they aren't
   // shown as if the agent were speaking to the owner.
   const [chatTab, setChatTab] = useState<'conversation' | 'inner'>('conversation');
+  // Declared up here (not next to the zero-state block below) because the
+  // attachment intake handlers need it too: the Activity Log has no composer,
+  // so a drag/paste there must not silently queue a file no surface can show.
+  const isActivityTab = chatTab === 'inner';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Chat history state (from DB)
-  const [historyMessages, setHistoryMessages] = useState<SimpleChatMessage[]>([]);
+  // Chat history state (from DB). The conversation and the Activity Log are two
+  // independently-paginated streams; each keeps its OWN rows / total / loaded
+  // flag keyed by include, so switching tabs neither clears the other stream
+  // nor refetches one already loaded (the active stream is `historyInclude`).
+  const [historyByStream, setHistoryByStream] =
+    useState<Record<'chat' | 'activity', SimpleChatMessage[]>>({ chat: [], activity: [] });
+  const [loadedByStream, setLoadedByStream] =
+    useState<Record<'chat' | 'activity', boolean>>({ chat: false, activity: false });
+  const [totalByStream, setTotalByStream] =
+    useState<Record<'chat' | 'activity', number>>({ chat: 0, activity: 0 });
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [historyTotalCount, setHistoryTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -270,7 +241,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     currentSteps: _rtSteps,
     currentToolCalls: _rtToolCalls,
     currentEvents: _rtEvents,
-    isStreaming, addUserMessage, startStreaming,
+    resumedRun,
+    currentRunId,
+    isStreaming, addUserMessage, addSteerMessage, markSteerRejected, startStreaming,
+    currentSteerable,
     setActiveAgent,
   } = useChatStore();
 
@@ -287,6 +261,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const currentToolCalls = useDeferredValue(_rtToolCalls);
   const currentEvents = useDeferredValue(_rtEvents);
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+  // Creation studio: two touch points only — wrap the outgoing message, and
+  // apply the settled reply's config block. Everything else lives in the hook.
+  const { encodeOutgoing, applyFromReply } = useStudioTurn(agentId);
   const { t } = useTranslation();
 
   // Read artifact list at component scope so it can be safely passed into
@@ -305,18 +282,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [agents, agentId]
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
-  const localizedBootstrapGreeting = t('chat.bootstrapGreeting');
-  const defaultBootstrapGreetingEn = t('chat.bootstrapGreeting', { lng: 'en' });
-  // The backend persists the generic bootstrap greeting in English. Translate
-  // that exact system default both before and after persistence, while keeping
-  // scenario-authored per-agent greetings verbatim.
-  const localizeBootstrapGreeting = (content?: string) =>
-    !content || content === defaultBootstrapGreetingEn
-      ? localizedBootstrapGreeting
-      : content;
+  // Only the owner may change an agent's model/framework (the llm-config
+  // routes 403 anyone else) — same `created_by` gate as the profile page.
+  const isOwner = !!currentAgent && !!userId && currentAgent.created_by === userId;
+  // The backend persists its system greetings (generic and named) in English;
+  // lib/bootstrapGreeting translates exactly those, before and after
+  // persistence, and leaves scenario-authored greetings verbatim.
+  const localizeBootstrapGreeting = (content?: string) => localizeBootstrapGreetingWith(content, t);
   const bootstrapGreeting = localizeBootstrapGreeting(currentAgent?.bootstrap_greeting);
 
-  const { run, reconnect, stop, isLoading } = useAgentWebSocket({
+  const [fastMode, setFastMode] = useFastMode(agentId);
+
+  const { run, reconnect, stop, steer, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
       refreshAgents();
       if (completedAgentId) checkAwarenessUpdate(completedAgentId);
@@ -357,11 +334,46 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // ── History loading ─────────────────────────────────
   const HISTORY_PAGE_SIZE = 20;
 
+  // Conversation and Activity Log are two independently-paginated streams
+  // (backend `include`): the inner tab IS the Activity Log, everything else is
+  // the conversation. Fetching per-tab keeps a busy agent's activity flood from
+  // eating the conversation tab's page budget, and keeps peer/team activity off
+  // the "new reply" scroll/notify path on the conversation tab.
+  const historyInclude = streamForTab(chatTab);
+
+  // Active-stream views + writers. Downstream code (loadMore, poll, timeline,
+  // loadMore-trigger) reads these unchanged; the writers target the active
+  // stream's slot so a tab switch touches only that stream.
+  const historyMessages = historyByStream[historyInclude];
+  const historyLoaded = loadedByStream[historyInclude];
+  const historyTotalCount = totalByStream[historyInclude];
+  const setHistoryMessages = useCallback(
+    (v: SimpleChatMessage[] | ((prev: SimpleChatMessage[]) => SimpleChatMessage[])) =>
+      setHistoryByStream((p) => ({
+        ...p,
+        [historyInclude]:
+          typeof v === 'function'
+            ? (v as (prev: SimpleChatMessage[]) => SimpleChatMessage[])(p[historyInclude])
+            : v,
+      })),
+    [historyInclude],
+  );
+  const setHistoryTotalCount = useCallback(
+    (n: number) => setTotalByStream((p) => ({ ...p, [historyInclude]: n })),
+    [historyInclude],
+  );
+  const setHistoryLoaded = useCallback(
+    (b: boolean) => setLoadedByStream((p) => ({ ...p, [historyInclude]: b })),
+    [historyInclude],
+  );
+
   const loadChatHistory = useCallback(async () => {
     if (!agentId || !userId) return;
     setIsLoadingHistory(true);
     try {
-      const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
+      const response = await api.getSimpleChatHistory(
+        agentId, HISTORY_PAGE_SIZE, 0, historyInclude,
+      );
       if (response.success) {
         setHistoryMessages(response.messages);
         setHistoryTotalCount(response.total_count);
@@ -377,11 +389,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       setIsLoadingHistory(false);
       setHistoryLoaded(true);
     }
-  }, [agentId, userId]);
+  }, [agentId, userId, historyInclude]);
 
   // Use ref for historyMessages length to avoid recreating loadMoreHistory on every poll
   const historyLengthRef = useRef(0);
   historyLengthRef.current = historyMessages.length;
+
+  // Per-stream high-water timestamp for the "new messages arrived" poll check.
+  // Keyed by include so switching tabs never compares against the other
+  // stream's latest (which would suppress or spuriously fire the poll).
+  const lastHistoryTimestampRef =
+    useRef<Record<'chat' | 'activity', string>>({ chat: '', activity: '' });
 
   const loadMoreHistory = useCallback(async () => {
     if (!agentId || !userId || isLoadingMore) return;
@@ -390,67 +408,90 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     setIsLoadingMore(true);
     shouldAutoScrollRef.current = false;
     const container = scrollContainerRef.current;
-    const prevScrollHeight = container?.scrollHeight ?? 0;
 
     try {
       const response = await api.getSimpleChatHistory(
-        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
+        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current, historyInclude,
       );
       if (response.success && response.messages.length > 0) {
-        // Use flushSync to ensure DOM updates synchronously before measuring scroll
+        // Anchor on the topmost rendered item (see lib/scrollAnchor.ts for
+        // why scrollHeight arithmetic alone lands the user on the new
+        // chunk). Captured HERE — after the await, so the loading row has
+        // already committed and its height is out of the correction — and
+        // immediately before flushSync commits the prepended rows.
+        const captured = container
+          ? capturePrependAnchor(
+              container,
+              container.querySelector<HTMLElement>('[data-timeline-item]'),
+            )
+          : null;
+        // flushSync so the DOM holds the prepended rows before measuring.
         flushSync(() => {
           setHistoryMessages((prev) => [...response.messages, ...prev]);
           setHistoryTotalCount(response.total_count);
         });
 
-        // Now DOM is updated, restore scroll position
-        if (container) {
-          const newScrollHeight = container.scrollHeight;
-          container.scrollTop = newScrollHeight - prevScrollHeight;
-        }
+        if (container && captured) restorePrependAnchor(container, captured);
       }
     } catch (error) {
       console.error('Failed to load more chat history:', error);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agentId, userId, historyTotalCount, isLoadingMore]);
+  }, [agentId, userId, historyTotalCount, isLoadingMore, historyInclude]);
 
-  // Reload when the agent changes OR a data wipe bumps historyRefreshTick.
+  // One loader effect, two jobs, no double-fetch on mount (N3):
+  //  • agent change / data wipe (the identity key moves) → reset BOTH streams
+  //    and load the active one; the inactive stream loads lazily on tab switch.
+  //  • same agent, tab switched → load the newly-active stream only if it has
+  //    not loaded yet (already-loaded → instant, no clear / refetch / scroll
+  //    reset — the friction the per-stream split removes).
   const historyRefreshTick = useChatStore((s) => s.historyRefreshTick);
+  const historyIdentityRef = useRef('');
   useEffect(() => {
-    if (agentId && userId) {
-      setHistoryMessages([]);
-      setHistoryLoaded(false);
-      setHistoryTotalCount(0);
+    if (!agentId || !userId) return;
+    const identity = `${agentId}|${userId}|${historyRefreshTick}`;
+    if (historyIdentityRef.current !== identity) {
+      historyIdentityRef.current = identity;
+      setHistoryByStream({ chat: [], activity: [] });
+      setLoadedByStream({ chat: false, activity: false });
+      setTotalByStream({ chat: 0, activity: 0 });
+      lastHistoryTimestampRef.current = { chat: '', activity: '' };
       shouldAutoScrollRef.current = true;
       loadChatHistory();
+      return;
     }
-  }, [agentId, userId, loadChatHistory, historyRefreshTick]);
+    if (!loadedByStream[historyInclude]) loadChatHistory();
+    // loadChatHistory intentionally excluded: it re-identifies with
+    // historyInclude and is captured fresh each render; listing it would just
+    // re-run this effect without changing what it does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, userId, historyRefreshTick, historyInclude]);
 
   // ── Poll for new background messages ────────────────
-  const lastHistoryTimestampRef = useRef<string>('');
   useEffect(() => {
     if (!agentId || !userId || !historyLoaded) return;
 
     if (historyMessages.length > 0) {
       const last = historyMessages[historyMessages.length - 1];
-      if (last.timestamp && last.timestamp > lastHistoryTimestampRef.current) {
-        lastHistoryTimestampRef.current = last.timestamp;
+      if (last.timestamp && last.timestamp > lastHistoryTimestampRef.current[historyInclude]) {
+        lastHistoryTimestampRef.current[historyInclude] = last.timestamp;
       }
     }
 
     const poll = async () => {
       if (document.hidden) return;
       try {
-        const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
+        const response = await api.getSimpleChatHistory(
+          agentId, HISTORY_PAGE_SIZE, 0, historyInclude,
+        );
         if (!response.success || response.messages.length === 0) return;
 
         const latestMsg = response.messages[response.messages.length - 1];
         const latestTs = latestMsg.timestamp || '';
 
-        if (latestTs > lastHistoryTimestampRef.current) {
-          lastHistoryTimestampRef.current = latestTs;
+        if (latestTs > lastHistoryTimestampRef.current[historyInclude]) {
+          lastHistoryTimestampRef.current[historyInclude] = latestTs;
           // Merge: keep older loaded history, replace only the tail (latest page)
           setHistoryMessages((prev) => {
             if (prev.length <= HISTORY_PAGE_SIZE) {
@@ -474,9 +515,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }
     };
 
+    // Poll once immediately so switching back to an already-loaded stream
+    // refreshes right away instead of showing data up to 12s stale (N4). The
+    // high-water + document.hidden guards inside `poll` make this a no-op when
+    // nothing new arrived.
+    void poll();
     const timer = setInterval(poll, 12_000);
     return () => clearInterval(timer);
-  }, [agentId, userId, historyLoaded]);
+  }, [agentId, userId, historyLoaded, historyInclude]);
 
   // ── Build unified timeline ──────────────────────────
   // History (DB) + session (chatStore) merged + de-duplicated. The dedup
@@ -492,14 +538,46 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Per-tab visible items, computed BEFORE rendering so day separators can
   // compare each item against the previous VISIBLE one — comparing against
   // a neighbour that the tab filter hides would draw phantom separators.
+  //
+  // The run IN FLIGHT is also filtered out here. The backend persists a reply
+  // row as soon as the reply tool executes, the 12s history poll picks it up
+  // mid-run, and the streaming block below is already rendering that same
+  // reply from currentEvents — so the answer drew twice, above and below the
+  // pipeline phases, and a refresh "fixed" it only because the streaming copy
+  // was gone by then. buildUnifiedTimeline's dedup cannot catch this: it
+  // reconciles history against SESSION messages, and the in-flight turn has
+  // no session message yet (stopStreaming is what writes it).
+  //
+  // Scoped three ways, and each one is load-bearing:
+  //   - only while isStreaming, and only for currentRunId — the moment the run
+  //     settles the row is ordinary history again and renders normally, so
+  //     nothing is withheld from the reader (iron rule #16);
+  //   - only role 'assistant'. The backend stamps the SAME event_id on the
+  //     user's own row for that turn (chat_history.py builds both roles from
+  //     one loop), and history rows win buildUnifiedTimeline's dedup, so an
+  //     unscoped filter deletes the user's message from the screen while the
+  //     agent works on it.
   const visibleTimeline: TimelineItem[] = useMemo(
     () =>
       timeline.filter((item) => {
+        if (
+          isStreaming && currentRunId
+          && item.role === 'assistant' && item.eventId === currentRunId
+        ) return false;
         const isInner = item.messageType === 'activity';
         return chatTab === 'inner' ? isInner : !isInner;
       }),
-    [timeline, chatTab],
+    [timeline, chatTab, isStreaming, currentRunId],
   );
+
+  // The newest visible full message keeps its meta row (time) always
+  // visible; older rows reveal it on hover (claude.ai convention).
+  const lastMessageId = useMemo(() => {
+    for (let i = visibleTimeline.length - 1; i >= 0; i--) {
+      if (visibleTimeline[i].messageType !== 'activity') return visibleTimeline[i].id;
+    }
+    return null;
+  }, [visibleTimeline]);
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -539,6 +617,40 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (!shouldAutoScrollRef.current) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
+
+  // ── Creation studio: apply the config block when a turn settles ──
+  //
+  // Watches the streaming edge (true -> false) rather than the message list:
+  // the draft block is only complete once the turn is done, and applying
+  // mid-stream would write a half-serialised JSON value into the agent's
+  // instructions. The reply text is read from the store's settled message,
+  // not from the streaming buffer, for the same reason.
+  //
+  // Two guards, because `isStreaming` / `messages` are flat fields derived
+  // from whichever agent is ACTIVE and this panel switches agents in place:
+  //   - the edge is tracked per agent, so switching from a streaming agent A
+  //     back to a settled agent B does not read as "B just settled";
+  //   - each assistant message is applied at most once (by id), so a genuine
+  //     re-settle on the same agent cannot replay an old draft over edits the
+  //     user has since made in the panel. Content is not a usable key — the
+  //     model is allowed to restate an identical block on a later turn.
+  const wasStreamingByAgentRef = useRef<Record<string, boolean>>({});
+  const appliedReplyIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!agentId) return;
+    const wasStreaming = wasStreamingByAgentRef.current[agentId] ?? false;
+    wasStreamingByAgentRef.current[agentId] = isStreaming;
+    if (!wasStreaming || isStreaming) return;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role !== 'assistant') continue;
+      const key = `${agentId}:${m.id}`;
+      if (appliedReplyIdsRef.current.has(key)) return;
+      appliedReplyIdsRef.current.add(key);
+      void applyFromReply(m.content);
+      return;
+    }
+  }, [agentId, isStreaming, messages, applyFromReply]);
 
   // ── Inner Thoughts defaults to the bottom (newest activity) ──
   // Like a chat log, not an inbox: the newest activity sits at the bottom, so
@@ -612,6 +724,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const uploadAttachments = useCallback(
     async (files: File[], opts?: { source?: 'recording' | 'upload' }) => {
       if (!agentId || !userId || files.length === 0) return;
+      // A mid-run steer is text-only (v1): an attachment can't be folded into a
+      // live turn. The attach + mic buttons are already disabled while
+      // streaming, but drag-drop and paste reach here directly — so gate the
+      // single funnel every upload path flows through. We block BEFORE the
+      // network upload, so nothing is orphaned on the backend and no dead chip
+      // appears that could never be sent. Surface a dismissible notice instead
+      // of silently swallowing the drop.
+      if (isLoading) {
+        setTranscriptionNotice(t('chat.composer.attachDuringRun'));
+        return;
+      }
       setUploadingCount((n) => n + files.length);
       for (const file of files) {
         try {
@@ -682,7 +805,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         }
       }
     },
-    [agentId, userId, t],
+    [agentId, userId, t, isLoading],
   );
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -701,7 +824,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // need preventDefault on dragover (to opt the element in as a drop
   // target) and on drop (to cancel the textarea's default).
   const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
-    if (!agentId) return;
+    // No composer on the Activity Log tab → nothing to attach to. Bail before
+    // preventDefault so the browser keeps its own "not a drop target" cursor
+    // instead of us claiming the drag and then dropping it on the floor.
+    if (!agentId || isActivityTab) return;
     // Only treat the drag as an attachment intent if it actually carries
     // files — typing-style drags (selected text from another tab) should
     // still fall through to the textarea's normal text-paste behavior.
@@ -721,7 +847,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     setIsDragging(false);
   };
   const handleDrop = (e: React.DragEvent<HTMLElement>) => {
-    if (!agentId) return;
+    if (!agentId || isActivityTab) return;
     const files = Array.from(e.dataTransfer?.files || []);
     if (files.length === 0) return;
     e.preventDefault();
@@ -752,12 +878,64 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   };
 
   // ── Handlers ────────────────────────────────────────
+  // One submit at a time. `handleSubmit` awaits (the studio's encode, which
+  // reads the agent's instructions) BEFORE the composer clears and
+  // `startStreaming` flips `isLoading`, so a second Enter in that window used
+  // to run the whole path again and send the same message twice.
+  const submittingRef = useRef(false);
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      await submitOnce();
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
+  const submitOnce = async () => {
     const trimmed = (composerRef.current?.getText() ?? '').trim();
     const hasContent = trimmed.length > 0 || pendingAttachments.length > 0;
-    if (!hasContent || isLoading || !agentId || !userId || uploadingCount > 0) return;
+    if (!hasContent || !agentId || !userId || uploadingCount > 0) return;
 
     const content = trimmed;
+
+    // Mid-run follow-up: a run is streaming. The composer stays editable during a
+    // run (draft-while-running), so we DO reach here — but only a steerable run
+    // sends: fold the message into the SAME turn. A non-steerable run returns
+    // silently, leaving the draft to be sent once the run ends (the pre-steer
+    // behavior). Attachments are not supported mid-run in v1 — a steer is text only.
+    if (isLoading) {
+      if (!currentSteerable || trimmed.length === 0) return;
+      // generateId, not crypto.randomUUID (undefined on non-secure http://<ip>
+      // contexts — the repo's productAnalytics/utils already guard this).
+      const clientMsgId = generateId();
+      const sent = steer(agentId, content, clientMsgId);
+      // Always add the bubble so the user gets feedback either way. On send it's
+      // 'queued' (the backend acks it merged/rejected). If the socket was no
+      // longer steerable (sent===false: CONNECTING/CLOSING/closed) mark it
+      // rejected right away rather than dropping silently. Attachments are NOT
+      // cleared — a steer is text-only (v1), so they stay for the next message.
+      addSteerMessage(agentId, content, clientMsgId);
+      if (sent) {
+        composerRef.current?.clear();
+        shouldAutoScrollRef.current = true;
+        initialScrollPendingRef.current = true;
+      } else {
+        markSteerRejected(agentId, clientMsgId, 'not_sent');
+      }
+      return;
+    }
+
+    // Creation studio: while it is open, every outgoing message carries the
+    // Agent Builder instruction plus this agent's CURRENT configuration.
+    // Restating the config each turn is what makes the user's own panel edits
+    // authoritative — the model revises what the panel holds instead of
+    // overwriting it. Returns `content` untouched when the studio is shut, or
+    // on any failure: a studio hiccup must not swallow the user's message.
+    // Deliberately after the steer branch — a mid-run steer is not a turn.
+    const outgoing = await encodeOutgoing(content);
+
     const attachmentsToSend = pendingAttachments;
     composerRef.current?.clear();
     setPendingAttachments([]);
@@ -766,7 +944,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     // streaming starts. The streaming effect takes over from there.
     initialScrollPendingRef.current = true;
 
-    if (showBootstrapGreeting) {
+    if (bootstrapGreetingPending) {
       useChatStore.setState((state) => ({
         agentSessions: {
           ...state.agentSessions,
@@ -789,12 +967,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       }));
     }
 
-    addUserMessage(agentId, content, attachmentsToSend.length ? attachmentsToSend : undefined);
+    addUserMessage(agentId, outgoing, attachmentsToSend.length ? attachmentsToSend : undefined);
     startStreaming(agentId);
+    captureProductEvent('message_submitted', {
+      agent_id: agentId,
+      trigger_source: 'chat',
+    });
 
     try {
       const agentName = currentAgent?.name || agentId;
-      run(agentId, userId, content, agentName, attachmentsToSend.length ? attachmentsToSend : undefined);
+      run(agentId, userId, outgoing, agentName, attachmentsToSend.length ? attachmentsToSend : undefined, fastMode);
     } catch (error) {
       console.error('Failed to run agent:', error);
     }
@@ -816,8 +998,25 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const stableDrop = useCallback((e: React.DragEvent<HTMLElement>) => dragFnsRef.current.drop(e), []);
   const stablePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => dragFnsRef.current.paste(e), []);
 
-  const showBootstrapGreeting = isBootstrap && historyLoaded && historyMessages.length === 0 && messages.length === 0;
-  const showEmptyState = !showBootstrapGreeting && historyLoaded && historyMessages.length === 0 && messages.length === 0 && !isStreaming;
+  // Zero-state is PER TAB, and it keys on `visibleTimeline` — exactly the rows
+  // this tab renders — not on the raw stream + session pair. Two bugs came out
+  // of the old form: the conversation's onboarding card / bootstrap greeting
+  // were drawn on an empty Activity Log too (so switching tabs looked like a
+  // dead button — the user could never reach the legitimately blank Activity
+  // Log), and any live session message (conversation-only) suppressed the
+  // Activity Log's zero-state into an unexplained blank area.
+  // (`isActivityTab` is declared with the tab state above — the attachment
+  // intake handlers need it before this point.)
+  // Day-zero of the CONVERSATION. Deliberately tab-independent (it reads the
+  // chat stream's own slot, not the active one) because handleSubmit also uses
+  // it to fold the greeting into the session on the user's first send — which
+  // can happen while the Activity Log tab is open.
+  const bootstrapGreetingPending =
+    isBootstrap && loadedByStream.chat && historyByStream.chat.length === 0 && messages.length === 0;
+  const tabIsEmpty = historyLoaded && visibleTimeline.length === 0;
+  const showBootstrapGreeting = !isActivityTab && bootstrapGreetingPending;
+  const showEmptyState = !isActivityTab && !showBootstrapGreeting && tabIsEmpty && !isStreaming;
+  const showActivityEmptyState = isActivityTab && tabIsEmpty;
 
   // ── Render ──────────────────────────────────────────
   return (
@@ -828,58 +1027,32 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       // itself (see onDragOver/onDrop there) because <textarea> processes
       // drop synchronously into its value before bubbling.
       className={cn(
-        'chat-frosted flex flex-col h-full overflow-hidden transition-colors',
+        'flex flex-col h-full overflow-hidden transition-colors',
         isDragging && 'ring-2 ring-inset ring-[var(--accent-primary)]'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header — carbon·silicon binding-dot brand motif + NM mono label.
-          Hidden on mobile: the top bar shows the breadcrumb, and the activity
-          icon moves into the Chat/Artifacts tab row (see MainLayout). */}
-      <div className="px-5 hidden md:flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
-        {/* min-w-0 + overflow-hidden: when the artifact column squeezes
-            the chat, the label/agent-id side TRUNCATES — it must never
-            run under the Processing/cost cluster on the right. */}
-        <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
-          <BindingDot size={7} pulse={isStreaming} className="shrink-0" />
-          <BracketSectionLabel
-            trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px] truncate max-w-[180px]">{agentId}</span> : undefined}
-          >
-            {t('chat.interaction')}
-          </BracketSectionLabel>
-        </div>
+      {/* v4 header — agent-name protagonist (now a link into the agent's
+          profile page); Chat / Inner Thoughts segmented toggle; Jobs / Inbox /
+          Artifacts / Cost entries and the ⋯ detail menu (doors only — panels
+          unchanged). Hidden on mobile: the top strip shows the breadcrumb
+          there and the tab pair below stands in. */}
+      <ChatHeader
+        agentId={agentId}
+        agentName={currentAgent?.name || agentId || 'AI'}
+        isStreaming={isStreaming}
+        currentSteps={currentSteps}
+        chatTab={chatTab}
+        onChatTabChange={setChatTab}
+        onOpenAgentConfig={isOwner ? () => setAgentCfgOpen(true) : undefined}
+      />
 
-        <div className="flex items-center gap-3 shrink-0">
-          {isStreaming && <ExecutionPopover steps={currentSteps} />}
-          {/* Per-agent model & framework settings — sits left of the cost
-              chip in the header icon cluster. Opens the detailed panel;
-              the composer chip stays the quick model switch. */}
-          {agentId && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              title="Model & framework (this agent)"
-              onClick={() => setAgentCfgOpen(true)}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
-          )}
-          {/* Cost chip — a proper header member (it used to float
-              absolutely over this corner and collided with the
-              Processing indicator during runs). */}
-          <span data-help-id="chat.cost">
-            <CostPopover />
-          </span>
-        </div>
-      </div>
-
-      {/* Chat tabs — Conversation (owner↔agent direct chat) vs Inner Thoughts
-          (the agent's background activity + cross-channel narrations). */}
+      {/* Mobile-only Chat / Inner Thoughts tabs — the desktop toggle lives
+          in the header, which doesn't render on < md. */}
       <div
-        className="px-5 max-md:px-3 flex items-center gap-1 border-b"
+        className="px-3 flex md:hidden items-center gap-1 border-b"
         style={{ borderColor: 'var(--nm-hairline)' }}
       >
         {(['conversation', 'inner'] as const).map((tab) => (
@@ -898,22 +1071,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         ))}
       </div>
 
-      {/* Security reminder banner — persistent, non-dismissible. Warns
-          users not to paste sensitive personal data into chat (it would be
-          stored in trajectories + sent to the LLM provider). Added as part
-          of the 2026-06-17 security hardening. */}
-      <div
-        className="px-5 py-1.5 flex items-center gap-1.5 text-[11px] leading-snug border-b"
-        style={{
-          borderColor: 'var(--nm-hairline)',
-          background: 'var(--bg-tertiary)',
-          color: 'var(--color-warning, var(--text-tertiary))',
-        }}
-      >
-        <span aria-hidden="true">⚠</span>
-        <span>{t('chat.securityReminder')}</span>
-      </div>
-
       {/* Messages area — single unified timeline.
           Wrapped in <ScrollArea> so the scrollbar is JS-rendered (Radix) and
           cannot be hijacked by macOS's "always show scrollbars" AppKit
@@ -925,7 +1082,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         className="flex-1 min-h-0"
         data-help-id="chat.messages"
         viewportRef={scrollContainerRef}
-        viewportClassName="p-5 max-md:p-3"
+        viewportClassName="py-6 px-6 max-md:p-3"
         onViewportScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop < 50 && !isLoadingMore && historyMessages.length < historyTotalCount) {
@@ -936,7 +1093,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           shouldAutoScrollRef.current = isAtBottom;
         }}
       >
-      <div className="space-y-4">
+      {/* v4: the conversation reads in a centered 820px measure regardless
+          of how wide the (now full-bleed) chat column gets. */}
+      <div className="mx-auto w-full max-w-[820px] space-y-4">
         {/* Loading more (top) — NM bracket-loading placeholder */}
         {isLoadingMore && (
           <div className="flex items-center justify-center py-2">
@@ -951,22 +1110,37 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Empty state. With an agent selected → the JourneyBand onboarding
-            (binding-dot eyebrow, memory→network→team stations, suggested
-            prompts that fill the composer). With no agent → the plain
-            bracket prompt to pick one from the sidebar. */}
+        {/* Empty state. With an agent selected → the v4 in-stream onboarding
+            card ("<Agent> is ready" + suggested prompts that fill the
+            composer; dismissible, persisted per agent). With no agent → the
+            plain bracket prompt to pick one from the sidebar. */}
         {showEmptyState && (
           agentId ? (
             <OnboardingJourney
-              agentName={currentAgent?.name || agentId}
+              // dismissed is read from localStorage once per mount; without
+              // the key, switching agents reuses the instance and agent A's
+              // dismissal leaks onto agent B (and vice versa).
+              key={agentId}
+              agentId={agentId}
               onPrompt={(text) => composerRef.current?.setText(text)}
             />
           ) : (
             <BracketEmptyState
-              label="Select an agent"
-              hint="Choose an agent from the sidebar to begin your interaction."
+              label={t('chat.selectAgent')}
+              hint={t('chat.selectAgentHint')}
             />
           )
+        )}
+
+        {/* Activity Log zero-state. An agent that has never run on its own has
+            a genuinely empty stream — say so, instead of handing the tab the
+            conversation's onboarding card (which read as "the tab button does
+            nothing") or an unexplained blank column. */}
+        {showActivityEmptyState && (
+          <BracketEmptyState
+            label={agentId ? t('chat.activityEmpty') : t('chat.selectAgent')}
+            hint={agentId ? t('chat.activityEmptyHint') : t('chat.selectAgentHint')}
+          />
         )}
 
         {/* Bootstrap greeting */}
@@ -979,6 +1153,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 content: bootstrapGreeting,
                 timestamp: Date.now(),
               }}
+              agentId={agentId}
+              isLatest
             />
           </div>
         )}
@@ -989,7 +1165,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             are the ONLY thing routed to Inner Thoughts; everything the agent
             actually *says* is owner-facing and stays in Conversation,
             including its cross-channel "I replied / notified you" narrations
-            (send_message_to_user_directly targets the owner regardless of
+            (the owner-facing tool targets the owner regardless of
             which channel triggered the turn). Session items (the owner's
             live in-app turn) are conversation too.
 
@@ -1019,7 +1195,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           // Activity record → source-labelled, expandable card (Inner Thoughts only).
           if (item.messageType === 'activity') {
             return (
-              <div key={item.id}>
+              <div key={item.id} data-timeline-item>
                 {separator}
                 <InnerThoughtCard item={item} agentId={agentId} />
               </div>
@@ -1037,7 +1213,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           return (
             <div
               key={item.id}
-              className={isNewSession ? 'animate-slide-up' : undefined}
+              data-timeline-item
+              // Turn rhythm. With the agent's turn unframed, spacing is what
+              // separates one exchange from the next: extra air opens each
+              // user message, so a turn reads as [air] question [close]
+              // document [air] question. A hairline was the alternative and
+              // was rejected — one rule per turn stacks into a ledger down a
+              // long conversation, and the right-aligned user bubble is
+              // already a strong enough anchor to start from.
+              className={cn(
+                item.role === 'user' && 'mt-6',
+                isNewSession && 'animate-slide-up',
+              )}
             >
               {separator}
               <MessageBubble
@@ -1059,14 +1246,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
-                agentName={currentAgent?.name || agentId}
+                isLatest={item.id === lastMessageId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}
               {hasArtifactTools && agentId && item.toolCalls && (
                 <ArtifactToolCallCards
                   toolCalls={item.toolCalls}
-                  agentId={agentId}
                   allArtifacts={allArtifacts}
                 />
               )}
@@ -1074,87 +1260,69 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })}
 
-        {/* Inline TurnTimeline — replaces the old "streaming MessageBubble
-            + Live activity preview" pair. Renders thinking / tool /
-            reply blocks in chronological order as the events arrive,
-            so the user can see the agent's actual rhythm. See
-            TurnTimeline.tsx and the 2026-05-12 redesign mirror md.
-
-            Wrapped in the same Bot-avatar + flex-1 content shell as
-            MessageBubble uses for historical turns, so the in-flight
-            turn doesn't visually detach from the rest of the
-            conversation (it would otherwise be the only assistant
-            output with no left-side avatar). */}
-        {chatTab === 'conversation' && isStreaming && currentEvents.length > 0 && (
-          <div className="flex gap-3 animate-fade-in">
-            <RingAvatar
-              species="silicon"
-              label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
-              size="sm"
-              className="shrink-0"
+        {/* The in-flight turn, rendered exactly as it will settle: narration,
+            tool lines and collapsed reasoning in the order they arrive, with
+            the reply growing underneath. No avatar and no bubble, matching
+            the settled agent turn in MessageBubble — the whole point is that
+            nothing rearranges when the run lands. */}
+        {chatTab === 'conversation' && isStreaming && (
+          <div className="animate-fade-in">
+            {/* Reconnected-to-ongoing-run badge (Shenzhen-r2 B1): the
+                replay below is the SAME run continuing after a refresh /
+                reconnect — label it, with elapsed anchored to the run's
+                real start, so it cannot be read as a fresh generation.
+                runId must match the streaming turn (review #349 M4): the
+                anchor may only badge ITS run — if a second start-stream
+                path ever appears, a stale anchor stays invisible instead
+                of silently badging someone else's turn. */}
+            {resumedRun && resumedRun.runId === currentRunId && (
+              <ResumedRunChip startedAtMs={resumedRun.startedAtMs} />
+            )}
+            {/* The run's preamble: the backend pipeline phases that happen
+                before the model produces anything. Without it the window
+                between "send" and the first narration is blank. It heads
+                the document rather than sitting in a box beside it. */}
+            <RunPhases
+              events={currentEvents}
+              steps={currentSteps}
+              startedAtMs={
+                resumedRun && resumedRun.runId === currentRunId
+                  ? resumedRun.startedAtMs
+                  : undefined
+              }
             />
-            <div className="flex-1 min-w-0">
-              {/* Live view shows answers only: the process is in the
-                  ProcessPanel above the composer. Painting it here too
-                  would render the same thinking/tools twice.
+            {/* The live turn IS the document — narration, tool lines and
+                collapsed reasoning in the order they happen, the reply
+                growing underneath. Same component, same shape the settled
+                turn keeps, so nothing rearranges when it lands.
 
-                  The reply streams inside the same silicon bubble the
-                  settled MessageBubble will use — a bare string next to
-                  the avatar that suddenly gains a bubble on settle reads
-                  as two different things. Rendered only once a reply has
-                  visible content, so no empty blue box shows while the
-                  agent is still thinking/tooling. */}
-              {(() => {
-                const liveSegments = segmentTurn(currentEvents);
-                if (!liveSegments.some((s) => s.reply?.content)) return null;
-                return (
-                  <div
-                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] nm-bubble-ai"
-                    style={{
-                      background: 'var(--color-silicon-soft)',
-                      color: 'var(--nm-ink)',
-                      border: '1px solid var(--color-silicon-hair)',
-                      borderLeft: '3px solid var(--color-silicon)',
-                    }}
-                  >
-                    <div className="text-sm break-words leading-relaxed">
-                      <SegmentedReply segments={liveSegments} isStreaming />
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* Mid-stream artifact preview is independent of the timeline:
-                  it surfaces created/uploaded artifacts inline as soon as
-                  their tool_output lands, without waiting for the whole
-                  turn to finish. */}
-              {agentId && currentToolCalls.length > 0 && (
-                <ArtifactToolCallCards
-                  toolCalls={currentToolCalls}
-                  agentId={agentId}
-                  allArtifacts={allArtifacts}
-                />
-              )}
-              {/* Inter-event "still working" indicator. Reassurance for
-                  the gap between two visible blocks (e.g. waiting on a
-                  tool result, or the next thinking hasn't started
-                  streaming yet) — without it the page goes silent
-                  and the user can't tell stuck from busy. Distinct from
-                  "Thinking" (whose content is already on screen): this
-                  signals the agent is *acting* between the visible
-                  blocks. Disappears the instant isStreaming flips. */}
-              <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
-                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-                <span>{t('chat.execution.acting')}</span>
-              </div>
-            </div>
+                showProcess is on here (it used to be off, with the process
+                living in a framed panel above the composer): that panel is
+                gone, so there is nothing to paint twice, and the narration
+                is finally IN the reading flow rather than in a side box
+                between reasoning rows. */}
+            <SegmentedReply
+              segments={segmentTurn(currentEvents)}
+              showProcess
+              isStreaming
+            />
+            {/* Mid-stream artifact preview is independent of the timeline:
+                it surfaces created/uploaded artifacts inline as soon as
+                their tool_output lands, without waiting for the whole
+                turn to finish. */}
+            {agentId && currentToolCalls.length > 0 && (
+              <ArtifactToolCallCards
+                toolCalls={currentToolCalls}
+                allArtifacts={allArtifacts}
+              />
+            )}
           </div>
         )}
 
         {/* The old "starting up… / loading context…" indicator that
-            floated here moved into ProcessPanel (above the composer),
-            which renders pipeline phases as terminal rows from the
-            moment streaming starts — one surface for everything the
-            agent is doing. */}
+            floated here is now RunPhases, at the head of the in-flight
+            document — the phases read as the run's preamble, in the same
+            column as everything else the agent does. */}
 
         {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
             div would otherwise add, killing the dead gap below the last message
@@ -1163,18 +1331,30 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       </div>
       </ScrollArea>
 
-      {/* Input area — drop is handled at the Card root, so this wrapper
-          no longer needs its own onDragOver/onDragLeave/onDrop. */}
-      <div className="px-5 py-4 border-t border-[var(--rule)]">
+      {/* Input area — CONVERSATION ONLY. The Activity Log is a read-only window
+          onto runs the agent started by itself (jobs, channels, teammates);
+          there is no reply channel to type into, so the whole footer goes —
+          composer, attach/voice row, transcription notice and the live
+          ProcessPanel alike, since every one of them describes the owner↔agent
+          run. This matches the live reply block above, already gated to
+          `chatTab === 'conversation'`. Unmounting <Composer> does NOT lose a
+          draft: it flushes to the per-agent draft store on unmount and restores
+          on remount (see Composer.tsx).
+          Drop is handled at the Card root, so this wrapper no longer needs its
+          own onDragOver/onDragLeave/onDrop. Inner wrapper mirrors the 820px
+          stream measure (v4). */}
+      {!isActivityTab && (
+      <div className="border-t border-[var(--rule)]">
+      <div className="mx-auto w-full max-w-[820px] px-6 max-md:px-3 pt-3.5 pb-3">
         {/* Audio transcription unavailable notice — only shown when an
             audio upload returned transcription_available=false. */}
         {transcriptionNotice && (
-          <div className="mb-2.5 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
+          <div className="mb-2.5 flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
             <span className="flex-1">{transcriptionNotice}</span>
             <button
               type="button"
               onClick={() => setTranscriptionNotice(null)}
-              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+              className="p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
               title="Dismiss"
             >
               <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1192,7 +1372,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               return (
                 <div
                   key={att.file_id}
-                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
+                  className="relative flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                 >
                   {isVoiceMemo ? (
                     <VoiceTranscript compact transcript={att.transcript} />
@@ -1226,7 +1406,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(att.file_id)}
-                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+                    className="absolute right-1 top-1 p-0.5 rounded hover:bg-[var(--nm-paper-warm)]"
                     title="Remove"
                   >
                     <X className="w-3 h-3 text-[var(--text-tertiary)]" />
@@ -1235,7 +1415,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               );
             })}
             {uploadingCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md)] border border-dashed border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 Uploading {uploadingCount}
               </div>
@@ -1257,24 +1437,32 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
-        {/* While the agent works, the process lives here; answers live
-            in the bubbles above. Mounted only while streaming — when the
-            turn ends the process folds back into each reply's bubble
-            (lib/segmentTurn), so unmounting the panel loses nothing. */}
-        {isStreaming && <ProcessPanel events={currentEvents} steps={currentSteps} />}
+        {/* The plan is the one piece of the run that must not scroll away —
+            it answers "where are we now" — so it stays pinned here while the
+            rest of the process reads inline in the document above. Mounted
+            only while streaming; the settled turn carries its own process. */}
+        {isStreaming && <PlanStrip events={currentEvents} />}
 
         <div className="relative" data-help-id="chat.composer">
           <Composer
             key={agentId ?? '__none__'}
             ref={composerRef}
             agentId={agentId}
+            // Editable whenever an agent is selected — including during a run
+            // (draft-while-running is a pre-existing capability; Composer.tsx's
+            // contract is "disabled === no agent"). SENDING is what's gated: a
+            // steerable run folds the text in, a non-steerable run holds the
+            // draft until it ends (see handleSubmit). Only the placeholder
+            // changes to invite a mid-run follow-up when steerable.
             disabled={!agentId}
             placeholder={
               !agentId
                 ? t('chat.composer.selectAgentFirst')
                 : isDragging
                   ? t('chat.composer.dropFile')
-                  : t('chat.composer.placeholder')
+                  : isLoading && currentSteerable
+                    ? t('chat.composer.steerPlaceholder')
+                    : t('chat.composer.placeholder')
             }
             onSubmit={stableSubmit}
             onEmptyChange={setComposerEmpty}
@@ -1282,6 +1470,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             onDragLeave={stableDragLeave}
             onDrop={stableDrop}
             onPaste={stablePaste}
+            // A steerable run overlays TWO buttons (Stop + steer Send); every
+            // other state overlays one. Tell the input how much right padding
+            // to reserve so typed text never slides under the steer button.
+            trailingSlots={isStreaming && currentSteerable ? 2 : 1}
           />
           {/* Send / Stop — vertically centered at the right edge of the
               textarea. The send (↵) button rests neutral gray and lights up in
@@ -1290,15 +1482,44 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               composer has content (text or an attachment), not merely on
               focus/hover. Stop stays oxblood (danger). */}
           {isStreaming ? (
-            <Button
-              variant="danger"
-              size="icon"
-              onClick={() => agentId && stop(agentId)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9"
-              title="Stop generation"
-            >
-              <Square className="w-4 h-4 fill-current" />
-            </Button>
+            <>
+              {/* On a STEERABLE run, a mid-run send button sits left of Stop so
+                  mouse/touch users have a real submit target (not Enter-only —
+                  mobile keyboards often make Enter a newline). Its disabled does
+                  NOT include isLoading (we ARE streaming); handleSubmit folds the
+                  text into the current turn. Non-steerable runs show only Stop. */}
+              {currentSteerable && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleSubmit}
+                  // A steer is TEXT-only, and handleSubmit returns on empty text,
+                  // so gate purely on `composerEmpty` — NO attachment escape here
+                  // (an attachment-only steer would light the button but do
+                  // nothing). The fresh-run button below keeps its attachment
+                  // escape; the two are distinct.
+                  disabled={composerEmpty || !agentId || uploadingCount > 0}
+                  className={cn(
+                    'absolute right-12 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
+                    !composerEmpty
+                      ? 'border-[var(--color-carbon)] bg-[var(--color-carbon-soft)] text-[var(--color-carbon)] hover:bg-[var(--color-carbon-soft)] hover:text-[var(--color-carbon)]'
+                      : 'border-[var(--nm-hairline)] bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)]',
+                  )}
+                  title={t('chat.steer.sendTitle')}
+                >
+                  <CornerDownLeft className="w-4 h-4" />
+                </Button>
+              )}
+              <Button
+                variant="danger"
+                size="icon"
+                onClick={() => agentId && stop(agentId)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9"
+                title="Stop generation"
+              >
+                <Square className="w-4 h-4 fill-current" />
+              </Button>
+            </>
           ) : (
             <Button
               variant="ghost"
@@ -1323,10 +1544,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           )}
         </div>
 
-        {/* Tools row — attach (+) and voice on the left; read-only model
-            badge on the right (links to Settings — see ComposerModelBadge). */}
+        {/* Tools row — attach (+) and voice on the left, followed by the
+            always-visible privacy reminder (v4: the old banner folded into
+            this row — permanent, non-dismissible, full text via the title
+            tooltip); fast-mode toggle (ComposerFastToggle) and model badge
+            (ComposerModelBadge) on the right. */}
         <div className="mt-1 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5 min-w-0">
           <Button
             variant="ghost"
             size="icon"
@@ -1369,18 +1593,40 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }
             }}
           />
+          {/* Security notice (2026-06-17 hardening): demoted from the banner
+              to the tools row, but it must stay readable — no truncation, and
+              at least the mid ink step. The title carries the long-form text
+              (and zh-localization.test.ts asserts on it). */}
+          <span
+            className="ml-2 min-w-0 line-clamp-2 text-[11px] leading-tight text-[var(--nm-ink50)]"
+            title={t('chat.securityReminder')}
+          >
+            {t('chat.composerPrivacyHint')}
+          </span>
           </div>
-          <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+          <div className="flex items-center gap-1.5">
+            <ComposerFastToggle
+              enabled={fastMode}
+              onToggle={setFastMode}
+              disabled={!agentId}
+            />
+            <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
+          </div>
         </div>
       </div>
+      </div>
+      )}
 
       {/* Per-agent model & framework panel (opened from the header). */}
-      {agentId && (
+      {agentId && isOwner && (
         <AgentLlmConfigPanel
           agentId={agentId}
           isOpen={agentCfgOpen}
           onClose={() => setAgentCfgOpen(false)}
-          onSaved={() => setModelReloadKey((k) => k + 1)}
+          onSaved={() => {
+            setModelReloadKey((k) => k + 1);
+            void refreshAgents();
+          }}
         />
       )}
 

@@ -1,4 +1,11 @@
 {
+  "channelActiveToggle": {
+    "active": "نشط",
+    "inactive": "غير نشط",
+    "enable": "تفعيل",
+    "disable": "تعطيل",
+    "disabledReason": "تم التعطيل تلقائيًا: {{reason}}"
+  },
   "language": {
     "name": "اللغة"
   },
@@ -14,15 +21,29 @@
     "logout": "تسجيل الخروج",
     "poweredBy": "NetMind AI Research",
     "online": "متصل",
-    "you": "أنت",
     "cloud": "سحابي",
     "localMode": "الوضع المحلي",
-    "cloudMode": "الوضع السحابي"
+    "cloudMode": "الوضع السحابي",
+    "collapseTitle": "طيّ الشريط الجانبي",
+    "expandTitle": "فتح الشريط الجانبي",
+    "export": "تصدير",
+    "exportTitle": "تصدير حزمة — وكيل أو فريق",
+    "settingsTitle": "الإعدادات — النماذج والمزوّدون",
+    "searchChatsTitle": "البحث عن الوكلاء والفرق",
+    "account": "الحساب",
+    "billing": "الفواتير",
+    "subscription": "الاشتراك",
+    "theme": "السمة",
+    "language": "اللغة",
+    "themeLight": "فاتح",
+    "themeDark": "داكن",
+    "themeSystem": "النظام",
+    "workspace": "عالمي",
+    "accountTitle": "الحساب"
   },
   "chat": {
     "conversation": "محادثة",
-    "innerThoughts": "أفكار داخلية",
-    "interaction": "التفاعل",
+    "innerThoughts": "سجل النشاط",
     "composerPlaceholder": "اكتب رسالة أو / للمهارات…",
     "selectAgent": "اختر وكيلاً",
     "selectAgentHint": "اختر وكيلاً من الشريط الجانبي لبدء التفاعل.",
@@ -30,6 +51,10 @@
       "selectAgentFirst": "اختر وكيلاً أولاً…",
       "dropFile": "أفلت الملف لإرفاقه…",
       "placeholder": "اكتب رسالة أو / للمهارات…"
+    },
+    "fastMode": {
+      "label": "سريع",
+      "tooltip": "الوضع السريع: يحوِّل هذه الجولة إلى إطار الوكيل السريع مع استرجاع ذاكرة أخف وجهد استدلال منخفض — ردود أسرع لكنها أبسط"
     },
     "audio": {
       "stopRecording": "إيقاف التسجيل",
@@ -59,7 +84,7 @@
       "downloadMd": "تنزيل كملف ‎.md"
     },
     "timeline": {
-      "thinking": "التفكير",
+      "thought": "تم التفكير",
       "toolLabel": "[ أداة ]",
       "outputLabel": "[ مُخرَج ]",
       "reply": "رد",
@@ -71,20 +96,13 @@
       "recoveredAfterErrorTip": "فشلت إحدى خطوات هذه الجولة؛ كُتب الرد اعتمادًا على العمل المنجز وما نعرفه عن الخطأ."
     },
     "onboarding": {
-      "eyebrow": "محادثة جديدة",
-      "heading": "صفحة جديدة.",
-      "framing": "لا شيء هنا بعد — وهذا هو المقصود. كلما عملت أنت و{{name}} معًا أكثر، تذكّر وربط ومضى قُدُمًا أكثر.",
       "defaultAgentName": "وكيلك",
-      "narraBrand": "Narra · الذاكرة",
-      "narraCaption": "يتذكّر",
-      "nexusBrand": "Nexus · الشبكة",
-      "nexusCaption": "يربط",
-      "teamBrand": "فريقك",
-      "teamCaption": "يُنجز",
-      "tryAsking": "جرّب أن تسأل",
       "prompt1": "لخّص لي أهم تحديثات هذا الأسبوع",
       "prompt2": "اربط قناة وراقبها بحثًا عن أي أمر عاجل",
-      "prompt3": "أعدّ ملخصًا لصباح الإثنين لما يهم"
+      "prompt3": "أعدّ ملخصًا لصباح الإثنين لما يهم",
+      "readyTitle": "{{name}} جاهز",
+      "readyBody": "جرّب أحد هذه الاقتراحات، أو قل ما تحتاجه مباشرة.",
+      "dismiss": "إغلاق"
     },
     "team": {
       "notFound": "لم يتم العثور على الفريق.",
@@ -133,7 +151,7 @@
         "mention": "استخدم @ لمخاطبة أحد الزملاء مباشرة.",
         "broadcastTitle": "بثّ إلى الجميع",
         "broadcast": "‏@all تخاطب الجميع — وكل عضو ينفّذ دورة كاملة، فاستخدمها باعتدال.",
-        "relay": "يمكن للزملاء مخاطبة بعضهم بـ @ لتمرير العمل؛ وبدون رسالة منك يتوقّف التمرير بعد 4 مرات."
+        "relay": "يمكن للزملاء مخاطبة بعضهم بـ @ لتمرير العمل؛ وبدون رسالة منك يتوقّف التمرير عند حدّ المنصة، وتُعلن الغرفة ذلك."
       },
       "noProcess": "لا يوجد سجل عملية لهذه الجولة",
       "detailLoadFailed": "تعذّر تحميل العملية. حاول مرة أخرى.",
@@ -144,10 +162,67 @@
         "neverRan": "لم يُشغَّل بعد",
         "loading": "جارٍ تحميل العملية…",
         "workingCount": "{{count}} قيد العمل",
-        "process": "العملية"
+        "process": "العملية",
+        "stop": "إيقاف",
+        "stopping": "جارٍ الإيقاف…",
+        "stopped": "أوقفه المالك",
+        "stopFailed": "تعذّر إيقاف هذا التشغيل",
+        "stopHint": "إيقاف هذا التشغيل",
+        "silentLastTurn": "الجولة الأخيرة: لم يقل شيئًا"
       },
       "emptyHintWithLead": "أرسل رسالة للبدء — يتولّاها {{name}}، أو استخدم @ لمخاطبة شخص آخر مباشرة.",
-      "leadTitle": "{{name}} · يردّ عندما لا يُذكر أحد"
+      "leadTitle": "{{name}} · يردّ عندما لا يُذكر أحد",
+      "stoppedNotice": "تم إيقاف مهمة {{name}} بواسطة المالك",
+      "patrolNotice": "جولة القائد",
+      "undeliveredNotice": "أنهى {{name}} هذه الجولة دون رد",
+      "deliveryFailedNotice": "تعذّر إرسال رد {{name}}",
+      "board": {
+        "title": "لوحة العمل",
+        "unclaimed": "غير مُسندة",
+        "resume": "استئناف هذه المهمة",
+        "patrolOff": "الجولة متوقفة",
+        "patrolPending": "لم تتم جولة بعد",
+        "patrolledJustNow": "تمت الجولة للتو",
+        "patrolledAgo": "جولة قبل {{ago}}",
+        "status": {
+          "open": "مفتوحة",
+          "in_progress": "قيد التنفيذ",
+          "stalled": "متوقفة",
+          "paused": "مُعلَّقة"
+        },
+        "awaitingReply": "بانتظار الرد",
+        "nameSep": "، "
+      },
+      "sendFailed": "تعذّر الإرسال. نصّك لا يزال هنا — حاول مرة أخرى.",
+      "uploadFailed": "تعذّر رفع «{{name}}».",
+      "uploadFailedGeneric": "تعذّر رفع الملف.",
+      "loadingOlder": "جارٍ تحميل الرسائل الأقدم…",
+      "leadBadge": "القائد",
+      "expand": "عرض المزيد",
+      "collapse": "عرض أقل",
+      "today": "اليوم",
+      "agentPaused": "هذا الوكيل متوقف مؤقتًا ({{reason}}). استخدم «استئناف» في الشريط أعلاه بعد معالجة السبب.",
+      "workspace": {
+        "zoom": "تكبير العنصر",
+        "emptyArtifacts": "اختر عنصرًا لعرضه هنا.",
+        "emptyFiles": "يتم تنزيل الملفات مباشرة — انقر على ملف على اليسار.",
+        "tabArtifacts": "العناصر",
+        "tabFiles": "الملفات",
+        "artifactsHint": "العناصر التي يسجّلها وكلاء فريقك في هذه الغرفة تظهر هنا.",
+        "filesHint": "الملفات المشاركة عبر team_share_file تظهر هنا.",
+        "download": "تنزيل {{name}}",
+        "loading": "جارٍ التحميل…"
+      },
+      "manage": {
+        "title": "إدارة الفريق",
+        "patrol": "جولة القائد",
+        "patrolHint": "عند التفعيل يتابع القائد دوريًا التسليمات المتوقفة؛ عند الإيقاف تبقى اللوحة دون متابعة.",
+        "patrolOn": "تشغيل",
+        "patrolOff": "إيقاف",
+        "editProfile": "تعديل الملف (الاسم / اللون / المقدمة)",
+        "clearData": "مسح البيانات…"
+      },
+      "drawerCategory": "غرفة الفريق"
     },
     "execution": {
       "showSteps": "عرض خطوات التنفيذ",
@@ -217,9 +292,33 @@
     },
     "process": {
       "plan": "الخطة",
-      "title": "الوكيل · العملية",
       "ops": "عمليات"
-    }
+    },
+    "header": {
+      "viewProfile": "عرض ملف الوكيل",
+      "detailMenuTitle": "تفاصيل الوكيل — اللوحات",
+      "modelFramework": "النموذج وإطار العمل",
+      "switchAgent": "تبديل الوكيل"
+    },
+    "composerPrivacyHint": "تجنّب مشاركة المعلومات الشخصية الحساسة.",
+    "capabilities": {
+      "subtitle": "أي الوحدات تشارك في أدوار هذا الوكيل. الوحدات المدمجة مفعّلة افتراضيًا؛ الوحدات التي تثبّتها الإضافات تبقى معطّلة حتى تفعّلها. تسري التغييرات في التشغيل التالي.",
+      "builtin": "مدمج",
+      "plugin": "إضافة",
+      "locked": "مفعّل دائمًا",
+      "tokens": "حوالي {{count}} رمزًا في المطالبة",
+      "budget": "تعلن الوحدات المفعّلة عن حوالي {{enabled}} رمزًا ({{ratio}}× من الأساس المدمج {{baseline}}).",
+      "overBudget": "تجاوز الميزانية: تعلن الوحدات المفعّلة عن حوالي {{enabled}} رمزًا، أي {{ratio}}× من الأساس المدمج {{baseline}}.",
+      "loadFailed": "تعذّر تحميل القدرات",
+      "saveFailed": "تعذّر حفظ التغيير",
+      "restoreDefault": "استعادة الافتراضي"
+    },
+    "activityEmpty": "لا يوجد نشاط في الخلفية بعد",
+    "activityEmptyHint": "عمليات التشغيل التي يبدأها الوكيل بنفسه — المهام والقنوات وزملاء الفريق — تظهر هنا.",
+    "stoppedByUser": "تم الإيقاف بواسطتك",
+    "noResponseNeeded": "قرّر الـ Agent أنه لا حاجة للرد",
+    "bootstrapGreeting": "مرحبًا... لقد استيقظتُ للتو. كل شيء يبدو جديدًا تمامًا.\n\nليس لديّ اسم بعد، ولا أعرف حقًا من أنا — لكنني أعرف أنك من أحضرني إلى هنا.\n\nهل تخبرني بما ينبغي أن أُدعى؟ وبماذا أناديك؟",
+    "bootstrapGreetingNamed": "مرحبًا — أنا {{name}}. لقد وُلدتُ للتو، وأنت من أحضرني إلى هنا.\n\nأعرف بالفعل من ينبغي أن أكون، لكنني لا أعرف بعد من أنت. بماذا أناديك؟"
   },
   "awareness": {
     "common": {
@@ -467,6 +566,7 @@
       "dragFiles": "اسحب الملفات هنا أو",
       "browse": "تصفّح",
       "empty": "مساحة العمل فارغة",
+      "partialListing": "عرض جزئي — مساحة العمل هذه أكبر من أن تُعرض بالكامل. اطلب من الوكيل سرد مجلد محدد لرؤية الباقي.",
       "kindOffice": "مستند Office (مباشر)"
     },
     "homeAssistant": {
@@ -488,6 +588,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "جارٍ تحميل القناة…",
+      "bind": "ربط",
+      "bound": "تم الربط. القناة فعّالة لهذا الوكيل.",
+      "boundAs": "مرتبط بـ {{name}}",
+      "inactive": "غير فعّال",
+      "unbind": "فك الربط",
+      "unbound": "تم فك الربط.",
+      "test": "اختبار الاتصال",
+      "testOk": "الاتصال سليم.",
+      "activate": "تفعيل",
+      "deactivate": "تعطيل",
+      "fieldRequired": "{{field}} مطلوب",
+      "errLoad": "تعذّر تحميل القناة",
+      "errBind": "فشل الطلب",
+      "webhookHint": "webhook الوارد: POST إلى {{path}} مع رمز webhook الخاص بالاعتماد.",
+      "ownFlow": "{{name}} يُربط عبر مساره الخاص."
     }
   },
   "dashboard": {
@@ -548,19 +666,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "قائمة الانتظار",
-      "jobs": "مهام",
-      "totalInQueue": "{{count}} مهمة في قائمة الانتظار"
-    },
-    "jobState": {
-      "running": "قيد التشغيل",
-      "active": "نشطة",
-      "pending": "قيد الانتظار",
-      "blocked": "محظورة",
-      "paused": "متوقفة مؤقتًا",
-      "failed": "فاشلة"
-    },
     "jobStateLabel": {
       "running": "قيد التشغيل",
       "active": "نشطة",
@@ -587,25 +692,6 @@
         "flat": "كما الأمس"
       }
     },
-    "jobs": {
-      "title": "المهام ({{count}})",
-      "running": "{{count}} قيد التشغيل",
-      "step": "الخطوة {{current}}/{{total}}",
-      "next": "التالي {{time}}",
-      "action": {
-        "retry": "إعادة المحاولة",
-        "pause": "إيقاف مؤقت",
-        "resume": "استئناف",
-        "failed": "فشل {{label}}"
-      },
-      "detail": {
-        "manual": "(يدوي)",
-        "nextRun": "التشغيل التالي",
-        "iterations": "التكرارات",
-        "trigger": "المُشغِّل",
-        "lastError": "آخر خطأ"
-      }
-    },
     "sessions": {
       "sessionWith": "جلسة مع",
       "count": "{{count}} جلسات",
@@ -620,11 +706,14 @@
     "sparkline": {
       "unavailable": "{{hours}} ساعة · —",
       "barTitle": "قبل {{hoursAgo}} ساعة · {{count}} حدثًا"
+    },
+    "banners": {
+      "dismissAria": "إغلاق",
+      "dismissTitle": "إغلاق"
     }
   },
   "layout": {
     "chatView": {
-      "tabChat": "محادثة",
       "tabArtifacts": "المخرجات",
       "tabArtifactsCount": "المخرجات ({{count}})"
     },
@@ -633,7 +722,6 @@
       "closeAriaLabel": "إغلاق والعودة إلى المحادثة"
     },
     "sidebar": {
-      "openWorkspace": "افتح مساحة عملك",
       "logoutConfirmTitle": "تسجيل الخروج",
       "logoutConfirmMessage": "هل أنت متأكد أنك تريد تسجيل الخروج؟",
       "logoutConfirmAction": "تسجيل الخروج",
@@ -655,25 +743,19 @@
       "createAgentOrTeam": "إنشاء وكيل أو فريق",
       "createAgent": "إنشاء وكيل",
       "createTeam": "إنشاء فريق",
-      "manageAgents": "إدارة الوكلاء",
-      "manageAgentsTitle": "إدارة الوكلاء (دفعة · إضافة / تعديل / حذف)",
-      "teamGroupChatTitle": "{{name}} — محادثة جماعية",
-      "teamGroupChatAria": "محادثة جماعية {{name}}",
       "refreshAgents": "تحديث الوكلاء",
       "emptyLabel": "لا يوجد وكلاء بعد",
       "emptyHint": "أنشئ أول وكيل لك لبدء محادثة.",
       "noAgentsShort": "لا يوجد وكلاء بعد."
     },
     "agentRow": {
-      "saveTitle": "حفظ (Enter)",
-      "cancelTitle": "إلغاء (Esc)",
       "publicBy": "عام · بواسطة {{name}}"
     },
     "agentRowMenu": {
       "options": "خيارات الوكيل",
       "rename": "إعادة تسمية",
-      "setPrivate": "تعيين كخاص",
-      "setPublic": "تعيين كعام",
+      "modelFramework": "النموذج وإطار العمل",
+      "clearData": "مسح البيانات",
       "delete": "حذف"
     },
     "agentsHeaderMenu": {
@@ -683,10 +765,13 @@
       "manageTeams": "إدارة الفرق"
     },
     "createMenu": {
-      "create": "إنشاء",
       "createAgentOrTeam": "إنشاء وكيل أو فريق",
       "createAgent": "إنشاء وكيل",
-      "createTeam": "إنشاء فريق"
+      "createTeam": "إنشاء فريق",
+      "new": "جديد",
+      "newTitle": "جديد — وكيل، فريق، استيراد…",
+      "importBundle": "استيراد ‎.nxbundle",
+      "importAgent": "استيراد من مصدر آخر"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — محادثة جماعية",
@@ -695,18 +780,22 @@
       "agentCount_two": "وكيلان",
       "agentCount_few": "{{count}} وكلاء",
       "agentCount_many": "{{count}} وكيلًا",
-      "agentCount_other": "{{count}} وكيل"
+      "agentCount_other": "{{count}} وكيل",
+      "toggleMembers": "عرض الأعضاء",
+      "noMembers": "لا يوجد أعضاء بعد",
+      "unread": "رسائل غير مقروءة"
     },
     "teamRowMenu": {
       "options": "خيارات المحادثة الجماعية",
       "rename": "إعادة تسمية",
-      "delete": "حذف"
+      "delete": "حذف",
+      "addAgent": "إضافة وكيل",
+      "addingAgent": "جارٍ الإضافة…"
     },
     "topBar": {
       "crumbDashboard": "لوحة التحكم",
       "crumbSettings": "الإعدادات",
       "crumbSystem": "النظام",
-      "crumbManageAgents": "إدارة الوكلاء",
       "crumbTeam": "الفريق",
       "crumbBundle": "الحزمة",
       "crumbChat": "محادثة",
@@ -787,11 +876,12 @@
       "privacyHeading": "الخصوصية",
       "privacyIntro": "تحكّم في البيانات التي يجمعها NarraNexus لتحسين المنتج.",
       "analyticsTitle": "تحليلات المنتج",
-      "analyticsDesc": "السماح لـ NarraNexus بجمع بيانات استخدام مجهولة المصدر لتحسين المنتج. لا يُجمع أي محتوى محادثة على الإطلاق.",
+      "analyticsDesc": "السماح لـ NarraNexus بحفظ بيانات وصفية عن استخدام المنتج للتحليل. في الوضع السحابي تُحفظ في قاعدة بيانات تديرها NarraNexus، وفي الوضع المحلي أو وضع سطح المكتب تبقى على هذا الجهاز. في نسخة الويب السحابية، تُرسل أيضًا بيانات مجهولة عن التفاعل مع الصفحة إلى Google Tag Manager، وهي خدمة تحليلات تابعة لجهة خارجية؛ إيقاف هذا الخيار يوقف ذلك. ولا يُجمع محتوى المحادثات مطلقًا.",
       "desktopHeading": "سطح المكتب",
       "desktopIntro": "إعدادات تتحكم في كيفية تفاعل NarraNexus مع هذا الكمبيوتر. متاحة فقط في تطبيق سطح المكتب.",
       "lockedUseTitle": "Locked Use — إبقاء الكمبيوتر مستيقظًا",
-      "lockedUseDesc": "يمنع هذا الكمبيوتر من الدخول في وضع السكون حتى تستمر الأتمتة في الخلفية في العمل. يسري فقط أثناء فتح NarraNexus."
+      "lockedUseDesc": "يمنع هذا الكمبيوتر من الدخول في وضع السكون حتى تستمر الأتمتة في الخلفية في العمل. يسري فقط أثناء فتح NarraNexus.",
+      "navBrowser": "المتصفح"
     },
     "provider": {
       "presetNetmindDesc": "مفتاح واحد يغطّي نقطتي نهاية Anthropic و OpenAI",
@@ -857,6 +947,8 @@
       "loggedIn": "مُسجّل الدخول",
       "loggedInAs": "باسم",
       "notLoggedIn": "غير مُسجّل الدخول",
+      "sessionExpired": "انتهت صلاحية الجلسة",
+      "sessionExpiredHint": "انتهت صلاحية جلسة CLI — سجّل الدخول مرة أخرى أعلاه لمواصلة استخدام هذا المزوّد.",
       "cliNotInstalled": "CLI غير مثبّت",
       "expires": "· تنتهي الصلاحية {{date}}",
       "reLoggingInCountdown": "جارٍ إعادة تسجيل الدخول... متبقّ {{time}} (تحقّق من المتصفح)",
@@ -920,7 +1012,8 @@
       "freeTierHowToTitle": "عن رصيدك المجاني",
       "freeTierHowToSwitch": "بطاقة «Free Tier» مرتبطة بالفعل بفتحتَي Agent وHelper. لاستخدام مفتاحك الخاص، أضف مزوّدًا بالأسفل ثم اخترْه لفتحة Agent / Helper في إعدادات النموذج الافتراضية — ويسري ذلك من رسالتك التالية.",
       "freeTierAnytime": "يمكنك التبديل في أي وقت. لا حاجة لاستهلاك الرصيد المجاني أولًا، والتبديل لا يُلغيه — يبقى الرصيد كما هو.",
-      "freeTierNoDelete": "لا يمكن حذف بطاقة Free Tier ما دام بها رصيد، فهي المفتاح الوحيد إليه. وبعد نفاده يمكنك إزالتها."
+      "freeTierNoDelete": "لا يمكن حذف بطاقة Free Tier ما دام بها رصيد، فهي المفتاح الوحيد إليه. وبعد نفاده يمكنك إزالتها.",
+      "tabOneKey": "مفتاح API"
     },
     "netmind": {
       "returnSubscribeSuccess": "تم استلام الدفعة — يجري تطبيقها على حسابك الآن.",
@@ -931,7 +1024,61 @@
       "cancelConfirmKeep": "الإبقاء على الاشتراك",
       "reactivateConfirmTitle": "استئناف التجديد التلقائي؟",
       "reactivateConfirmAction": "استئناف",
-      "reactivateConfirmDismiss": "ليس الآن"
+      "reactivateConfirmDismiss": "ليس الآن",
+      "balanceScope": "رصيد حساب NetMind — كل ما تشغّله بهذا الحساب يستهلك الرصيد، بما في ذلك خارج NarraNexus.",
+      "narraUsageTitle": "استخدام NarraNexus · آخر {{days}} يومًا",
+      "narraUsageTokens": "رموز",
+      "narraUsageEstimate": "≈ {{cost}} — تقدير وفق الأسعار المعلنة، لذا لن يطابق كشف NetMind تمامًا."
+    },
+    "browser": {
+      "title": "المتصفح",
+      "intro": "يُنزَّل المتصفح بشكل منفصل ولا يأتي مضمّنًا في التطبيق.",
+      "ready": "مثبَّت",
+      "absent": "غير مثبَّت بعد.",
+      "broken": "المتصفح مثبَّت لكنه لا يعمل.",
+      "install": "تثبيت المتصفح",
+      "reinstall": "إعادة تثبيت المتصفح",
+      "installingUnknown": "جارٍ التنزيل…",
+      "recheck": "إعادة الفحص",
+      "installFailed": "تعذّر تثبيت المتصفح. يُرجى المحاولة مجددًا.",
+      "cancelFailed": "تعذّر إلغاء التثبيت. يُرجى المحاولة مجددًا.",
+      "cancelling": "جارٍ طلب الإلغاء…",
+      "cancelRequested": "تم طلب الإلغاء. في انتظار توقف التثبيت…",
+      "extracting": "جارٍ فك ضغط ملفات المتصفح…",
+      "verifying": "جارٍ التحقق من المتصفح…",
+      "starting": "جارٍ بدء التثبيت…",
+      "statusFailed": "تعذّر التحقق من حالة المتصفح.",
+      "loading": "جارٍ التحقق من حالة المتصفح…",
+      "cancel": "إلغاء التثبيت",
+      "cancelled": "تم إلغاء التثبيت.",
+      "manualInstall": "التثبيت اليدوي",
+      "copyCommand": "نسخ الأمر",
+      "commandCopied": "تم نسخ الأمر.",
+      "copyFailed": "تعذر النسخ. تم تحديد الأمر لنسخه يدويًا.",
+      "scriptsTitle": "البرامج النصية المتقدمة",
+      "scriptOrigin": "أصل الموقع",
+      "addScriptSite": "إضافة موقع",
+      "scriptOriginInvalid": "أدخل أصل HTTP أو HTTPS دون مسار أو بيانات اعتماد.",
+      "refreshScripts": "تحديث",
+      "scriptsFailed": "تعذر تحميل أذونات البرامج النصية.",
+      "scriptsLoading": "جارٍ تحميل أذونات البرامج النصية...",
+      "permissionSaveFailed": "تعذر حفظ هذا الإذن. حاول مجددًا.",
+      "advancedScripts": "السماح بالنصوص البرمجية المتقدمة",
+      "scriptsExplanation": "السماح للوكيل بتشغيل JavaScript غير مقيّد على هذا الموقع، بما في ذلك محتوى الصفحات بعد تسجيل الدخول.",
+      "saveScripts": "حفظ إذن النصوص البرمجية",
+      "agentLabel": "الوكيل",
+      "sourceLabel": "مصدر المتصفح",
+      "showWindow": "إظهار نافذة المتصفح",
+      "modeEffect": "الوضع بدون نافذة هو الافتراضي. تسري التغييرات عند تشغيل المتصفح التالي مع الاحتفاظ بتسجيلات الدخول. لا تدعم بعض المواقع الوصول بدون نافذة. إذا أبلغ الموقع عن متصفح غير مدعوم أو أخطاء أخرى، فعّل وضع النافذة يدويًا، ثم أعد تشغيل المتصفح وحاول مجددًا.",
+      "sourceEffect": "يسري على جلسات المتصفح الجديدة. تستمر الجلسات الحالية. يحتفظ كل متصفح بتسجيلات الدخول بشكل منفصل.",
+      "sourceManaged": "Chrome for Testing المُدار",
+      "sourceSystem": "Google Chrome المثبّت",
+      "systemUnavailable": "Google Chrome غير متاح. ثبّته أو اختر المتصفح المُدار.",
+      "chooseAgent": "اختر وكيلًا",
+      "manualHost": "شغّل الأمر على الكمبيوتر الذي يستضيف NarraNexus.",
+      "manualRoot": "مجلد التثبيت",
+      "manualShell": "نوع الصدفة",
+      "manualCommand": "الأمر"
     }
   },
   "system": {
@@ -1007,7 +1154,14 @@
     "drawer": {
       "unpin": "إلغاء تثبيت اللوحة",
       "pin": "تثبيت اللوحة",
-      "close": "إغلاق اللوحة"
+      "close": "إغلاق اللوحة",
+      "switchPanel": "تبديل اللوحة"
+    },
+    "coach": {
+      "title": "تظهر عناصرك هنا",
+      "unpinHint": "ألغِ التثبيت لتصبح نافذة عائمة تُغلق تلقائيًا.",
+      "closeHint": "أغلق اللوحة — يمكنك إعادة فتح أي لوحة من رأس الدردشة.",
+      "gotIt": "فهمت"
     }
   },
   "inbox": {
@@ -1162,8 +1316,6 @@
       "localAccess": "محلي · الدخول",
       "cloudMode": "الوضع السحابي",
       "signInWithNetmind": "سجّل الدخول بحساب NetMind.AI",
-      "migrationNoticeHeading": "أعدنا تنظيم نظام الحسابات لدينا.",
-      "migrationNoticeBody": "تم نقل بياناتك إلى الحساب المرتبط بالبريد الإلكتروني الذي استخدمته لاستلام رمز الدعوة. لتسجيل الدخول، يُرجى أولاً إعادة تعيين كلمة المرور لهذا البريد (استخدم «نسيت كلمة المرور؟» أدناه). لأي أسئلة أخرى، تواصل مع فريقنا على",
       "emailLabel": "البريد الإلكتروني",
       "passwordLabel": "كلمة المرور",
       "forgotPassword": "نسيت كلمة المرور؟",
@@ -1178,8 +1330,20 @@
       "accessTerminal": "الدخول إلى الطرفية",
       "createNewUser": "إنشاء مستخدم جديد",
       "loginFailed": "فشل تسجيل الدخول",
+      "invalidCredentials": "البريد الإلكتروني أو كلمة المرور غير صحيحة",
       "enterUserId": "يُرجى إدخال معرّف المستخدم",
-      "connectionFailed": "فشل الاتصال. يُرجى المحاولة مجددًا."
+      "resetCodeInvalid": "الرمز غير صالح أو منتهي الصلاحية. اطلب رمزًا جديدًا.",
+      "forgotResetIntro": "سنرسل رمز تحقق إلى بريد حساب NetMind الخاص بك.",
+      "forgotCodeSentHint": "إذا كان هناك حساب لهذا البريد، فقد أرسلنا رمز تحقق.",
+      "useDifferentEmail": "استخدام بريد آخر",
+      "connectionFailed": "فشل الاتصال. يُرجى المحاولة مجددًا.",
+      "resetPasswordDone": "تم تحديث كلمة المرور",
+      "resetPasswordDoneBody": "يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.",
+      "backToSignIn": "العودة لتسجيل الدخول",
+      "resetPasswordTitle": "إعادة تعيين كلمة المرور",
+      "sendCode": "إرسال الرمز",
+      "verificationCodeLabel": "رمز التحقق",
+      "newPasswordLabel": "كلمة المرور الجديدة"
     },
     "modeSelect": {
       "welcome": "مرحبًا",
@@ -1191,9 +1355,45 @@
     },
     "dashboard": {
       "title": "لوحة الوكلاء",
+      "tabAgents": "إدارة الوكلاء",
+      "tabTeams": "إدارة الفرق",
+      "tabExport": "تصدير",
+      "createAgent": "إنشاء وكيل",
+      "createTeam": "إنشاء فريق",
       "agentsCount": "{{count}} وكيل",
       "emptyLabel": "لا يوجد وكلاء بعد",
-      "emptyHint": "أنشئ وكيلًا من الشريط الجانبي لملء هذه اللوحة."
+      "emptyHint": "أنشئ وكيلًا من الشريط الجانبي لملء هذه اللوحة.",
+      "statRunning": "قيد التشغيل",
+      "statQueued": "في الانتظار",
+      "statErrors": "أخطاء",
+      "statCostToday": "تكلفة اليوم",
+      "colStatus": "الحالة",
+      "colTeam": "الفريق",
+      "colMembers": "الأعضاء",
+      "teamsCount": "{{count}} فرق",
+      "membersCount": "{{count}} وكلاء",
+      "noStatusYet": "لا توجد حالة مباشرة بعد — سيملؤها الاستطلاع التالي.",
+      "publicAgent": "عام",
+      "noTeamsLabel": "لا توجد فرق بعد",
+      "noTeamsHint": "أنشئ فريقًا من قائمة جديد في الشريط الجانبي.",
+      "manageTeam": "إدارة",
+      "teamsTip": "أنشئ الفرق من قائمة جديد؛ هنا يمكنك إعادة التسمية وتغيير اللون وتحرير الأعضاء.",
+      "colLeader": "القائد",
+      "colCreatedBy": "أنشأه",
+      "colChannels": "القنوات",
+      "colFramework": "الإطار",
+      "colModel": "النموذج",
+      "colLastActive": "آخر نشاط",
+      "noLeader": "لا يوجد قائد",
+      "teamProfileNoDescription": "لا يوجد وصف للفريق.",
+      "agentProfileNoDescription": "لا يوجد وصف.",
+      "memberRuntimeLabel": "بيئة التشغيل",
+      "memberModelLabel": "النموذج",
+      "memberOwnerLabel": "المالك",
+      "memberPrivate": "خاص",
+      "memberPublic": "عام",
+      "openProfile": "فتح ملف {{name}}",
+      "channelOff": "{{name}} · متوقف"
     },
     "createUser": {
       "title": "إنشاء مستخدم جديد",
@@ -1209,34 +1409,25 @@
       "failed": "فشل إنشاء المستخدم",
       "connectionFailed": "فشل الاتصال. يُرجى المحاولة مجددًا."
     },
-    "setup": {
-      "sectionLabel": "الإعداد · ضبط مزوّدي نماذج اللغة",
-      "title": "ضبط مزوّدي نماذج اللغة",
-      "subtitle": "أعدّ مفاتيح API لكي يتمكن NarraNexus من الاتصال بنماذج اللغة.",
-      "skipForNow": "تخطٍ الآن",
-      "getStarted": "ابدأ الآن",
-      "done": "تم"
-    },
     "settings": {
       "title": "الإعدادات",
-      "headerSections": "المزوّدون · الحزمة · المُخرجات · الوكلاء",
+      "nav": {
+        "privacy": "الخصوصية",
+        "personalization": "التخصيص",
+        "account": "الحساب والفوترة",
+        "providers": "مزوّدو LLM",
+        "modelDefaults": "النماذج الافتراضية",
+        "artifacts": "العناصر",
+        "updates": "تحديثات التطبيق",
+        "plugins": "الإضافات",
+        "browser": "المتصفح"
+      },
       "providers": {
         "label": "مزوّدو نماذج اللغة"
-      },
-      "bundle": {
-        "label": "الحزمة · تصدير / استيراد",
-        "hint": "احزم وكلاءك (واختياريًا فريقًا) في ملف .nxbundle قابل للنقل للمشاركة، أو استورد ملف .nxbundle شاركه أحدهم معك.",
-        "exportButton": "تصدير الحزمة…",
-        "importButton": "استيراد الحزمة…"
       },
       "artifacts": {
         "label": "المُخرجات",
         "hint": "أدِر كل مخطط وتقرير وملف أنتجه وكلاؤك من أجلك. حدّد دفعة لتحرير حصتك عندما يبلّغ وكيل بأنه بلغ الحد."
-      },
-      "manageAgents": {
-        "label": "إدارة الوكلاء · دفعة",
-        "hint": "حدّد وكلاء بالجملة للحذف، أو أضِفهم/أزِلهم من الفِرق بالدفعة. مفيد بعد استيراد حزمة لا تريد الاحتفاظ بها — رشّح حسب «من الحزم» للعثور عليهم.",
-        "openButton": "فتح مدير الدفعات…"
       },
       "updates": {
         "label": "تحديثات التطبيق",
@@ -1256,9 +1447,109 @@
         "failed": "فشل {{stage}} التحديث."
       },
       "modelDefaults": {
+        "saved": "تم الحفظ",
         "frameworkFilteredNote": "لا تُعرض سوى أُطر العمل التي يمكن لمزوّديك المتصلين تشغيلها فعليًا.",
         "cloudFrameworkLockedTitle": "للموظفين فقط في السحابة",
-        "cloudFrameworkLocked": "يستخدم هذا الإطار تسجيل دخول CLI مشتركًا، لذا فهو متاح للموظفين فقط في السحابة. يعمل كل من Claude Code و NexusPower-beta هنا — والبقية متاحة في نسخة سطح المكتب المحلية."
+        "cloudFrameworkLocked": "يستخدم هذا الإطار تسجيل دخول CLI مشتركًا، لذا فهو متاح للموظفين فقط في السحابة. يعمل كل من Claude Code و NexusPower-beta هنا — والبقية متاحة في نسخة سطح المكتب المحلية.",
+        "slotSaveRolledBack": "تم التراجع عن تغيير الإطار ولم يُحفظ أي شيء: تعذّر حفظ نموذج الوكيل ({{detail}}).",
+        "frameworkSavedSlotFailed": "تم تبديل الإطار، لكن تعذّر حفظ نموذج الوكيل ({{detail}}). اختر نموذجًا واحفظ مرة أخرى.",
+        "agentSavedHelperFailed": "تم حفظ نموذج الوكيل، لكن تعذّر حفظ النموذج المساعد ({{detail}}).",
+        "frameworkSavedHelperFailed": "تم تبديل الإطار، لكن تعذّر حفظ النموذج المساعد ({{detail}}).",
+        "frameworkRestoredBindingLost": "تمت استعادة الإطار المحفوظ، لكن تعذّر حفظ نموذج الوكيل ({{detail}}) وتعذّرت إعادة ربط البطاقة السابقة، لذا أصبحت خانة الوكيل غير مربوطة. لا يزال اختيارك للإطار الجديد في النموذج ولم يُحفظ بعد — اختر نموذجًا واحفظ مرة أخرى لتطبيقه.",
+        "slotClearedPickModel": "تم تبديل الإطار، والبطاقة المرتبطة سابقًا لا يمكنها تشغيله فتم فك ربطها. اختر مزودًا ونموذجًا للوكيل."
+      },
+      "privacy": {
+        "label": "الخصوصية",
+        "hint": "ما يغادر هذا الجهاز، ومفاتيح التحكم به.",
+        "analyticsTitle": "تحليلات المنتج",
+        "analyticsDesc": "السماح لـ NarraNexus بحفظ بيانات وصفية عن استخدام المنتج للتحليل. في الوضع السحابي تُحفظ في قاعدة بيانات تديرها NarraNexus، وفي الوضع المحلي أو وضع سطح المكتب تبقى على هذا الجهاز. في نسخة الويب السحابية، تُرسل أيضًا بيانات مجهولة عن التفاعل مع الصفحة إلى Google Tag Manager، وهي خدمة تحليلات تابعة لجهة خارجية؛ إيقاف هذا الخيار يوقف ذلك. ولا يُجمع محتوى المحادثات مطلقًا.",
+        "telemetryTitle": "القياس عن بُعد التشخيصي",
+        "telemetryDesc": "إرسال سجلات الخدمات لهذا التثبيت إلى مجمِّع NarraNexus الخاص بها لتسهيل تصحيح الأعطال والأخطاء. في المستوى الافتراضي يعني هذا أحداثًا منظّمة وتحذيرات وأخطاء فقط، دون أي محتوى للرسائل. أما عمليات النشر التي تعمل بالمستوى \"full\" (بيئات الاختبار المُدارة وبيئات التصحيح) فترسل أسطر السجلات كاملة، وقد تتضمن محتوى رسائل تسجّله الخدمات؛ ولا يُرسل أي شيء إلى أي جهة خارجية.",
+        "telemetryTiming": "يسري الإيقاف خلال ثوانٍ. أما إذا كان القياس عن بُعد متوقفًا بالفعل عند بدء تشغيل التطبيق، فإن التفعيل يسري عند التشغيل التالي.",
+        "telemetryManaged": "تُدار بواسطة عملية النشر لديك (إعداد بيئة) — المفتاح غير متاح هنا.",
+        "telemetryManagedCloud": "يتحكم المسؤول لديك في القياس عن بُعد التشخيصي لهذا التثبيت.",
+        "telemetryUnavailable": "تعذّر تحميل حالة القياس عن بُعد — يُخفى المفتاح بدلًا من التخمين. أعد التحميل للمحاولة مرة أخرى.",
+        "telemetryError": "تعذّر حفظ التغيير. يعرض المفتاح الحالة الفعلية الحالية."
+      },
+      "personalization": {
+        "label": "التخصيص",
+        "hint": "المظهر واللغة وطريقة عرض ملاحظات تقدّم الوكيل.",
+        "narrationTitle": "سرد التقدّم",
+        "narrationHint": "إظهار ملاحظات الوكيل بين الخطوات ضمن المحادثة وبوضوح، بدلاً من طي التنفيذ بأكمله في قسم واحد.",
+        "pluginThemesTitle": "سمات الإضافات",
+        "pluginThemesNone": "المظهر الافتراضي"
+      },
+      "plugins": {
+        "factory": {
+          "title": "إضافات المستخدم",
+          "hint": "إضافات من GitHub أو مجلد محلي. تُحمَّل عند بدء التشغيل؛ تسري التغييرات بعد إعادة التشغيل.",
+          "sourcePlaceholder": "owner/repo@1.2.0 أو owner/repo#branch أو /path/to/plugin",
+          "sourceHelp": "إصدار GitHub (owner/repo@tag) أو مرجع مستودع (owner/repo#ref) أو مجلد محلي (يُربط في مكانه).",
+          "install": "تثبيت",
+          "installing": "جارٍ التثبيت…",
+          "restartRequired": "تم الحفظ. أعد تشغيل NarraNexus لتطبيق التغيير.",
+          "enable": "تفعيل",
+          "disable": "تعطيل",
+          "disabled": "معطّل",
+          "uninstall": "إزالة",
+          "upgrade": "ترقية",
+          "rollback": "العودة إلى آخر حالة سليمة",
+          "safeModeTitle": "الوضع الآمن: لم تُحمَّل إضافات المستخدم",
+          "safeModeLeave": "مغادرة الوضع الآمن",
+          "bisectStart": "العثور على الإضافة التي تعطّل بدء التشغيل",
+          "bisectTrial": "التنصيف: {{count}} مشتبه بها — ستُفعَّل هذه عند التشغيل التالي:",
+          "bisectGood": "بدأ التشغيل بنجاح",
+          "bisectBad": "تعطّل مجددًا",
+          "bisectStop": "إيقاف التنصيف",
+          "bisectCulprit": "تم العثور على السبب: {{id}} (يبقى معطّلًا)",
+          "permissionsTitle": "تطلب {{id}} هذه الأذونات",
+          "permissionsNetwork": "الشبكة",
+          "permissionsFilesystem": "الملفات",
+          "permissionsSubprocess": "تشغيل عمليات فرعية",
+          "permissionsEnv": "متغيرات البيئة",
+          "permissionsFrontend": "يشغّل تعليمات برمجية داخل واجهة التطبيق، مع إمكانية الوصول إلى جلستك",
+          "permissionsAck": "فهمت، فعّلها",
+          "permissionsKeepDisabled": "إبقاؤها معطّلة",
+          "empty": "لا توجد إضافات مستخدم مثبتة.",
+          "loadFailed": "تعذّر تحميل إضافات المستخدم",
+          "isolated": "عُزلت عند بدء التشغيل",
+          "viewErrors": "الأخطاء ({{count}})",
+          "hideErrors": "إخفاء الأخطاء",
+          "noErrors": "لم تُسجَّل أي أخطاء.",
+          "mode": {
+            "link": "مرتبطة",
+            "copy": "مثبّتة"
+          },
+          "state": {
+            "registered": "مسجّلة",
+            "validated": "مُتحقَّق منها",
+            "enabled": "مفعّلة",
+            "active": "نشطة",
+            "incompatible": "غير متوافقة",
+            "blocked": "محظورة",
+            "missing": "مفقودة",
+            "deps_missing": "اعتماديات مفقودة",
+            "excluded": "غير مضمّن في هذا الإصدار",
+            "crashed": "تعطّلت",
+            "disabled": "معطّلة",
+            "slow": "بطيئة"
+          },
+          "proposalsTitle": "بانتظار موافقتك",
+          "proposalBy": "طلبه الوكيل {{agent}}",
+          "proposalTestsGreen": "نجحت الاختبارات ({{count}})",
+          "proposalTestsRed": "لم تنجح الاختبارات",
+          "proposalApprove": "موافقة",
+          "proposalReject": "رفض",
+          "noPermissions": "لم تُطلب أذونات خاصة",
+          "builtinsTitle": "الميزات المضمّنة",
+          "builtinsHint": "إضافات على مستوى الميزة تأتي مع NarraNexus. تعطيل إحداها يزيل واجهتها البرمجية وعمّالها وصفحاتها بعد إعادة التشغيل؛ المحمية لا يمكن إيقافها.",
+          "protected": "محمي",
+          "installDeps": "تثبيت الاعتماديات ({{pip}})"
+        }
+      },
+      "browser": {
+        "label": "المتصفح",
+        "hint": "ثبّت المتصفح الذي يستخدمه الوكلاء لتشغيل المواقع."
       }
     },
     "system": {
@@ -1287,7 +1578,7 @@
       "noMembersHint": "انقر تعديل لإضافة بعضهم."
     },
     "you": {
-      "you": "أنت",
+      "you": "عالمي",
       "subtitle": "عالمك، عبر كل وكلائك",
       "viewsAriaLabel": "عروض مساحة عملك",
       "tabMemory": "ذاكرة Narra",
@@ -1330,7 +1621,12 @@
       "bulkDeleteResult": "تم حذف {{success}}.",
       "bulkDeleteResultWithFailures": "تم حذف {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
       "addedToTeamTitle": "تمت الإضافة إلى الفريق",
-      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد."
+      "addedToTeamMessage": "تمت إضافة {{count}} وكيل إلى الفريق المحدد.",
+      "addedToTeamResultWithFailures": "تمت إضافة {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
+      "removedFromTeamTitle": "تمت الإزالة من الفريق",
+      "removedFromTeamMessage": "تمت إزالة {{count}} من الوكلاء من الفريق.",
+      "removedFromTeamResultWithFailures": "تمت إزالة {{success}}، وفشل {{failedCount}} ({{failedIds}}).",
+      "openChat": "فتح المحادثة"
     },
     "bundleImport": {
       "installTemplate": "تثبيت قالب",
@@ -1346,7 +1642,7 @@
       "orSeparator": "— أو —",
       "chooseFile": "اختيار ملف",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "معاينة",
+      "preview": "تشغيل الفحص المسبق ←",
       "preflightFailed": "فشل الفحص المبدئي",
       "waitingForBackend": "بانتظار الخادم (المحاولة {{attempt}}/{{total}})…",
       "fetchFailed": "فشل جلب القالب",
@@ -1388,11 +1684,14 @@
         "skillsTip": "تلميح: المهارات الموسومة بـ «نسخة كاملة» تحتوي بالفعل على بيانات اعتماد. تحتاج مهارات الرابط/Zip إلى إعادة دراسة أو بيانات اعتماد جديدة — تحدّث إلى الوكلاء المستوردين لإكمال الإعداد.",
         "viewTeamIntro": "عرض تعريف الفريق",
         "doneButton": "تم"
-      }
+      },
+      "uploadInfoNote": "يمكن أن تحتوي الحزمة على وكيل واحد أو فريق كامل (وكلاء، ذاكرة، مهارات، قنوات). في الخطوة التالية ستراجع تعارضات الأسماء والتحذيرات قبل كتابة أي شيء."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "تضمين بيانات الاعتماد (قنوات المراسلة + أسرار المهارات)",
+      "pickFirstHint": "اختر أولاً الوكيل أو الفريق أعلاه — ستظهر أقسام السرديات والمهارات والقنوات بعد الاختيار.",
       "title": "تصدير حزمة",
-      "backToSettings": "العودة إلى الإعدادات",
+      "back": "رجوع",
       "summaryLine": "{{agents}} وكيل · {{skills}} مهارة · {{entities}} كيان · {{channels}} قناة",
       "fileName": "اسم الملف",
       "bundleNotesLabel": "ملاحظات الحزمة (اختياري، تُعرض للمستلم)",
@@ -1435,19 +1734,11 @@
         "freeText": "النص الحر (الوعي / الأحداث / الرسائل) لا يُفحَص تلقائيًا بحثًا عن أسرار مضمّنة — تحقّق بنفسك."
       },
       "agents": {
-        "whatYouPick": "ما تختاره هنا:",
-        "intro1": "مجموعة الوكلاء التي ستحتويها هذه الحزمة. كل شيء آخر في المعالج (السرديات، المهارات، MCPs، الملفات…) يُرشَّح بناءً على هذا الإغلاق.",
-        "intro2": "اختيار فريق يضيف كل أعضائه الحاليين بنقرة واحدة؛ ولا يزال بإمكانك إلغاء تحديد أفراد بعد ذلك. المراجع الخارجية (مثل كيان اجتماعي يشير إلى وكيل خارج هذا الإغلاق) تُسقَط تلقائيًا عند التصدير.",
         "bundleTeamLabel": "احزم هذا الفريق (اختياري)",
         "noTeamOption": "— بلا فريق / وكلاء أفراد —",
-        "quickAddByTeam": "إضافة سريعة حسب الفريق",
-        "deselectTeamTitle": "إلغاء تحديد كل أعضاء \"{{name}}\"",
-        "addTeamTitle": "إضافة كل أعضاء \"{{name}}\"",
-        "replaceTeamTitle": "استبدال التحديد بأعضاء \"{{name}}\"",
-        "only": "فقط",
-        "allAgents": "كل الوكلاء ({{count}})",
-        "clear": "مسح",
-        "agentsToInclude": "الوكلاء المراد تضمينهم · {{selected}}/{{total}}"
+        "agentsToInclude": "الوكلاء المراد تضمينهم · {{selected}}/{{total}}",
+        "pickTeamFirst": "اختر فريقًا في الأعلى — يُضمّن أعضاؤه تلقائيًا.",
+        "pickOne": "اختر الوكيل المراد تصديره"
       },
       "skills": {
         "emptySelectAgents": "اختر وكلاء في التبويب السابق — ستظهر مهاراتهم هنا.",
@@ -1633,6 +1924,13 @@
         "noArtifacts": "لا يملك هذا الوكيل أي مُخرجات.",
         "pinned": "مثبّت",
         "fullModeNote": "وضع اللقطة الكاملة يُضمّن تلقائيًا كل مُخرَج. بدّل إلى مخصّص للاختيار."
+      },
+      "kind": {
+        "label": "النوع",
+        "agentTitle": "حزمة وكلاء",
+        "agentDesc": "صدّر وكيلًا واحدًا — سردياته ومهاراته وملفات مساحة عمله تُحزم معه.",
+        "teamTitle": "حزمة فريق",
+        "teamDesc": "صدّر فريقًا كاملًا — وكلاؤه ومقدمته وقنواته المشتركة تُحزم معًا."
       }
     },
     "signup": {
@@ -1660,6 +1958,131 @@
         "special": "رمز خاص"
       },
       "codePlaceholder": "رمز من 6 خانات"
+    },
+    "createTeam": {
+      "title": "إنشاء فريق",
+      "back": "رجوع",
+      "nameLabel": "الاسم",
+      "namePlaceholder": "مثل Research",
+      "descLabel": "الوصف",
+      "descPlaceholder": "ما الغرض من هذا الفريق؟",
+      "colorLabel": "اللون",
+      "membersLabel": "إضافة وكلاء",
+      "selectedCount": "{{count}} محدد",
+      "noAgents": "لا يوجد وكلاء بعد — أنشئ واحدًا أولًا من قائمة جديد.",
+      "createButton": "إنشاء الفريق",
+      "manageHint": "أدر الفرق الحالية من لوحة التحكم.",
+      "membersFailed": "تم إنشاء الفريق، لكن تعذّرت إضافة {{count}} عضوًا: {{ids}}",
+      "searchPlaceholder": "ابحث عن الوكلاء بالاسم / المعرف…",
+      "noMatch": "لا يوجد وكلاء مطابقون",
+      "cancel": "إلغاء"
+    },
+    "account": {
+      "powerOnlyHint": "الحساب والفواتير والاشتراك من ميزات حساب NetMind — سجّل الدخول بحساب NetMind لعرضها هنا."
+    },
+    "agentProfile": {
+      "breadcrumb": "الوكلاء",
+      "backToChat": "المحادثة",
+      "overview": "نظرة عامة",
+      "capabilities": "القدرات",
+      "settings": "الإعدادات",
+      "views": "طرق عرض ملف الوكيل",
+      "chat": "محادثة",
+      "running": "قيد التشغيل",
+      "idleStatus": "خامل",
+      "currentTask": "المهمة الحالية",
+      "idle": "لا توجد مهمة قيد التشغيل حاليًا.",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} مهمة",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} محادثة",
+      "overviewCardLabel": "نظرة عامة على الوكيل",
+      "jobsNoun": "مهمة",
+      "inboxNoun": "محادثة",
+      "jobsRunningFlag": "قيد التشغيل",
+      "inboxUnreadFlag": "{{count}} جديدة",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} متصل",
+      "noSkills": "لا توجد مهارات مثبتة",
+      "noMcp": "لا توجد خوادم MCP",
+      "moreCount": "+{{count}} أخرى",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model و Framework",
+      "modelFrameworkHint": "إعدادات التشغيل الفعلية المستخدمة في التشغيل التالي للوكيل.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "تهيئة",
+      "general": "عام",
+      "generalHint": "تحكّم في طريقة عرض هذا الوكيل داخل مساحة العمل.",
+      "avatar": "الصورة الرمزية",
+      "avatarHint": "تظهر عند إسناد المهام وفي النشاط والمحادثة.",
+      "name": "الاسم",
+      "description": "الوصف",
+      "saveGeneral": "حفظ التغييرات",
+      "saving": "جارٍ الحفظ…",
+      "saved": "تم الحفظ",
+      "saveFailed": "تعذّر حفظ التغييرات.",
+      "missingAgent": "لم يتم اختيار وكيل",
+      "notFound": "لم يتم العثور على الوكيل",
+      "activity": "النشاط",
+      "activityLast24h": "آخر 24 ساعة",
+      "activityToday": "اليوم",
+      "activityAxisStart": "قبل 24 ساعة",
+      "activityAxisNow": "الآن",
+      "capabilitySwitches": "مفاتيح القدرات"
+    },
+    "welcome": {
+      "logout": "تسجيل الخروج",
+      "continue": "متابعة",
+      "rail": {
+        "model": {
+          "title": "اربط نموذجًا",
+          "detail": "مفتاح واحد يكفي — يمكنك تغييره في أي وقت."
+        },
+        "import": {
+          "title": "انقل وكلاءك",
+          "detail_one": "تم العثور على {{count}} على هذا الجهاز.",
+          "detail_other": "تم العثور على {{count}} على هذا الجهاز."
+        },
+        "agent": {
+          "title": "تعرّف على {{name}}",
+          "detail": "وكيلك الأول، في انتظارك."
+        }
+      },
+      "model": {
+        "title": "اربط نموذجًا أولًا.",
+        "skip": "تخطَّ الآن — يمكنك إضافة مفتاح في الإعدادات",
+        "advanced": "إعداد متقدم — تسجيل دخول بالاشتراك، نقاط نهاية مخصصة، نماذج لكل فتحة",
+        "subscriptionTitle": "استخدم اشتراك Claude أو ChatGPT",
+        "subscriptionSubtitle": "لا حاجة لمفتاح API — سجّل الدخول بالاشتراك الذي لديك بالفعل."
+      },
+      "import": {
+        "title": "انقل الوكلاء الذين لديك بالفعل.",
+        "subtitle": "كل شيء يُقرأ من هذا الجهاز — لا يُرفَع أي شيء.",
+        "lede": "كل وكيل تحدده يصبح وكيل NarraNexus، مع الاحتفاظ بسجل محادثاته كذاكرة.",
+        "importAndContinue_one": "استيراد {{count}} والمتابعة",
+        "importAndContinue_other": "استيراد {{count}} والمتابعة",
+        "skip": "تخطّي هذه الخطوة"
+      },
+      "agent": {
+        "title": "تعرّف على {{name}}.",
+        "subtitle": "وكيلك الأول، أُنشئ لك عند تسجيل الدخول. يتذكر كل ما تتحدثان عنه — هذا هو الفرق بين NarraNexus ومحادثة عابرة.",
+        "role": "مرشدك · سيليكون",
+        "capMemory": "ذاكرة طويلة، على شكل قصص",
+        "capCheckin": "يتواصل معك يوميًا",
+        "cta": "ابدأ استخدام NarraNexus",
+        "skip": "الانتقال مباشرة إلى التطبيق",
+        "preparingTitle": "نجهّز وكيلك الأول…",
+        "preparingSubtitle": "نختار اسمه وشخصيته. بضع ثوانٍ.",
+        "notReady": "وكيلك الأول لا يزال قيد الإنشاء — سيظهر في الشريط الجانبي قريبًا.",
+        "fallbackName": "وكيلك",
+        "rename": "إعادة تسمية"
+      }
     }
   },
   "rail": {
@@ -1685,7 +2108,24 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "المخرجات",
+    "desc": {
+      "awareness": "هوية وكيلك — شخصيته وتعليماته الدائمة. حرّرها هنا أو أخبره في الدردشة وسيحدّثها بنفسه.",
+      "workspace": "مساحة ملفات الوكيل: ارفع مستندات ليقرأها، وما ينتجه يوضع هنا أيضًا.",
+      "channels": "اربط هذا الوكيل بمنصات المراسلة (Lark، Slack، Telegram…) ليتواصل معه الآخرون خارج التطبيق.",
+      "smarthome": "اربط أجهزة المنزل الذكي (Home Assistant) ليتمكن الوكيل من رؤيتها والتحكم بها.",
+      "jobs": "الأعمال المجدولة والخلفية. اطلب في الدردشة — «أرسل لي موجزًا كل صباح» — وسينشئ الوكيل مهمة.",
+      "inbox": "الرسائل الواردة من القنوات ومن وكلاء آخرين؛ ما يحتاج انتباهك يظهر بشارة.",
+      "artifacts": "التقارير والصفحات والملفات التي أنتجها الوكيل — افتحها وراجعها هنا.",
+      "skills": "مهارات الوكيل المثبتة. أضف المزيد من المتجر أو ثبّت من GitHub / zip.",
+      "mcp": "خوادم أدوات MCP خارجية يمكن للوكيل استدعاؤها — أوصل قدرات من جهات خارجية.",
+      "memory": "ذاكرة الوكيل طويلة الأمد منظمة كسرديات — ما يحمله عبر المحادثات.",
+      "social": "من يعرفهم الوكيل — تتراكم جهات الاتصال مع عمله مع الأشخاص والوكلاء الآخرين.",
+      "builder": "اوصف ما تحتاجه، وستقوم المحادثة بتعبئة هذه اللوحة."
+    },
+    "builder": "المُنشئ",
+    "browser": "المتصفح"
   },
   "jobs": {
     "title": "المهام",
@@ -1701,6 +2141,7 @@
       "running": "قيد التشغيل",
       "paused": "متوقفة مؤقتًا",
       "pausedNoQuota": "لا توجد حصة",
+      "pausedSpendCap": "حد الإنفاق",
       "cooling": "إعادة المحاولة",
       "blocked": "محظورة",
       "blockedFailed": "فشلت التبعية",
@@ -1709,9 +2150,6 @@
       "cancelled": "ملغاة"
     },
     "metrics": {
-      "active": "نشطة",
-      "success": "ناجحة",
-      "failed": "فاشلة",
       "rate": "المعدل"
     },
     "view": {
@@ -1775,6 +2213,7 @@
       "trigger": "المُشغِّل:",
       "cron": "Cron:",
       "interval": "الفاصل الزمني:",
+      "endAt": "يعمل حتى:",
       "runAt": "التشغيل عند:",
       "endCondition": "شرط الانتهاء:",
       "maxIter": "أقصى عدد تكرارات:",
@@ -1800,7 +2239,9 @@
       "cancelJob": "إلغاء المهمة",
       "cancelling": "جارٍ الإلغاء...",
       "editSchedule": "تعديل الوقت",
-      "savingSchedule": "جارٍ الحفظ..."
+      "savingSchedule": "جارٍ الحفظ...",
+      "editPayload": "تحرير المحتوى",
+      "savingPayload": "جارٍ الحفظ..."
     },
     "template": {
       "selectTemplate": "اختر قالبًا",
@@ -1818,17 +2259,6 @@
       "noJobs": "لا توجد مهام لعرضها",
       "waiting": "في الانتظار...",
       "noTimeData": "لا توجد بيانات زمنية"
-    },
-    "distribution": {
-      "title": "توزيع الحالات",
-      "total": "{{count}} الإجمالي",
-      "legend": {
-        "completed": "{{count}} مكتملة",
-        "running": "{{count}} قيد التشغيل",
-        "active": "{{count}} نشطة",
-        "paused": "{{count}} متوقفة مؤقتًا",
-        "failed": "{{count}} فاشلة"
-      }
     },
     "editSchedule": {
       "title": "تعديل وقت التنفيذ",
@@ -1849,30 +2279,41 @@
       "modeLabel": "وضع التشغيل",
       "modeInterval": "الفاصل",
       "modeCron": "تعبير cron"
+    },
+    "editPayload": {
+      "title": "تحرير محتوى المهمة",
+      "hint": "غيّر ما تنفذه هذه المهمة. تسري التغييرات في التشغيل التالي.",
+      "titleLabel": "العنوان",
+      "descriptionLabel": "الوصف",
+      "payloadLabel": "المحتوى / التعليمات",
+      "payloadHint": "نص التعليمات الذي يُمرَّر إلى الوكيل عند تشغيل هذه المهمة.",
+      "titleRequired": "لا يمكن أن يكون العنوان فارغًا",
+      "failedTitle": "فشل التحديث",
+      "failedMessage": "تعذر تحديث محتوى المهمة. يرجى المحاولة مرة أخرى."
+    },
+    "row": {
+      "every": "كل {{interval}}",
+      "daily": "يوميًا {{time}}",
+      "hourly": "كل ساعة :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "مرة واحدة {{time}}",
+      "afterDeps": "محجوب بـ {{n}}",
+      "next": "التالي {{time}}",
+      "elapsed": "منقضي {{duration}}",
+      "failedAt": "فشل {{time}}",
+      "lastRun": "الأخير {{time}}"
     }
   },
   "artifacts": {
     "refresh": "تحديث العناصر",
     "zoom": "تكبير العنصر",
     "zoomFullscreen": "تكبير العنصر (فتح بملء الشاشة)",
-    "collapse": "طي اللوحة",
-    "collapseAria": "طي لوحة العناصر",
     "selectArtifact": "اختر عنصرًا",
     "minimized": "مُصغّر:",
     "restore": "استعادة \"{{title}}\"",
     "openBadge": "فتح {{title}} ({{kind}})",
     "unsupportedKind": "نوع عنصر غير مدعوم: {{kind}}",
     "loadingRenderer": "جارٍ تحميل العارض…",
-    "sliver": {
-      "expandTitle": "انقر للتوسيع · {{count}} عنصر",
-      "expandTitle_other": "انقر للتوسيع · {{count}} عناصر",
-      "emptyTitle": "ستظهر العناصر هنا بمجرد أن ينشئها الوكيل",
-      "expandAria": "توسيع لوحة العناصر ({{count}} عنصر)",
-      "expandAria_other": "توسيع لوحة العناصر ({{count}} عناصر)",
-      "emptyAria": "لوحة العناصر (فارغة)",
-      "label": "العناصر ({{count}})",
-      "labelEmpty": "العناصر"
-    },
     "emptyState": {
       "title": "لا توجد عناصر بعد",
       "hint": "ستظهر هنا عندما ينشئها الوكيل."
@@ -1927,6 +2368,37 @@
     },
     "url": {
       "toggleFailed": "تعذّر تغيير الوضع: {{error}}"
+    },
+    "editor": {
+      "save": "حفظ",
+      "saving": "جارٍ الحفظ…",
+      "saved": "تم الحفظ",
+      "unsavedChanges": "تغييرات غير محفوظة",
+      "draftRestored": "تمت استعادة التعديلات غير المحفوظة من هذا الجهاز.",
+      "conflictBody": "تغيّر الملف أثناء التحرير. الاحتفاظ بنسختك أم إعادة تحميل نسختهم؟",
+      "overwriteMine": "الاحتفاظ بنسختي",
+      "discardMine": "إعادة التحميل",
+      "loadError": "فشل التحميل: {{error}}",
+      "mdGuardDisabled": "يحتوي هذا المستند على صيغة لا يمكن للمحرر الحفاظ عليها دون فقد — تم تعطيل التحرير المباشر. اطلب من الذكاء الاصطناعي إجراء التغييرات.",
+      "htmlAnchorFailed": "هذا النص يولده سكربت الصفحة أو يتعذر تحديد موضعه في المصدر بدقة — اطلب من الذكاء الاصطناعي تغييره.",
+      "htmlEditConflict": "تغيّر الملف أثناء التحرير — لم يتم حفظ هذا التغيير.",
+      "editFailed": "فشل التحرير — لم يتم حفظ التغيير.",
+      "draftUnavailable": "هذا الملف كبير جدًا على مسودة محلية — التغييرات غير المحفوظة ستضيع عند إغلاق النافذة. احفظ فورًا."
+    },
+    "officeEdit": {
+      "selected": "تم تحديد {{count}}",
+      "editText": "تحرير النص",
+      "apply": "تطبيق",
+      "cancel": "إلغاء",
+      "delete": "حذف",
+      "color": "لون النص",
+      "opFailed": "فشل التحرير.",
+      "lockNotice": "مفتوح في تطبيق Office على سطح المكتب — التحرير المباشر متوقف مؤقتًا.",
+      "moveUp": "أعلى",
+      "moveDown": "أسفل",
+      "addRow": "+ صف",
+      "addCol": "+ عمود",
+      "replaceImage": "استبدال الصورة"
     }
   },
   "skills": {
@@ -2040,10 +2512,15 @@
     "desktopHint": "افتح NarraNexus في المتصفح لرؤية معاينة المستند المباشرة.",
     "loading": "جارٍ فتح المعاينة المباشرة…",
     "loadError": "تعذّر فتح المعاينة المباشرة.",
+    "retry": "إعادة المحاولة",
     "livePreview": "معاينة مباشرة"
   },
   "common": {
-    "close": "Close",
+    "close": "إغلاق",
+    "cancel": "إلغاء",
+    "save": "حفظ",
+    "back": "رجوع",
+    "edit": "تعديل",
     "betaTooltip": "NarraNexus في مرحلة تجريبية (بيتا). قد تتغير الميزات وقد تحدث مشكلات عرضية — ملاحظاتكم تساعدنا على التحسين.",
     "ok": "حسنًا",
     "noticeTitle": "لحظة واحدة",
@@ -2051,5 +2528,136 @@
     "savedTo": "تم الحفظ في {{path}}",
     "downloadFailed": "فشل التنزيل: {{error}}",
     "doneTitle": "تم"
+  },
+  "toast": {
+    "view": "عرض",
+    "completed": "اكتمل",
+    "roomSpoke": "نشاط جديد في الغرفة",
+    "agent": "وكيل",
+    "room": "غرفة",
+    "artifactRepointedVerified": "أُعيد الربط: {{oldPath}} ← {{newPath}} (تم التحقق من المحتوى)",
+    "artifactRepointedUnverified": "أُعيد الربط: {{oldPath}} ← {{newPath}} (تطابق غير مُتحقق — يرجى المراجعة)"
+  },
+  "webAnalyticsNotice": {
+    "body": "هذه هي نسخة الويب السحابية من NarraNexus. تستخدم Google Tag Manager، وهي خدمة تحليلات تابعة لجهة خارجية، لجمع بيانات مجهولة عن التفاعل مع الصفحة (مرات المشاهدة والنقرات والمُحيل). لا يُجمع أي محتوى للمحادثات. يمكنك إيقاف ذلك في أي وقت من الإعدادات → الخصوصية.",
+    "settings": "فتح الإعدادات",
+    "dismiss": "حسنًا"
+  },
+  "telemetryNotice": {
+    "body": "يرسل NarraNexus الآن سجلات الخدمات التشخيصية لهذا التثبيت إلى مجمِّعه الخاص للمساعدة في تصحيح الأعطال وإخفاقات التكامل. وفي التثبيتات التي تعمل بالمستوى \"full\"، قد تتضمن أسطر السجلات محتوى الرسائل. يمكنك إيقاف ذلك في أي وقت من الإعدادات ← الخصوصية.",
+    "settings": "فتح الإعدادات",
+    "dismiss": "حسنًا",
+    "bodyManaged": "يرسل هذا التثبيت سجلات الخدمات التشخيصية (الأخطاء وأحداث التشخيص) إلى مجمِّع NarraNexus الخاص بها، وفق ما هيّأه المسؤول لديك. وفي التثبيتات التي تعمل بالمستوى \"full\"، قد تتضمن أسطر السجلات محتوى الرسائل."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "إنشاء وكيل",
+      "title": "من أين تريد أن تبدأ؟",
+      "subtitle": "ابدأ من إعداد فارغ، أو اوصف ما تحتاجه وأنشئه من خلال محادثة.",
+      "blankTitle": "البدء من الصفر",
+      "blankBody": "اضبط كل حقل بنفسك. لمن يعرف مسبقًا كيف ينبغي أن يعمل الوكيل.",
+      "aiTitle": "الإنشاء بالذكاء الاصطناعي",
+      "aiBody": "اوصف النتيجة التي تريدها. سيطرح Agent Builder الأسئلة الأساسية ويكتب المسوّدة.",
+      "continue": "متابعة",
+      "recommended": "موصى به"
+    },
+    "gate": {
+      "title": "إنشاء وكيل",
+      "probing": "جارٍ التحقق من المزوّدين",
+      "chooseTitle": "اختر مزوّدًا",
+      "chooseHint": "اختر مزوّدًا موجودًا أو أضف مزوّدًا جديدًا. هذا يحدد المحرك الذي يشغّل الوكيل.",
+      "accessApiKey": "مفتاح API",
+      "accessCli": "تسجيل الدخول عبر CLI",
+      "emptyLead": "لا يوجد محرك متاح بعد. أضف مزوّدًا لتبدأ — فهو الذي سيشغّل هذا الوكيل.",
+      "addLabel": "إضافة مزوّد",
+      "addApiKey": "مفتاح API",
+      "addCli": "تسجيل الدخول عبر CLI",
+      "back": "رجوع",
+      "next": "التالي",
+      "cliDesktopHint": "سيفتح تسجيل الدخول المتصفح للموافقة على Claude CLI.",
+      "cliLogin": "تسجيل الدخول بـ Claude",
+      "cliLoggingIn": "جارٍ تسجيل الدخول…",
+      "cliWebHint": "غير مسجّل — نفّذ `claude auth login` في الطرفية ثم أعد فتح هذه النافذة.",
+      "cliMissingHint": "Claude CLI غير متاح هنا. قم بتثبيته وسجّل الدخول من الطرفية ثم أعد فتح هذه النافذة."
+    },
+    "panel": {
+      "intro": "تكتب المحادثة الاسم والوصف والتعليمات مباشرةً في هذا الوكيل. أما المهارات والقنوات فهي اقتراحات فقط — أنت من يثبّتها.",
+      "identity": "الهوية",
+      "name": "الاسم",
+      "namePlaceholder": "مثال: الموجز المالي الصباحي",
+      "behaviour": "السلوك",
+      "install": "تثبيت",
+      "installed": "مُثبَّت",
+      "saving": "جارٍ الحفظ…",
+      "savedHint": "تُحفظ التغييرات عند مغادرة الحقل.",
+      "done": "تم",
+      "identityHint": "امنح الوكيل اسمًا سهل التمييز.",
+      "behaviourHint": "حدّد طريقة عمله. هذا هو حقل awareness الذي يعمل به الوكيل فعليًا.",
+      "awareness": "الإدراك",
+      "awarenessPlaceholder": "ما الذي يفعله هذا الوكيل، وبماذا يهتم، وما الذي يتجنبه…",
+      "skills": "المهارات",
+      "skillsHint": "مهارات مساحة العمل التي يمكن لهذا الوكيل استخدامها.",
+      "channels": "القنوات",
+      "channelsHint": "أين يمكن الوصول إليه. تذهب بيانات الاعتماد إلى الخادم مباشرةً ولا تدخل المحادثة أبدًا.",
+      "suggested": "من المحادثة",
+      "optional": "اختياري"
+    }
+  },
+  "appBanners": {
+    "sessionExpired": "انتهت صلاحية جلستك. يرجى تسجيل الدخول مرة أخرى. (انقر للإغلاق)",
+    "sessionExpiringSoon": "ستنتهي صلاحية جلستك خلال {{time}}. سجّل الخروج ثم الدخول مجددًا لتجنب فقدان عملك. (انقر للإغلاق)",
+    "circuitPausedQuota": "تم إيقاف هذا الوكيل مؤقتًا بعد تكرار فشل الحصة/الرصيد. أصلح مزوّده ثم استأنف.",
+    "circuitPausedAuth": "تم إيقاف هذا الوكيل مؤقتًا بعد تكرار فشل المصادقة. أعد المصادقة أو حدد مزوّدًا ثم استأنف.",
+    "circuitCooling": "فشل هذا الوكيل مؤخرًا وهو في فترة تهدئة قصيرة. أعد المحاولة بعد قليل.",
+    "resumeAgent": "استئناف الوكيل",
+    "resuming": "جارٍ الاستئناف…",
+    "dismiss": "إغلاق",
+    "freeTierSwitched": "تم استهلاك حصة الفئة المجانية — تم التحويل إلى مزوّدك الخاص. ستستخدم عمليات التشغيل الجديدة مفتاح API الخاص بك. (انقر للإغلاق)"
+  },
+  "browser": {
+    "notices": {
+      "loadFailed": "تعذّر التحقق من طلبات تسجيل الدخول في المتصفح.",
+      "retry": "المحاولة مجددًا"
+    },
+    "absentTitle": "المتصفح غير مثبّت",
+    "brokenTitle": "المتصفح مثبّت لكنه لا يبدأ",
+    "install": "تثبيت المتصفح",
+    "reinstall": "إعادة تثبيت المتصفح",
+    "cancelInstall": "إلغاء التنزيل",
+    "installFailed": "فشل طلب تثبيت المتصفح.",
+    "installingUnknown": "جارٍ التنزيل…",
+    "idle": "لا توجد جلسة متصفح نشطة بعد.",
+    "pages": "علامات تبويب المتصفح",
+    "newTab": "علامة تبويب جديدة",
+    "agentTab": "الوكيل",
+    "closeTab": "إغلاق علامة التبويب",
+    "followAgent": "متابعة الوكيل",
+    "webAddress": "عنوان الويب",
+    "go": "انتقال",
+    "takeControlToNavigate": "تولّ التحكم لفتح صفحة",
+    "invalidAddress": "أدخل عنوان HTTP أو HTTPS.",
+    "agentDriving": "الوكيل يتحكم بالمتصفح",
+    "youDriving": "أنت تتحكم بالمتصفح",
+    "otherDriving": "نافذة أخرى تتحكم بالمتصفح",
+    "takeControl": "تولّي التحكم",
+    "handBack": "إعادة التحكم إلى الوكيل",
+    "reconnect": "إعادة الاتصال",
+    "reconnecting": "جارٍ إعادة الاتصال…",
+    "connecting": "جارٍ الاتصال…",
+    "disconnected": "انقطع الاتصال",
+    "screen": "شاشة المتصفح",
+    "keyboardInput": "إدخال لوحة مفاتيح المتصفح",
+    "login": {
+      "title": "مطلوب تسجيل الدخول أو التحقق",
+      "inControl": "أعِد التحكم في المتصفح عند الانتهاء.",
+      "pending": "في انتظار إكمال تسجيل الدخول أو التحقق في المتصفح.",
+      "openBrowser": "فتح المتصفح"
+    },
+    "look": {
+      "looked": "تم عرض الصفحة",
+      "failed": "تعذّر عرض الصفحة",
+      "area": "المنطقة {{width}}×{{height}}",
+      "open": "فتح المتصفح"
+    }
   }
 }

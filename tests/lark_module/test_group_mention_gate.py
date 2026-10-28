@@ -21,8 +21,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
-from xyz_agent_context.module.lark_module.lark_context_builder import (
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_context_builder import (
     LarkContextBuilder,
 )
 

@@ -1,9 +1,11 @@
 """Unit tests for NarraCliClient — the narra-cli spawn choke point.
 
 Pins the security-critical mechanics: the bearer is injected via an EPHEMERAL
-``--token-file`` (never on argv, never persisted), the file is removed after the
-call (success AND failure), the agent workspace is threaded as CWD, and the
-narra-cli JSON envelope is normalized.
+``--token-file`` (never on argv, never persisted), the binding's API endpoint is
+injected as ``--endpoint`` (narra-cli 1.2 requires it per call; a binding on
+api-cn / api-test must talk to ITS backend), the file is removed after the call
+(success AND failure), the agent workspace is threaded as CWD, and the narra-cli
+JSON envelope is normalized.
 """
 import json
 import os
@@ -12,13 +14,14 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module import narra_cli_client as ncc
-from xyz_agent_context.module.narramessenger_module.narra_cli_client import (
+from narranexus_plugins.narramessenger_module import narra_cli_client as ncc
+from narranexus_plugins.narramessenger_module.narra_cli_client import (
     NarraCliClient,
     _resolve_narra_cli,
 )
 
 BEARER = "secret-bearer-xyz"
+ENDPOINT = "https://api-cn.narramessenger.cn"
 
 
 class _FakeProc:
@@ -43,6 +46,8 @@ def _patch_exec(monkeypatch, capture: dict, envelope: dict, returncode: int = 0)
         capture["cmd"] = list(cmd)
         capture["cwd"] = cwd
         capture["env"] = env
+        if "--token-file" not in cmd:  # bare `help` — nothing injected
+            return _FakeProc(json.dumps(envelope).encode(), returncode)
         # token-file must exist and contain the bearer WHILE the CLI runs.
         idx = cmd.index("--token-file")
         tok_path = cmd[idx + 1]
@@ -61,7 +66,7 @@ def _patch_exec(monkeypatch, capture: dict, envelope: dict, returncode: int = 0)
 async def test_token_file_injected_not_on_argv(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "status", "data": {"ok": True}, "status": "ok"})
-    client = NarraCliClient(BEARER)
+    client = NarraCliClient(BEARER, ENDPOINT)
     await client.run(["status"])
 
     assert "--token-file" in cap["cmd"]
@@ -73,10 +78,125 @@ async def test_token_file_injected_not_on_argv(monkeypatch):
     assert cap["token_mode"] == 0o600
 
 
+async def test_endpoint_injected_from_binding(monkeypatch):
+    # narra-cli 1.2 requires --endpoint on every API command. The value MUST be
+    # the binding's backend (api-cn here), never a deployment-wide default —
+    # prod 2026-09-09: every api-cn / api-test binding got agent-token-invalid
+    # because the bearer was sent to api.netmind.chat.
+    cap: dict = {}
+    _patch_exec(monkeypatch, cap, {"command": "room list", "data": [], "status": "ok"})
+    await NarraCliClient(BEARER, ENDPOINT).run(["room", "list"])
+    cmd = cap["cmd"]
+    assert cmd[cmd.index("--endpoint") + 1] == ENDPOINT
+    assert cmd.count("--endpoint") == 1
+    # Placement is a convention, not a defense: oclif rejects a duplicated
+    # flag outright ("can only be specified once"), so an agent-supplied
+    # --endpoint could never win by position — BLOCKED_FLAGS is what keeps it
+    # out of argv at all. We pin the trailing order only so the spawn shape
+    # stays stable for anyone reading logs.
+    assert cmd.index("--endpoint") > cmd.index("list")
+
+
+async def test_bare_help_gets_no_injection(monkeypatch):
+    # narra-cli 1.2.1 `help` rejects EVERY flag ("Nonexistent flag: --endpoint"),
+    # so the bare help command must be spawned without the injected pair.
+    cap: dict = {}
+    _patch_exec(monkeypatch, cap, {"command": "help", "data": {}, "status": "ok"})
+    out = await NarraCliClient(BEARER, ENDPOINT).run(["help"])
+    assert out["success"] is True
+    assert "--endpoint" not in cap["cmd"]
+    assert "--token-file" not in cap["cmd"]
+
+
+async def test_injection_exemption_is_exactly_the_bare_help_domain(monkeypatch):
+    # Verified against 1.2.1: only the bare `help` command rejects flags; a bare
+    # topic (`im`), `help <topic>` and any `<domain> --help` tolerate them. The
+    # exemption is case-folded (`HELP`) so a capitalised spelling can't sneak
+    # the injected pair into a command that would then error on them.
+    for args, injected in (
+        (["HELP"], False),
+        (["help", "im"], False),
+        (["im"], True),
+        (["status"], True),
+    ):
+        cap: dict = {}
+        _patch_exec(monkeypatch, cap, {"command": "x", "data": {}, "status": "ok"})
+        await NarraCliClient(BEARER, ENDPOINT).run(args)
+        assert ("--endpoint" in cap["cmd"]) is injected, args
+        assert ("--token-file" in cap["cmd"]) is injected, args
+
+
+async def test_domain_help_still_injected(monkeypatch):
+    # `<domain> [<sub>] --help` tolerates the injected flags (verified against
+    # 1.2.1) — only the bare `help` domain is exempt, nothing wider.
+    cap: dict = {}
+    _patch_exec(monkeypatch, cap, {"command": "room list", "data": {}, "status": "ok"})
+    await NarraCliClient(BEARER, ENDPOINT).run(["room", "list", "--help"])
+    assert "--endpoint" in cap["cmd"]
+    assert "--token-file" in cap["cmd"]
+
+
+def _patch_binding(monkeypatch, raw: dict | None):
+    """Patch the credential seam + workspace resolver used by run_narra_cli."""
+    from narranexus.platform.module_system import data_access
+
+    class _Store:
+        async def get_credential(self, channel, agent_id):
+            assert channel == "narramessenger"
+            return raw
+
+    monkeypatch.setattr(data_access, "get_channel_credential_store", lambda: _Store())
+
+    async def fake_cwd(agent_id, log_tag=""):
+        return "/work/agent_x"
+
+    monkeypatch.setattr(ncc, "resolve_agent_workspace_cwd", fake_cwd)
+
+
+async def test_run_narra_cli_uses_the_bindings_endpoint(monkeypatch):
+    cap: dict = {}
+    _patch_exec(monkeypatch, cap, {"command": "status", "data": {}, "status": "ok"})
+    _patch_binding(monkeypatch, {
+        "agent_id": "agent_x", "bearer_token": BEARER,
+        "backend_base_url": "https://api-test.netmind.chat",
+    })
+    out = await ncc.run_narra_cli("agent_x", ["status"])
+    assert out["success"] is True
+    cmd = cap["cmd"]
+    assert cmd[cmd.index("--endpoint") + 1] == "https://api-test.netmind.chat"
+    assert cap["token_content"] == BEARER
+    assert cap["cwd"] == "/work/agent_x"
+
+
+async def test_run_narra_cli_fails_closed_without_endpoint(monkeypatch):
+    # A binding with a bearer but no backend_base_url must NOT run narra-cli
+    # against a guessed default (that would send the bearer to a foreign host).
+    spawned = {"n": 0}
+
+    async def never(*cmd, **kw):
+        spawned["n"] += 1
+        raise AssertionError("must not spawn")
+
+    monkeypatch.setattr(ncc.asyncio, "create_subprocess_exec", never)
+    _patch_binding(monkeypatch, {"agent_id": "agent_x", "bearer_token": BEARER,
+                                 "backend_base_url": ""})
+    out = await ncc.run_narra_cli("agent_x", ["status"])
+    assert out["success"] is False
+    assert out["error"] == "no_endpoint"  # distinct from "not bound at all"
+    assert spawned["n"] == 0
+
+
+async def test_run_narra_cli_no_binding(monkeypatch):
+    _patch_binding(monkeypatch, None)
+    out = await ncc.run_narra_cli("agent_x", ["status"])
+    assert out["success"] is False
+    assert out["error"] == "no_credential"
+
+
 async def test_token_file_removed_after_success(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "status", "data": {}, "status": "ok"})
-    client = NarraCliClient(BEARER)
+    client = NarraCliClient(BEARER, ENDPOINT)
     await client.run(["status"])
     assert not os.path.exists(cap["token_path"])  # cleaned up
 
@@ -92,7 +212,7 @@ async def test_token_file_removed_after_exception(monkeypatch):
     monkeypatch.setattr(ncc.asyncio, "create_subprocess_exec", boom)
     monkeypatch.setenv("NARRA_CLI_BIN", "/opt/narra-cli/node_modules/.bin/narra-cli")
     ncc._NARRA_CLI_BIN = None
-    client = NarraCliClient(BEARER)
+    client = NarraCliClient(BEARER, ENDPOINT)
     with pytest.raises(RuntimeError):
         await client.run(["status"])
     assert not os.path.exists(seen["token_path"])  # cleaned up even on crash
@@ -105,7 +225,7 @@ async def test_home_redirected_so_narra_cli_can_chmod_its_config_dir(monkeypatch
     ncc._NARRA_HOME = None  # force fresh creation
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "status", "data": {}, "status": "ok"})
-    await NarraCliClient(BEARER).run(["status"])
+    await NarraCliClient(BEARER, ENDPOINT).run(["status"])
     home = cap["env"]["HOME"]
     assert home == ncc._narra_cli_home()
     assert os.path.isdir(home)           # created + writable
@@ -121,7 +241,7 @@ async def test_home_redirected_so_narra_cli_can_chmod_its_config_dir(monkeypatch
 async def test_cwd_threaded(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "im send", "data": {}, "status": "ok"})
-    client = NarraCliClient(BEARER)
+    client = NarraCliClient(BEARER, ENDPOINT)
     await client.run(["im", "send"], cwd="/work/agent_x")
     assert cap["cwd"] == "/work/agent_x"
 
@@ -129,7 +249,7 @@ async def test_cwd_threaded(monkeypatch):
 async def test_ok_envelope_normalized(monkeypatch):
     cap: dict = {}
     _patch_exec(monkeypatch, cap, {"command": "status", "data": {"room": 3}, "status": "ok"})
-    client = NarraCliClient(BEARER)
+    client = NarraCliClient(BEARER, ENDPOINT)
     out = await client.run(["status"])
     assert out["success"] is True
     assert out["data"] == {"room": 3}
@@ -144,7 +264,7 @@ async def test_error_envelope_normalized(monkeypatch):
         "status": "error",
     }
     _patch_exec(monkeypatch, cap, envelope, returncode=1)
-    client = NarraCliClient(BEARER)
+    client = NarraCliClient(BEARER, ENDPOINT)
     out = await client.run(["im", "send"])
     assert out["success"] is False
     assert out["error"] == "agent-room-access-denied"
@@ -160,7 +280,7 @@ async def test_empty_stdout_exit0_is_success(monkeypatch):
     monkeypatch.setattr(ncc.asyncio, "create_subprocess_exec", fake_exec)
     monkeypatch.setenv("NARRA_CLI_BIN", "/opt/narra-cli/node_modules/.bin/narra-cli")
     ncc._NARRA_CLI_BIN = None
-    out = await NarraCliClient(BEARER).run(["speech", "synthesize", "--out", "./r.wav"])
+    out = await NarraCliClient(BEARER, ENDPOINT).run(["speech", "synthesize", "--out", "./r.wav"])
     assert out["success"] is True
 
 
@@ -171,7 +291,7 @@ async def test_empty_stdout_nonzero_is_failure(monkeypatch):
     monkeypatch.setattr(ncc.asyncio, "create_subprocess_exec", fake_exec)
     monkeypatch.setenv("NARRA_CLI_BIN", "/opt/narra-cli/node_modules/.bin/narra-cli")
     ncc._NARRA_CLI_BIN = None
-    out = await NarraCliClient(BEARER).run(["speech", "synthesize"])
+    out = await NarraCliClient(BEARER, ENDPOINT).run(["speech", "synthesize"])
     assert out["success"] is False
     assert out["error"] == "empty_output"
 

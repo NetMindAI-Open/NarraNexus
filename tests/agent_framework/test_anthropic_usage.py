@@ -6,7 +6,7 @@
 
 from types import SimpleNamespace
 
-from xyz_agent_context.agent_framework.anthropic_usage import (
+from narranexus.platform.agent_framework.anthropic_usage import (
     normalize_anthropic_usage,
 )
 

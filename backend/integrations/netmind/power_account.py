@@ -22,7 +22,7 @@ gate built on it denies rather than leaks.
 """
 from __future__ import annotations
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 async def is_power_account(user_id: str) -> bool:

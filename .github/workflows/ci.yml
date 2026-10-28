@@ -26,6 +26,9 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
+        # Pinned in lockstep with build-desktop.yml — see the note there.
+        with:
+          version: "0.12.12"
 
       - name: Set up Python
         run: uv python install 3.13
@@ -34,10 +37,126 @@ jobs:
         run: uv lock --check
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --extra plugins
 
-      - name: Ruff lint
-        run: uv run ruff check src/ backend/
+      - name: "Ruff lint (incl. TID251 — plugin code never imports kernel internals)"
+        run: uv run ruff check src/ backend/ packages/ plugins/
+
+      - name: Public contract surface (griffe check against the PR base)
+        # Every change to narranexus.contracts' public API must be explicit:
+        # griffe diffs the stable contracts against the PR's base and fails on
+        # a breaking change (docs/API_POLICY.md — stable since batch 6).
+        # Pull requests only: on a push there is no base to diff against
+        # (diffing dev against main would flag the whole dev delta forever).
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin ${{ github.event.pull_request.base.ref }}
+          uv run scripts/dev/api_check.sh origin/${{ github.event.pull_request.base.ref }}
+
+      - name: Import direction (import-linter)
+        # Plugin-platform layering: contracts are a leaf, kernel sees only
+        # contracts. Exceptions live in pyproject; each ignore_imports entry names the batch that owes its removal.
+        run: uv run lint-imports
+
+      # pyrightconfig.json is deliberately narrowed (typeCheckingMode off,
+      # only the two diagnostics that catch the recurring incident class:
+      # undefined names + attribute typos). It was green-but-unwired since
+      # PR #202; the 2026-08-14 lark NameError outage (#282 leftover) and
+      # the bus_list_team_files NameError (#255) are exactly what this step
+      # would have blocked.
+      - name: Pyright (undefined names + attribute typos)
+        run: uv run pyright
+
+      - name: Generated plugin docs and theme tokens are fresh
+        # docs/plugins/*.md and themeTokens.generated.ts are derived from code;
+        # a stale copy means the plugin surface changed without its documentation.
+        run: |
+          uv run python scripts/dev/gen_plugin_docs.py
+          uv run python scripts/dev/gen_theme_tokens.py
+
+  # ── Backend tests ───────────────────────────────────────────────────────
+  #
+  # Split from `backend` on purpose: lint + pyright are the seconds-long
+  # feedback and should not queue behind a MySQL container.
+  #
+  # Nothing ran pytest in CI before 2026-08-17. 6,266 tests — 128k lines, more
+  # than half the size of the code they cover — were enforced only by whoever
+  # remembered `make test` locally, and it showed: six tests had been failing
+  # on `dev` for weeks (the oldest since 2026-05-22) with nobody to notice.
+  # This is the same lesson the vitest step below already carries; the Python
+  # suite was simply the bigger instance of it.
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    # A PR whose whole subject is an invisible multi-minute hang has no business
+    # inheriting the 360-minute default.
+    timeout-minutes: 20
+
+    # The SQLite/MySQL dual-dialect contract is only a contract if both halves
+    # execute. The `*_mysql.py` dialect twins gate on the SAME env var NAME,
+    # NARRANEXUS_MYSQL_TEST_URL, and skip without it — so they only ever ran on
+    # a laptop with a container up, and never in CI at all. Production is
+    # MySQL: that was the unenforced half.
+    #
+    # Note WHERE that gate lives, because it is not what `tests/mysql_dialect.py`
+    # looks like it promises: one twin (tests/backend/test_team_room_activity_mysql.py)
+    # imports the shared helper and the rest each carry their own
+    # `MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"` copy, exactly as that helper's
+    # own docstring admits (migrating the copies is left to "whoever next touches
+    # them"). Renaming the env var in the helper alone would leave the copies
+    # silently skipping, and a skip is green, which is the regression class this
+    # job exists to stop. Held together by
+    # tests/test_mysql_gate_single_source.py until the copies are migrated.
+    #
+    # No twin COUNT is written here on purpose (the one-vs-rest split above is a
+    # different fact, and is true). It used to say NINE, in four places,
+    # and went stale the moment a tenth twin was added on another branch — a
+    # fact restated in prose has as many places to be wrong as it has
+    # restatements. That guard no longer writes a number either: it asserts by
+    # CONTENT that nothing gates on this env var from outside `*_mysql.py`, which
+    # is the fact a count was standing in for.
+    #
+    # NOT verified from the authoring machine (no docker socket access there),
+    # so treat the first run of this job as the verification. If a twin has
+    # bit-rotted, fix or quarantine that twin — do not delete the service.
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: nxtest
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        # Pinned in lockstep with build-desktop.yml — see the note there.
+        with:
+          version: "0.12.12"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --dev --extra plugins
+
+      - name: Pytest
+        env:
+          NARRANEXUS_MYSQL_TEST_URL: mysql://root:root@127.0.0.1:3306/nxtest
+        # `--durations` is not decoration. The one failure mode this suite has
+        # already hit is a test that passes and takes 321 seconds (an aiosqlite
+        # connection orphaned by a closed event loop, wedging the shared SQLite
+        # file for 10 retries x 30s busy_timeout). Green said nothing; the
+        # duration list was the only place it was visible.
+        run: uv run pytest -q --durations=15
 
   # ── Frontend checks ─────────────────────────────────────────────────────
   frontend:
@@ -65,6 +184,9 @@ jobs:
       - name: ESLint
         run: npm run lint || echo "::warning::ESLint has pre-existing issues — not blocking CI yet"
 
+      - name: Dependency direction (dependency-cruiser)
+        run: npm run lint:deps
+
       - name: Unit tests
         # Nothing in CI ran vitest before 2026-07-30, which made the
         # `no-native-dialogs` contract test (added the same day) enforceable only
@@ -74,3 +196,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Bundle budget (first-load set, no plugin code)
+        run: node scripts/check_bundle_budget.mjs

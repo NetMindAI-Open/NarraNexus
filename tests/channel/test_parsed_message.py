@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,

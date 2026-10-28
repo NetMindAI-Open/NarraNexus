@@ -21,15 +21,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module import matrix_trigger as mt_mod
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module import matrix_trigger as mt_mod
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
     _StreamReplyState,
 )
-from xyz_agent_context.schema.runtime_message import MessageType
+from narranexus.platform.schema.runtime_message import MessageType
 
 
 ROOM = "!room:matrix.netmind.chat"
@@ -243,7 +243,7 @@ async def test_run_stream_exception_surfaces_error_marker(trigger, monkeypatch):
             return _boom_stream(**kw)
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.client.get_agent_runtime_client",
+        "narranexus.platform.agent_runtime.client.get_agent_runtime_client",
         lambda: _FakeRuntimeClient(),
     )
 

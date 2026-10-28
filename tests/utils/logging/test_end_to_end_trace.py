@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from xyz_agent_context.utils.logging import bind_event, setup_logging, timed
-from xyz_agent_context.utils.logging._setup import _reset_for_tests
+from narranexus.platform.utils.logging import bind_event, setup_logging, timed
+from narranexus.platform.utils.logging._setup import _reset_for_tests
 
 
 @pytest.fixture(autouse=True)

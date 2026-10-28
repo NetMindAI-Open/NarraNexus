@@ -1,0 +1,132 @@
+{
+  "id": "acme.hello_world",
+  "version": "1.0.0",
+  "displayName": "Hello World",
+  "description": "Covers every contribution kind.",
+  "license": "MIT",
+  "minAppVersion": "0.0.0",
+  "api": {
+    "route": 0,
+    "table": 0,
+    "worker": 0,
+    "hook": 0,
+    "settings": 0,
+    "tool": 0,
+    "mcp_server": 0,
+    "bundle": 0,
+    "skill": 0,
+    "stage_strategy": 0,
+    "pipeline_profile": 0,
+    "context_provider": 0
+  },
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers",
+    "frontend"
+  ],
+  "backend": {
+    "package": "backend",
+    "pip": [],
+    "activate": true,
+    "publicPrefixes": [
+      "webhook"
+    ]
+  },
+  "frontend": {
+    "entry": "plugin.js",
+    "ui": {
+      "pages": [
+        {
+          "id": "acme.hello_world.home",
+          "path": "x/hello"
+        }
+      ],
+      "panels": [
+        {
+          "id": "acme.hello_world.panel"
+        }
+      ],
+      "commands": [
+        {
+          "id": "acme.hello_world.wave",
+          "label": "Wave"
+        }
+      ],
+      "themes": [
+        "acme.hello_world.theme"
+      ],
+      "messageRenderers": [
+        {
+          "id": "acme.hello_world.greeting",
+          "contentPrefix": "hello:"
+        }
+      ],
+      "timelineEvents": [
+        {
+          "id": "acme.hello_world.wave_event",
+          "type": "hello_wave"
+        }
+      ],
+      "slots": [
+        {
+          "id": "acme.hello_world.strip",
+          "point": "composerExtensions",
+          "when": [
+            "conversationKind:chat"
+          ],
+          "order": 50
+        },
+        {
+          "id": "acme.hello_world.header_wave",
+          "point": "chatHeaderActions",
+          "label": "Wave from header"
+        }
+      ]
+    }
+  },
+  "provides": {
+    "backend.routes": [
+      "nxplugins.acme_hello_world:ROUTES"
+    ],
+    "backend.tables": [
+      "nxplugins.acme_hello_world:TABLES"
+    ],
+    "backend.workers": [
+      "nxplugins.acme_hello_world:WORKERS"
+    ],
+    "backend.hooks": [
+      "nxplugins.acme_hello_world:HOOKS"
+    ],
+    "backend.settings": [
+      "nxplugins.acme_hello_world:SETTINGS"
+    ],
+    "agent.capabilities.tools": [
+      "nxplugins.acme_hello_world:TOOLS"
+    ],
+    "agent.capabilities.mcp_servers": [
+      "nxplugins.acme_hello_world:MCP_SERVERS"
+    ],
+    "content.bundles": [
+      "nxplugins.acme_hello_world:BUNDLES"
+    ],
+    "content.skills": [
+      "nxplugins.acme_hello_world:SKILLS"
+    ],
+    "turn.pipeline.recall": [
+      "nxplugins.acme_hello_world:RECALL_STRATEGIES"
+    ],
+    "turn.profiles": [
+      "nxplugins.acme_hello_world:PROFILES"
+    ],
+    "agent.capabilities.context_providers": [
+      "nxplugins.acme_hello_world:CONTEXT_PROVIDERS"
+    ]
+  },
+  "permissions": {
+    "network": [
+      "example.com"
+    ]
+  },
+  "quality": "gold"
+}

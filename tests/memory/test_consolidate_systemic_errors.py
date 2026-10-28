@@ -17,12 +17,12 @@ import httpx
 import openai
 import pytest
 
-from xyz_agent_context.memory._memory_impl.consolidate import (
+from narranexus.platform.memory._memory_impl.consolidate import (
     SystemicLLMError,
     _is_systemic_llm_error,
     consolidate,
 )
-from xyz_agent_context.memory.record import MemoryRecord
+from narranexus.platform.memory.record import MemoryRecord
 
 
 def _fact(text: str) -> MemoryRecord:

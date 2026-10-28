@@ -1,8 +1,70 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19（当天第二条）— cancel / reactivate 经 `_write_action` 带上 channel
+
+**`/reactivate` 没有服务端护栏，这是记录在案的决定，不是遗漏。** 实测确认它对一次性
+订阅会真的把 `auto_renew` 翻成 true，而阻止误用的只有前端不渲染那个按钮 —— 带着自己
+的 token curl 一下就能绕过。不加校验的理由：受影响的只是账号持有者自己的一个
+**无意义标志位**（上游没有任何东西会去续那个订阅，面板也因为 `resolveState` 的判断
+顺序仍然显示正确），为一个纯装饰性的位加一次同步上游往返不划算（铁律 #18 不要求为
+不存在的伤害做防御）。若日后给面板加「恢复自动续费」入口，校验属于 `reactivate`
+这个路由函数自己，**不要**塞进三个 action 共用的 `_write_action`。
+
+理由见 [[netmind_billing_client]]。要点是 `extra` 这个形参的价值在这里第二次兑现：
+两个端点**只**收到 `channel`，**绝不**收到 `_return_urls` —— 它们不开 Stripe
+checkout，没有可跳转的地方。有测试同时钉住这两件事（带 channel、不带 URL）。
+
+
+## 2026-08-18 — 支付宝 / 微信：payment_method + months + `GET /fx-rate`
+
+路由这一层只做三件事，币种映射不在这里（在 [[netmind_billing_client]]，那是上游
+契约所在的层）：
+
+- **`channel` 从 `settings.billing_channel` 注入，不从 body 读**。和 `_return_urls`
+  同一条判断：能选「哪个 Stripe 账号收款」的调用方，和能选「付完跳去哪」的调用方
+  是同一类攻击面。默认 `"nexus"`（只有这个账号开了支付宝和微信），留成 setting 是
+  为了出事时一个 deploy 切回 `"power"`。
+- **`RechargeRequest` 删掉 `currency`，换成 `payment_method`**。客户端仍然传
+  `currency` 的话**被忽略而不是拒绝** —— 滚动发布期间新后端会先于新前端上线，
+  两者的差别是「这个字段不起作用」还是「谁都付不了款」。
+- **`months` 传给卡订阅要报错，不能忽略**（`SubscribeRequest` 的
+  `model_validator`）。发"卡 + 6 个月"的人以为自己在买六个月，**静默按一个月扣款
+  是三种结果里最坏的那个**。用 `model_fields_set` 而不是哨兵默认值来区分"显式要了
+  1 个月"和"压根没提 months"。
+- `POST /subscribe` 的 body 是**可选**的：只想要卡订阅的调用方可以继续什么都不发。
+- **回跳 URL 覆盖到一次性订阅路径**（`_return_urls("subscription")` 对三种
+  payment_method 一视同仁）。上游确实消费它：2026-08-19 用 2026-07-30 那次同样的
+  控制组测过 —— 合法 URL 建 session（200），非法 URL 回
+  **500 `Failed to create prepaid-subscription checkout session`**。所以一次性
+  付款者被丢到陌生落地页同样是**我们的 bug**，和当年卡订阅那次性质一样。有测试钉住。
+- `GET /fx-rate` 的 `currency` **钉死 CNY**，不从 query 读 —— 这个账号只有 CNY
+  一种非美元币种，开成参数只是多一个「问上游我们没有界面能展示的问题」的入口。
+  读端点的错误映射与 `/plans` `/subscription` 一致：业务 4xx 也归 502。
+
+**⚠ 作废下方 2026-07-05 条目里的一句**：那里把 `RechargeRequest` 写成
+「amount>0, currency=USD」—— `currency` 已经不是请求字段了。同条目里
+"success_url/cancel_url 不从客户端接受"的判断依旧成立，且现在扩展到了 `channel`。
+
+## 2026-08-10 — checkout and subscription facts
+
+Successful subscribe responses record `checkout_created` keyed by Stripe
+session. Because this repository receives no Stripe/NetMind webhook, an ACTIVE
+subscription read records `subscription_activated` only when the upstream also
+returns a stable subscription/cycle identity and authoritative start time. The
+event ID hashes user plus that identity (so re-subscriptions can fire without
+leaking the user ID), and `occurred_at` uses the upstream timestamp instead of
+poll time. A bare ACTIVE snapshot is deliberately not guessed into a fact.
+
+## 2026-08-06 — 7 处 NetMind 401 改带 `netmind_token_invalid`
+
+全部 `HTTPException(401)` → `AuthError(NETMIND_TOKEN_INVALID)`。行为不变
+（仍是 401），但前端不再需要靠"端点前缀是不是 `/api/billing/`"来判断该不该
+登出——那份手写豁免清单已随 [[authFailure.ts]] 的允许清单一起删掉了。
+见 [[auth_errors]]。
 
 ## 2026-07-30 — 付款后跳回站内：`_return_urls`（取代下方 2026-07-05 的判断）
 

@@ -1,7 +1,7 @@
 """
 @file_name: test_loop_event_contract.py
 @date: 2026-07-27
-@description: Contract tests for agent_framework.loop.events — the single
+@description: Contract tests for narranexus.contracts.agent_events — the single
 source of truth for the legacy driver event-dict shapes.
 
 The six shapes (raw_response_event × {text.delta, done, error} and
@@ -14,7 +14,7 @@ LegacyEventAdapter) and any consumer reference one shared definition.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.contracts.agent_events import (
     CLI_ERROR_TYPES,
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
@@ -29,7 +29,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     raw_error_event,
     raw_text_delta_event,
 )
-from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
+from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
 
 
 # ---------------- The exact legacy strings are pinned ----------------

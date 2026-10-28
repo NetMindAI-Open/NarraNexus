@@ -2,6 +2,7 @@
  * Utility functions
  */
 
+import i18n from '@/i18n';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -41,11 +42,93 @@ function parseUTCTimestamp(timestamp: number | string): Date {
 }
 
 /**
- * Format timestamp to readable string
+ * Relative "x minutes/days/months ago" label for chat message meta rows
+ * (claude.ai convention). Locale-aware via Intl.RelativeTimeFormat, so all
+ * shipped UI languages come for free — pass i18n.language. `numeric: 'auto'`
+ * yields natural forms ("yesterday" / "昨天") at the unit boundaries. The
+ * exact date+time stays in the caller's tooltip. Distinct from the older
+ * English-only `formatRelativeTime` (jobs/system surfaces, capped at 7d).
+ */
+export function formatMessageAge(
+  timestamp: number | string,
+  locale?: string,
+): string {
+  const date = parseUTCTimestamp(timestamp);
+  // An unparseable timestamp must degrade to an empty label, not a render
+  // crash: Intl.RelativeTimeFormat.format(NaN) throws a RangeError.
+  if (!Number.isFinite(date.getTime())) return '';
+  const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
+  let rtf: Intl.RelativeTimeFormat;
+  try {
+    rtf = new Intl.RelativeTimeFormat(locale || undefined, { numeric: 'auto' });
+  } catch {
+    // Unknown/partial locale tag — fall back to the runtime default.
+    rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  }
+  if (diffSec < 45) return rtf.format(0, 'second'); // "now"
+  const min = Math.round(diffSec / 60);
+  if (min < 60) return rtf.format(-min, 'minute');
+  const hr = Math.round(min / 60);
+  if (hr < 24) return rtf.format(-hr, 'hour');
+  const day = Math.round(hr / 24);
+  if (day < 30) return rtf.format(-day, 'day');
+  const month = Math.round(day / 30);
+  if (month < 12) return rtf.format(-month, 'month');
+  return rtf.format(-Math.round(day / 365), 'year');
+}
+
+/**
+ * The locale to format dates and times in: whatever language the user is
+ * actually running.
+ *
+ * Read on EVERY call, never captured in a module constant — the language
+ * switcher changes it at runtime, and a captured value would leave every
+ * timestamp in the previous language until a reload.
+ *
+ * A malformed or empty tag falls back to the browser's own locale rather than
+ * throwing: Intl rejects bad tags, and one stale preference in storage should
+ * not blank every timestamp in the product. Exported so every date formatter in
+ * the product goes through the same guard — the team transcript reached for
+ * `i18n.language` directly and got neither the fallback (a RangeError thrown
+ * during render takes the whole transcript to an error boundary, not just one
+ * blank timestamp) nor `resolvedLanguage` (so a `zh` that resolves to `zh-CN`
+ * formatted the day separators and the message times differently).
+ *
+ * Call it; do not memoise it. See the note about the runtime language switcher
+ * above.
+ */
+export function activeLocale(): string | undefined {
+  try {
+    const tag = i18n.resolvedLanguage || i18n.language || '';
+    if (!tag) return undefined;
+    // Throws on a malformed tag; `undefined` then means "browser default".
+    new Intl.DateTimeFormat(tag);
+    return tag;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Absolute date+time label in the viewer's locale, parsed as UTC (backend
+ * timestamps carry no zone marker; a bare `new Date` would read them as
+ * local time and disagree with every relative label next to them).
+ */
+export function formatAbsolute(timestamp: number | string, locale?: string): string {
+  const date = parseUTCTimestamp(timestamp);
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleString(locale || undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
+/**
+ * Format timestamp to readable string, in the user's language.
  */
 export function formatTime(timestamp: number | string): string {
   const date = parseUTCTimestamp(timestamp);
-  return date.toLocaleTimeString('zh-CN', {
+  return date.toLocaleTimeString(activeLocale(), {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -53,11 +136,11 @@ export function formatTime(timestamp: number | string): string {
 }
 
 /**
- * Format date to readable string
+ * Format date to readable string, in the user's language.
  */
 export function formatDate(timestamp: number | string): string {
   const date = parseUTCTimestamp(timestamp);
-  return date.toLocaleDateString('zh-CN', {
+  return date.toLocaleDateString(activeLocale(), {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

@@ -12,7 +12,7 @@ Subproject 2 endpoints (under /api/bundle):
 - GET  /skills/archives           List skill archives for current user
 """
 
-import io
+import asyncio
 import json
 import os
 import shutil
@@ -27,12 +27,19 @@ from fastapi.responses import StreamingResponse, FileResponse
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-from xyz_agent_context.bundle.importer import preflight, confirm
-from xyz_agent_context.bundle.security import MAX_BUNDLE_BYTES, file_sha256
-from xyz_agent_context.repository import SkillArchiveRepository
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+from narranexus.platform.bundle.importer import preflight, confirm
+from narranexus.platform.bundle.security import (
+    MAX_BUNDLE_BYTES,
+    file_sha256,
+    validate_skill_archive_bytes,
+)
+from narranexus.platform.bundle.skill_backup import archive_target, ensure_archive_dir
+from narranexus.platform.repository import SkillArchiveRepository
+from narranexus.platform.utils.file_safety import enforce_max_bytes
 from backend.auth import resolve_current_user_id
+from backend.config import settings as backend_settings
 
 
 router = APIRouter()
@@ -56,8 +63,12 @@ class SkillExportSpec(BaseModel):
     source_url: Optional[str] = None
     source_type: Optional[str] = "github"
     branch: Optional[str] = "main"
-    archive_path: Optional[str] = None
-    manual_zip_path: Optional[str] = None
+    # SEC-07: there is deliberately NO archive_path / manual_zip_path here.
+    # The client used to echo back the archive path it read from
+    # GET /skills/archives, and the builder copied that path into the zip it
+    # streams out — arbitrary local file read for any authenticated user
+    # (`archive_path: "/etc/passwd"`). The builder now resolves archives
+    # itself from `skill_archives` for the requesting user.
 
 
 class ExportRequest(BaseModel):
@@ -122,8 +133,6 @@ async def export_bundle(payload: ExportRequest, request: Request):
             "source_url": s.source_url,
             "source_type": s.source_type,
             "branch": s.branch,
-            "archive_path": s.archive_path,
-            "manual_zip_path": s.manual_zip_path,
         }
         for s in payload.skills
     ]
@@ -153,7 +162,10 @@ async def export_bundle(payload: ExportRequest, request: Request):
         shutil.rmtree(out_dir, ignore_errors=True)
         # B6: surface SensitiveZipDetected as 409 with structured payload
         # so the frontend can show a per-skill confirmation modal.
-        from xyz_agent_context.bundle.builder import SensitiveZipDetected
+        from narranexus.platform.bundle.builder import (
+            BundleForbidden,
+            SensitiveZipDetected,
+        )
         if isinstance(e, SensitiveZipDetected):
             raise HTTPException(
                 status_code=409,
@@ -163,8 +175,15 @@ async def export_bundle(payload: ExportRequest, request: Request):
                     "hits": e.hits,
                 },
             )
+        # The builder refuses an agent or team the exporter does not own with
+        # BundleForbidden — an authorization verdict, not a server fault:
+        # answer 403 without echoing the foreign id. Matched by type only; a
+        # ValueError that merely reads "Forbidden..." stays a 500 below.
+        if isinstance(e, BundleForbidden):
+            logger.warning(f"export refused for {user_id}: {e}")
+            raise HTTPException(status_code=403, detail="Forbidden")
         logger.exception("export build failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to build the export.")
 
     # Stream the file back; clean up on close.
     def iterfile():
@@ -199,7 +218,10 @@ async def export_bundle(payload: ExportRequest, request: Request):
 async def import_preflight(file: UploadFile = File(...), request: Request = None):
     user_id = await _user_id_for_request(request)
     tmpdir = Path(tempfile.mkdtemp(prefix="nx-preflight-"))
-    bundle_path = tmpdir / (file.filename or "upload.nxbundle")
+    # FIXED name: the multipart filename is client-controlled and Starlette
+    # passes it through verbatim — "../x" or "/abs/path" would decide where
+    # the bytes land (and get unlinked afterwards). Same rule as marketplace.
+    bundle_path = tmpdir / "upload.nxbundle"
 
     try:
         contents = await file.read()
@@ -210,7 +232,7 @@ async def import_preflight(file: UploadFile = File(...), request: Request = None
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("preflight failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Bundle preflight failed.")
     finally:
         # Bundle file copy is not needed beyond preflight (the extracted dir lives elsewhere)
         try:
@@ -233,7 +255,7 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("confirm failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Bundle import failed.")
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +273,8 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
 #  - URL host allowlist  → SSRF defense (the classic Capital-One-style attack
 #    where a public fetch endpoint is turned into a tunnel into internal
 #    services / cloud metadata IPs)
+#  - cloud: https + default port (443) only → an allowlisted host can't be
+#    port-scanned / reached over plaintext through this endpoint
 #  - per-request size cap → bound disk usage
 #  - per-request timeout  → bound request lifetime / connection-pool exhaustion
 #  - optional sha256      → integrity + prevents the website serving a wrong
@@ -286,7 +310,7 @@ def _allowed_fetch_hosts() -> set[str]:
       3. Cloud mode default — narra.nexus only, no loopback (loopback in cloud
          mode would be an SSRF foothold)
     """
-    from xyz_agent_context.settings import settings  # late import — avoid cycle
+    from narranexus.platform.settings import settings  # late import — avoid cycle
     explicit = os.environ.get("BUNDLE_FETCH_ALLOWED_HOSTS", "").strip()
     if explicit:
         raw = explicit
@@ -301,6 +325,26 @@ def _host_allowed(host: Optional[str]) -> bool:
     if not host:
         return False
     return host.lower() in _allowed_fetch_hosts()
+
+
+def _scheme_and_port_allowed(parsed) -> bool:
+    """Cloud only: https on the default port, on top of the host allowlist.
+
+    The allowlist pins WHICH host; without this, ``http://`` or ``:22`` /
+    ``:8443`` on an allowlisted host still lets a caller probe other services
+    on it. Local/desktop keeps http + any port (the dev website runs on
+    ``http://localhost:3001``). An unparseable port is a reject.
+    """
+    from narranexus.platform.settings import settings  # late import — avoid cycle
+    if not settings.is_cloud_mode:
+        return True
+    if parsed.scheme != "https":
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return port in (None, 443)
 
 
 async def _stream_download(url: str, dst: Path) -> None:
@@ -344,7 +388,8 @@ async def _stream_download(url: str, dst: Path) -> None:
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="upstream fetch timed out")
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"upstream fetch failed: {e}")
+        logger.warning(f"bundle from-url upstream fetch failed: {e}")
+        raise HTTPException(status_code=502, detail="upstream fetch failed")
 
 
 class ImportFromUrlRequest(BaseModel):
@@ -379,6 +424,11 @@ async def import_from_url(payload: ImportFromUrlRequest, request: Request):
                 "allowlist. Set BUNDLE_FETCH_ALLOWED_HOSTS to extend."
             ),
         )
+    if not _scheme_and_port_allowed(parsed):
+        raise HTTPException(
+            status_code=400,
+            detail="bundle URLs must use https on the default port (443)",
+        )
 
     # ── 2. Fetch + (optional) sha256 verify + preflight ───────────────────
     tmpdir = Path(tempfile.mkdtemp(prefix="nx-from-url-"))
@@ -410,7 +460,7 @@ async def import_from_url(payload: ImportFromUrlRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("from-url import failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Import from URL failed.")
     finally:
         # preflight has already copied what it needs into its own work_dir,
         # so the staged download file is no longer needed.
@@ -570,19 +620,41 @@ async def upload_archive(
     source_url: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
 ):
-    """Manual archive upload: user provides a zip (or a GitHub URL) for a skill that's missing an archive."""
-    user_id = await _user_id_for_request(request)
-    db = await get_db_client()
-    repo = SkillArchiveRepository(db)
+    """Manual archive upload: user provides a zip (or a GitHub URL) for a skill that's missing an archive.
 
-    archives_dir = Path.home() / ".nexusagent" / "skill_archives" / user_id
-    archives_dir.mkdir(parents=True, exist_ok=True)
+    SEC-07: `skill_name` is a client-supplied Form field that used to be
+    spliced straight into the on-disk archive path, so `../` escaped the
+    per-user directory (proven cross-user file write). It is now validated
+    up front — before any DB or filesystem work — via
+    `skill_backup.archive_target`, the single sanctioned path builder. The
+    `ValueError` it raises is user-actionable input validation, so it maps to
+    400; letting it surface as a 500 would repeat the #113 BadZipFile
+    mistake.
+
+    Invariant every 4xx here upholds: no bytes on disk, no directory created,
+    no DB row. `archive_target` is pure precisely so that holds — the parent
+    dir is created at the write (`ensure_archive_dir`), not at validation.
+    """
+    user_id = await _user_id_for_request(request)
+
+    # Validate first: a rejected request must not create a user directory,
+    # write bytes, or leave a DB row behind.
+    try:
+        target = archive_target(user_id, skill_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if source_type not in ("github", "zip"):
+        raise HTTPException(status_code=400, detail="source_type must be 'github' or 'zip'")
 
     if source_type == "github":
         if not source_url:
             raise HTTPException(status_code=400, detail="source_url required for github")
+        db = await get_db_client()
         # Defer actual tarball download to lazy time; record source.
-        await repo.upsert(
+        # `target` went unused on this branch — it was computed only to
+        # validate `skill_name`, which still has to happen here.
+        await SkillArchiveRepository(db).upsert(
             user_id=user_id,
             skill_name=skill_name,
             source_type="github",
@@ -592,22 +664,52 @@ async def upload_archive(
         )
         return {"success": True, "skill_name": skill_name, "source_type": "github"}
 
-    if source_type == "zip":
-        if not file:
-            raise HTTPException(status_code=400, detail="file required for zip")
-        target = archives_dir / f"{skill_name}.zip"
-        contents = await file.read()
-        target.write_bytes(contents)
-        from xyz_agent_context.bundle.security import bytes_sha256
-        sha = bytes_sha256(contents)
-        await repo.upsert(
-            user_id=user_id,
-            skill_name=skill_name,
-            source_type="zip",
-            source_url=None,
-            archive_path=str(target),
-            sha256=sha,
+    # source_type == "zip". Bind and use `contents` in one branch: relying on
+    # the check above to guarantee it is bound down here means adding a third
+    # source_type turns into a NameError/500 instead of a clean 400.
+    if not file:
+        raise HTTPException(status_code=400, detail="file required for zip")
+    contents = await file.read()
+    try:
+        # Size first: it is the cheap check, and "too big" is the more
+        # actionable message when both would fire.
+        enforce_max_bytes(
+            len(contents),
+            backend_settings.max_upload_bytes,
+            label="Skill archive",
         )
-        return {"success": True, "skill_name": skill_name, "source_type": "zip", "sha256": sha}
+        # Then: are these bytes a usable skill archive? Accepting anything here
+        # used to push the failure one endpoint away — `/export` opened the
+        # archive in `scan_zip_for_sensitive`, raised `BadZipFile`, and returned
+        # a 500 naming neither the skill nor the file. The installer
+        # (`skill_module._extract_zip_safely`) has enforced entry/size caps all
+        # along; this admission point had nothing.
+        #
+        # Metadata only — it must never decompress. See
+        # `security._validate_skill_archive` for why (a 50 MB upload deflates to
+        # ~50 GB).
+        #
+        # Still off the event loop: parsing the central directory is itself
+        # O(entries), and `ZipFile()` materialises every `ZipInfo` BEFORE our
+        # entry cap can reject them. Measured: a 33 MB upload declaring 400k
+        # empty members costs 655 ms of pure sync CPU. That is 1-2 orders of
+        # magnitude below the decompression bomb it replaced, but it is the same
+        # failure mode — one user's request stalling everyone else's frames — so
+        # it belongs in a thread regardless of how cheap the check "should" be.
+        await asyncio.to_thread(validate_skill_archive_bytes, contents)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    raise HTTPException(status_code=400, detail="source_type must be 'github' or 'zip'")
+    ensure_archive_dir(target).write_bytes(contents)
+    from narranexus.platform.bundle.security import bytes_sha256
+    sha = bytes_sha256(contents)
+    db = await get_db_client()
+    await SkillArchiveRepository(db).upsert(
+        user_id=user_id,
+        skill_name=skill_name,
+        source_type="zip",
+        source_url=None,
+        archive_path=str(target),
+        sha256=sha,
+    )
+    return {"success": True, "skill_name": skill_name, "source_type": "zip", "sha256": sha}

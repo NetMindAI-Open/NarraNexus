@@ -11,10 +11,10 @@ _detect_narrative_routing_signal returns the LAST such (kind, args) or None.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_4_persist_results import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_4_persist_results import (
     _detect_narrative_routing_signal,
 )
-from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+from narranexus.platform.schema import ProgressMessage, ProgressStatus
 
 
 def _tool_pm(tool_name: str, arguments: dict) -> ProgressMessage:
@@ -37,7 +37,7 @@ def test_detects_create_with_title():
 
 
 def test_none_when_no_routing_tool():
-    resp = [_tool_pm("mcp__chat_module__send_message_to_user_directly", {"content": "hi"})]
+    resp = [_tool_pm("mcp__chat_module__notify_owner", {"content": "hi"})]
     assert _detect_narrative_routing_signal(resp) is None
     assert _detect_narrative_routing_signal([]) is None
 

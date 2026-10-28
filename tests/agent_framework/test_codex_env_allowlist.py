@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from xyz_agent_context.agent_framework.adapters.codex._env import (
+from narranexus_plugins.frameworks_codex_cli._env import (
     build_codex_subprocess_env,
 )
 

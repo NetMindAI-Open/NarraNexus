@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import xyz_agent_context.message_bus  # noqa: F401 — registers the bus handler
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import ProgressMessage
-from xyz_agent_context.schema.runtime_message import ProgressStatus
+import narranexus.platform.message_bus  # noqa: F401 — registers the bus handler
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import ProgressMessage
+from narranexus.platform.schema.runtime_message import ProgressStatus
 
 
 def _module() -> ChatModule:
@@ -37,7 +37,7 @@ def _tool_progress(tool_name: str, content: str) -> ProgressMessage:
 
 def test_bus_only_delivery_is_not_owner_visible():
     im, direct, combined = _module()._split_user_visible_response(
-        [_tool_progress("mcp__message_bus_module__bus_send_to_agent", "peer reply")],
+        [_tool_progress("mcp__message_bus_module__message_agent", "peer reply")],
         "message_bus",
     )
     assert (im, direct, combined) == ("", "", "")
@@ -46,9 +46,9 @@ def test_bus_only_delivery_is_not_owner_visible():
 def test_owner_relay_on_bus_turn_stays_visible():
     im, direct, combined = _module()._split_user_visible_response(
         [
-            _tool_progress("mcp__message_bus_module__bus_send_message", "to peers"),
+            _tool_progress("mcp__message_bus_module__message_team", "to peers"),
             _tool_progress(
-                "mcp__chat_module__send_message_to_user_directly", "for owner"
+                "mcp__chat_module__notify_owner", "for owner"
             ),
         ],
         "message_bus",

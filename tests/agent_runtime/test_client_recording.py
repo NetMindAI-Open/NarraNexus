@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_runtime.client import InProcessAgentRuntimeClient
-from xyz_agent_context.agent_runtime.run_recorder import (
+from narranexus.platform.agent_runtime.client import InProcessAgentRuntimeClient
+from narranexus.platform.agent_runtime.run_recorder import (
     RECORDING_DISABLED_ENV,
     STATE_COMPLETED,
     STATE_FAILED,
 )
-from xyz_agent_context.schema.runtime_message import MessageType
+from narranexus.platform.schema.runtime_message import MessageType
 
 
 class _WireMsg:
@@ -97,13 +97,13 @@ def patch_stack(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         fake_get_db_client,
     )
 
     def set_runtime(rt):
         monkeypatch.setattr(
-            "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+            "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
             lambda: rt,
         )
 
@@ -189,3 +189,67 @@ async def test_run_stream_records_and_yields(patch_stack, db_client):
         await db_client.get("event_stream", {"event_id": "evt_trig4"})
     )
     assert kinds == ["progress", "text_delta", "thinking_segment", "tool_call"]
+
+
+def _fatal_error_events(event_id: str) -> list[_WireMsg]:
+    """A turn that ends with a fatal ErrorMessage but NO python exception
+    -- the shape `output_transfer`/`event_adapter` produce for a dead
+    key, quota exhaustion, or (B-03) an output-budget truncation whose
+    retry was also exhausted. The generator returns normally afterwards,
+    exactly like a genuine success would."""
+    return [
+        _WireMsg(
+            {"type": "progress", "step": "0", "status": "completed",
+             "details": {"event_id": event_id}},
+        ),
+        _WireMsg(
+            {"type": "error", "error_type": "output_truncated",
+             "error_message": "model output truncated: thinking exhausted "
+                               "the output budget (max_tokens=8192)",
+             "severity": "fatal"},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_and_collect_finalizes_failed_on_fatal_error_without_exception(
+    patch_stack, db_client,
+):
+    """GH #127 / B-05: a fatal ErrorMessage ends the generator NATURALLY
+    (no raised exception) -- the old behaviour finalized this
+    STATE_COMPLETED with an empty error_message, so ops only had
+    `[AGENT-LOOP-RECOVERABLE]` log lines and the Run-observation UI
+    showed a green "completed" run with no reply. `recorder.had_fatal_error`
+    must now flip the persisted terminal state to STATE_FAILED with a
+    human-readable error_message, exactly like a raised exception does."""
+    await _seed_events_row(db_client, "evt_fatal1")
+    patch_stack(_FakeRuntime(_fatal_error_events("evt_fatal1")))
+
+    # No exception raised -- collect_run finishes normally.
+    await InProcessAgentRuntimeClient().run_and_collect(
+        agent_id="agent_test", user_id="u_test",
+        input_content="hi", working_source="lark",
+    )
+
+    row = await db_client.get_one("events", {"event_id": "evt_fatal1"})
+    assert row["state"] == STATE_FAILED
+    assert "output budget" in (row["error_message"] or "")
+
+
+@pytest.mark.asyncio
+async def test_run_stream_finalizes_failed_on_fatal_error_without_exception(
+    patch_stack, db_client,
+):
+    await _seed_events_row(db_client, "evt_fatal2")
+    patch_stack(_FakeRuntime(_fatal_error_events("evt_fatal2")))
+
+    seen = [
+        event async for event in InProcessAgentRuntimeClient().run_stream(
+            agent_id="agent_test", user_id="u_test", input_content="hi",
+        )
+    ]
+    assert len(seen) == 2  # consumer still sees every original message
+
+    row = await db_client.get_one("events", {"event_id": "evt_fatal2"})
+    assert row["state"] == STATE_FAILED
+    assert "output budget" in (row["error_message"] or "")

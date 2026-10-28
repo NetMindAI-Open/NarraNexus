@@ -2,182 +2,53 @@
  * @file_name: AgentRowMenu.tsx
  * @author:
  * @date: 2026-06-10
- * @description: Kebab (⋮) context menu for a single agent row. Exposes
- * rename, delete, and optional public/private toggle. Extracted from the
- * inline action buttons in AgentList so the row markup stays clean and the
- * menu entries can be tested independently.
+ * @description: Kebab (⋯) context menu for a single sidebar agent row —
+ * Rename, Model & framework, Delete.
+ *
+ * OWNER-REQUIRED entry (2026-09-11): #383 deleted this menu as a duplicate of
+ * the agent profile page, and the Owner asked for it back ("the three dots
+ * behind each agent are gone, restore them: rename / delete / setting
+ * model"). Do not remove it as redundant — the profile page is a second door,
+ * not a replacement.
+ *
+ * The dropdown shell (trigger, panel, dismissal) is the shared RowKebabMenu,
+ * same as TeamRowMenu. The host renders it only for agents the viewer owns
+ * (every action is owner-only server-side).
  */
 
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical, Pencil, SquarePen, Trash2, Globe, Lock, Eraser } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { RowKebabMenu } from './RowKebabMenu';
 
 export interface AgentRowMenuProps {
-  agentId: string;
-  agentName: string;
-  isOwner: boolean;
-  isPublic: boolean;
-  showPublicToggle: boolean;
-  onStartEdit: (e: React.MouseEvent) => void;
-  onEditAgent: (e: React.MouseEvent) => void;
-  onClearData: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onTogglePublic: (e: React.MouseEvent) => void;
-  /** Fired on open/close so the host row can lift its z-index above
-   *  the rows below (each row is a stacking context — animate-slide-up
-   *  retains a transform — so the panel's own z-index cannot escape). */
+  /** Start the row's inline rename. */
+  onRename: () => void;
+  /** Open the agent's model & framework panel (AgentLlmConfigPanel). */
+  onOpenModelConfig: () => void;
+  /** Delete the agent (the host confirms first). */
+  onDelete: () => void;
+  /** Fired on open/close so the host row can lift its z-index above the rows
+   *  below (see RowKebabMenu). */
   onOpenChange?: (open: boolean) => void;
 }
 
-/**
- * Kebab menu (⋮) attached to each agent row.
- *
- * Opens inline as an absolute-positioned panel — no Radix Popover — so it
- * works inside the sidebar scroll container without portal clipping.
- *
- * Only owner-specific actions (delete, public toggle) are hidden when
- * isOwner=false.  The rename action is always shown because any user can
- * rename an agent they can see (backend enforces real ownership).
- */
-export function AgentRowMenu({
-  isOwner,
-  isPublic,
-  showPublicToggle,
-  onStartEdit,
-  onEditAgent,
-  onClearData,
-  onDelete,
-  onTogglePublic,
-  onOpenChange,
-}: AgentRowMenuProps) {
+export function AgentRowMenu({ onRename, onOpenModelConfig, onDelete, onOpenChange }: AgentRowMenuProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  // Notify the parent from the event handler (NOT inside a setState updater —
-  // that runs during render and triggers a cross-component setState warning).
-  const setOpenAndNotify = (next: boolean) => {
-    setOpen(next);
-    onOpenChange?.(next);
-  };
-
-  const handleTrigger = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOpenAndNotify(!open);
-  };
-
-  const handleItem = (handler: (e: React.MouseEvent) => void) => (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setOpenAndNotify(false);
-    handler(e);
-  };
-
   return (
-    <div className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
-      <button
-        aria-label={t('layout.agentRowMenu.options')}
-        onClick={handleTrigger}
-        className={cn(
-          'p-1 rounded-[var(--radius-xs)] transition-colors',
-          'hover:bg-[var(--nm-paper-warm)]',
-          open && 'bg-[var(--nm-paper-warm)]',
-        )}
-      >
-        <MoreVertical className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
-      </button>
-
-      {open && (
-        <>
-          {/* Click-outside overlay */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={(e) => { e.stopPropagation(); setOpenAndNotify(false); }}
-          />
-          <div
-            className={cn(
-              'absolute right-0 top-full mt-0.5 z-50',
-              'min-w-[120px] py-0.5',
-              'rounded-[var(--radius-sm)] border shadow-md',
-              'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
-            )}
-          >
-            {/* Rename — quick inline name edit, available to everyone */}
-            <MenuItem
-              icon={<Pencil className="w-3 h-3" />}
-              label={t('layout.agentRowMenu.rename')}
-              onClick={handleItem(onStartEdit)}
-            />
-
-            {/* Edit — full name + description editor (the only UI for the
-                description field). Available to everyone; backend enforces
-                ownership on the save. */}
-            <MenuItem
-              icon={<SquarePen className="w-3 h-3" />}
-              label={t('layout.agentRowMenu.edit')}
-              onClick={handleItem(onEditAgent)}
-            />
-
-            {/* Owner-only: public/private toggle */}
-            {showPublicToggle && isOwner && (
-              <MenuItem
-                icon={
-                  isPublic
-                    ? <Globe className="w-3 h-3" />
-                    : <Lock className="w-3 h-3" />
-                }
-                label={isPublic ? t('layout.agentRowMenu.setPrivate') : t('layout.agentRowMenu.setPublic')}
-                onClick={handleItem(onTogglePublic)}
-              />
-            )}
-
-            {/* Owner-only: clear conversation & memory */}
-            {isOwner && (
-              <MenuItem
-                icon={<Eraser className="w-3 h-3" />}
-                label={t('layout.agentRowMenu.clearData')}
-                onClick={handleItem(onClearData)}
-              />
-            )}
-
-            {/* Owner-only: delete */}
-            {isOwner && (
-              <MenuItem
-                icon={<Trash2 className="w-3 h-3" />}
-                label={t('layout.agentRowMenu.delete')}
-                danger
-                onClick={handleItem(onDelete)}
-              />
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  danger,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  danger?: boolean;
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left',
-        'transition-colors',
-        danger
-          ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
-          : 'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)]',
-      )}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
+    <RowKebabMenu
+      ariaLabel={t('layout.agentRowMenu.options')}
+      minWidthClass="min-w-[150px]"
+      onOpenChange={onOpenChange}
+      items={[
+        { key: 'rename', icon: <Pencil className="w-3 h-3" />, label: t('layout.agentRowMenu.rename'), onSelect: onRename },
+        {
+          key: 'model',
+          icon: <SlidersHorizontal className="w-3 h-3" />,
+          label: t('layout.agentRowMenu.modelFramework'),
+          onSelect: onOpenModelConfig,
+        },
+        { key: 'delete', icon: <Trash2 className="w-3 h-3" />, label: t('layout.agentRowMenu.delete'), danger: true, onSelect: onDelete },
+      ]}
+    />
   );
 }

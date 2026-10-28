@@ -9,7 +9,7 @@ stub: false
 ## 为什么存在
 FastAPI 进程级 WebSocket session registry。Dashboard v2 的"public agent 并发会话可见"(G002) 依赖这个数据源：传统 `chatStore.isStreaming` 只能看到当前用户的流，看不到其他用户。Registry 是唯一能回答"有几个人正在跟这个 agent 说话"的权威源。
 
-**Not** `src/xyz_agent_context/services/` 同级的跨进程后台服务（那层是 `ModulePoller` / `InstanceSyncService`）——本文件只活在 FastAPI 进程内存，进程退出即清零。
+**Not** `src/narranexus/platform/services/` 同级的跨进程后台服务（那层是 `ModulePoller` / `InstanceSyncService`）——本文件只活在 FastAPI 进程内存，进程退出即清零。
 
 ## 上下游
 - 写入：`backend/routes/websocket.py::websocket_agent_run` 在 auth 通过后、MCP/Runtime 构造前 `add`；任何异常路径（MCP 失败、AgentRuntime 崩溃、WebSocketDisconnect、CancelledError）的最外层 `finally` `remove`

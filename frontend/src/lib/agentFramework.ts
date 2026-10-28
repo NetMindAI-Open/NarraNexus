@@ -11,20 +11,16 @@
  */
 
 import { isForcedCloud } from './runtimeConfig'
+// type-only import on purpose: providersApi imports @/lib/api at runtime,
+// and a value import here would create an agentFramework -> providersApi
+// -> api runtime cycle (api.ts only back-references types).
+import type { ProviderRow } from '@/lib/providersApi'
 
 // ---- shared types --------------------------------------------------------
 
-export interface ProviderSummary {
-  provider_id: string
-  name: string
-  source: string
-  protocol: string
-  auth_type: string
-  is_active: boolean
-  models: string[]
-  api_key_masked?: string
-  base_url?: string
-}
+// The row shape has ONE definition (providersApi.ProviderRow); this module
+// used to carry a fourth structural copy that three consumers cast into.
+export type ProviderSummary = ProviderRow
 
 export interface KnownModelMeta {
   model_id: string
@@ -45,16 +41,34 @@ export interface AgentFramework {
   protocols?: string[]
   label: string
   desc: string
+  /**
+   * Plugin-install gate (Claude Code / Codex CLI are user-installed local
+   * plugins — see `getPlugins` / Settings › Plugins). `undefined`/`true` =
+   * available; `false` = the plugin isn't installed, so the picker must
+   * still LIST it (never hide it — the user needs to see what to install)
+   * but render it `disabled`. Populated by `withFrameworkAvailability`,
+   * never set directly on `AGENT_FRAMEWORKS`.
+   */
+  available?: boolean
 }
 
-/** Whether a provider's protocol can back this framework. */
-export function frameworkAcceptsProtocol(
-  framework: AgentFramework | undefined,
-  protocol: string | undefined,
-): boolean {
-  if (!framework || !protocol) return true
-  const accepted = framework.protocols ?? [framework.protocol]
-  return accepted.includes(protocol)
+/**
+ * One entry of the LIVE `frameworks[]` array from
+ * `GET/POST /api/providers/agent-framework` — the shape `providerBacksFramework`
+ * / `availableFrameworks` read. The actual API response type (`lib/api.ts`
+ * `getAgentFramework`) carries more fields (`available`, `display_name`); this
+ * is declared as its own narrow type here so callers don't need to import
+ * `lib/api.ts` just to type the parameter they're forwarding.
+ */
+export interface LiveFrameworkEntry {
+  name: string
+  /**
+   * The backend's three-valued enum (`FrameworkMeta.protocol`): a specific
+   * protocol, or `'any'` for a framework that drives the provider API itself
+   * and works with either (NexusPower is sent as `'any'`).
+   */
+  protocol?: 'anthropic' | 'openai' | 'any'
+  oauth_source?: string | null
 }
 
 // ---- constants -----------------------------------------------------------
@@ -153,20 +167,6 @@ export function frameworkAllowedInCloud(
 export const SUBSCRIPTION_AUTH_TYPES = ['oauth', 'oauth_token']
 
 /**
- * Subscription card → the ONE framework that can spend it. Mirror of backend
- * ``provider_schema.CLI_FRAMEWORK_BY_OAUTH_SOURCE``.
- *
- * A subscription login is a credential for a specific CLI, not a generic
- * provider key: only the `claude` CLI can redeem a Claude Code Login, only
- * `codex` a Codex CLI Login. NexusPower drives the provider HTTP API and
- * refuses subscription credentials outright, so it appears in no value here.
- */
-export const CLI_FRAMEWORK_BY_OAUTH_SOURCE: Record<string, string> = {
-  claude_oauth: 'claude_code',
-  codex_oauth: 'codex_cli',
-}
-
-/**
  * Can this provider card actually back the AGENT slot under `framework`?
  * Frontend twin of backend ``provider_schema.framework_can_drive_provider``
  * (the gate inside ``validate_slot_binding``) — protocol first, then the
@@ -176,15 +176,36 @@ export const CLI_FRAMEWORK_BY_OAUTH_SOURCE: Record<string, string> = {
  * serves a framework WELL is the provider's characteristic, not something we
  * police (binding rule #15). This only refuses what is technically
  * unredeemable — and would otherwise fail in the middle of a run.
+ *
+ * `frameworks` (B6, 2026-09-07 final cut): the LIVE list from
+ * `GET/POST /api/providers/agent-framework`, each entry now carrying its own
+ * `protocol` and `oauth_source`. This is the ONLY source consulted for both
+ * gates — the old hardcoded mirrors (`AGENT_FRAMEWORKS`-as-protocol-table and
+ * a `CLI_FRAMEWORK_BY_OAUTH_SOURCE` map) are gone. **No list → fails closed**
+ * (`false`): a caller mid-load must not guess from a stale static copy, and
+ * every call site that has the list loaded is expected to pass it.
+ *
+ * `protocol` is the backend's three-valued enum (`FrameworkMeta.protocol`):
+ * `'anthropic'` / `'openai'` gate as expected; `'any'` (NexusPower's value —
+ * it drives the provider API itself and works with either) accepts every
+ * provider protocol. This is read straight off the live value, not branched
+ * on framework id — no `AGENT_FRAMEWORKS`/id-based special case is consulted.
  */
 export function providerBacksFramework(
   prov: Pick<ProviderSummary, 'source' | 'protocol' | 'auth_type'>,
   framework: string | null | undefined,
+  frameworks: LiveFrameworkEntry[] | undefined,
 ): boolean {
-  const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework)
-  if (!frameworkAcceptsProtocol(fw, prov.protocol)) return false
+  if (!frameworks) return false
+  const fw = frameworks.find((f) => f.name === framework)
+  if (fw?.protocol && fw.protocol !== 'any' && fw.protocol !== prov.protocol) {
+    return false
+  }
   if (!SUBSCRIPTION_AUTH_TYPES.includes(prov.auth_type)) return true
-  return (framework || 'claude_code') === CLI_FRAMEWORK_BY_OAUTH_SOURCE[prov.source]
+  const redeemer = frameworks.find((f) => f.oauth_source === prov.source)?.name
+  // No framework resolved yet redeems nothing — never read "unset" as a
+  // hardcoded Claude Code (on the lightweight build it may not be installed).
+  return !!framework && framework === redeemer
 }
 
 /**
@@ -206,16 +227,64 @@ export function providerBacksFramework(
  * (see `frameworkAllowedInCloud`'s call sites), which reads friendlier than a
  * silently shorter list. This function answers a different question — "can any
  * card of mine run it at all".
+ *
+ * `frameworks` (B6, 2026-09-07 final cut): forwarded straight into
+ * `providerBacksFramework` — see that function's doc for the fail-closed
+ * behavior when it is `undefined` (every non-`current` framework is filtered
+ * out, same as "nothing in the wallet can drive it").
  */
 export function availableFrameworks(
   providers: Array<Pick<ProviderSummary, 'source' | 'protocol' | 'auth_type'>>,
   current: string,
+  frameworks: LiveFrameworkEntry[] | undefined,
 ): AgentFramework[] {
   if (!providers.length) return AGENT_FRAMEWORKS
   return AGENT_FRAMEWORKS.filter(
     (f) =>
-      f.id === current || providers.some((p) => providerBacksFramework(p, f.id)),
+      f.id === current || providers.some((p) => providerBacksFramework(p, f.id, frameworks)),
   )
+}
+
+/**
+ * Turns the `frameworks` array from `GET/POST /api/providers/agent-framework`
+ * into a name→available lookup. A framework the backend didn't mention
+ * (older backend that predates plugin gating, or the array is entirely
+ * absent) is treated as available elsewhere — this map only records what
+ * the backend explicitly said, so the caller's "default true" policy lives
+ * in one place (`withFrameworkAvailability`) instead of being duplicated at
+ * every read site.
+ */
+export function frameworkAvailabilityMap(
+  frameworks: Array<{ name: string; available: boolean }> | undefined,
+): Record<string, boolean> {
+  const map: Record<string, boolean> = {}
+  for (const f of frameworks ?? []) map[f.name] = f.available
+  return map
+}
+
+/**
+ * Attaches the plugin-install gate to a framework list, defaulting to
+ * available when the map has no entry for that framework id. This NEVER
+ * hides a framework — unlike `availableFrameworks` (which hides frameworks
+ * no bindable provider can drive), an uninstalled plugin still needs to
+ * render so the user has something to click "install" on. The two gates
+ * compose by calling this on the output of `availableFrameworks`.
+ */
+export function withFrameworkAvailability(
+  frameworks: AgentFramework[],
+  availability: Record<string, boolean>,
+): AgentFramework[] {
+  return frameworks.map((f) => ({
+    ...f,
+    available: f.id in availability ? availability[f.id] : true,
+  }))
+}
+
+/** Whether a framework (already merged via `withFrameworkAvailability`) may
+ *  be selected right now — `undefined` (map had no entry, or was never
+ *  merged) counts as available. */
+export function isFrameworkAvailable(framework: Pick<AgentFramework, 'available'>): boolean {
+  return framework.available !== false
 }
 
 // What the helper_llm "Default (recommended)" resolves to per protocol.
@@ -225,22 +294,81 @@ export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
   anthropic: 'claude-haiku-4-5',
 }
 
-// Default helper-slot model when a provider is picked: the recommended CHEAP
-// model, never the flagship models[0] (the helper does small structured jobs).
-// OAuth providers list CLI family aliases, so the concrete
-// RECOMMENDED_HELPER_MODEL_BY_PROTOCOL id may be absent — map those to the alias
-// the backend auto-bind uses (claude→haiku, codex→gpt-5.4-mini). Falls back to
-// the first model only when none of the above is available.
-export function defaultHelperModel(
+// Per-SOURCE onboarding defaults. The table is SERVER-owned (model_catalog.py
+// ``get_onboard_defaults``: every source with an onboarding default; netmind_free
+// follows the FREE_TIER_*_MODEL ops env). ``refreshOnboardDefaults``
+// (lib/onboardDefaults.ts) loads it from GET /api/providers/catalog ->
+// ``onboard_defaults`` and the panels keep it in React state, passing it to the
+// pickers below as an explicit argument -- there is no module-level state, and
+// this file holds NO per-source model ids, so a backend default change needs no
+// frontend edit (the per-PROTOCOL helper table above is a separate,
+// frontend-owned fallback). With ``{}`` (not loaded) every pick falls back to the
+// first listed model -- deterministic, never an empty model. NetMind's synced
+// list starts with an omni model, which is why the panels report a failed load
+// instead of silently living on that fallback.
+export type OnboardDefaults = Record<string, { agent?: string; helper?: string }>
+
+// Default agent-slot model when a provider is picked: the source's onboarding
+// default when it is on the card, else the first listed model.
+export function defaultAgentModel(
+  source: string | undefined,
+  modelIds: string[],
+  defaults: OnboardDefaults,
+): string {
+  const rec = defaults[source || '']?.agent
+  if (rec && modelIds.includes(rec)) return rec
+  return modelIds[0] || ''
+}
+
+// The DELIBERATE helper pick for a provider — a model somebody chose on purpose
+// that is on the card: the source's server-owned onboarding default, the
+// protocol's recommended cheap model, or the OAuth CLI alias (OAuth providers
+// list family aliases, so the concrete protocol id may be absent — map those to
+// the alias the backend auto-bind uses: claude→haiku, codex→gpt-5.4-mini).
+// '' when none of them is on the card.
+function deliberateHelperModel(
   source: string | undefined,
   protocol: string | undefined,
   modelIds: string[],
+  defaults: OnboardDefaults,
 ): string {
+  const bySource = defaults[source || '']?.helper
+  if (bySource && modelIds.includes(bySource)) return bySource
   const rec = RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai']
   if (rec && modelIds.includes(rec)) return rec
   if (source === 'claude_oauth' && modelIds.includes('haiku')) return 'haiku'
   if (source === 'codex_oauth' && modelIds.includes('gpt-5.4-mini')) return 'gpt-5.4-mini'
-  return modelIds[0] || ''
+  return ''
+}
+
+// Default helper-slot model when a provider is picked: the deliberate pick,
+// never the flagship models[0] by preference (the helper does small structured
+// jobs) — the first listed model only when no deliberate pick is on the card.
+export function defaultHelperModel(
+  source: string | undefined,
+  protocol: string | undefined,
+  modelIds: string[],
+  defaults: OnboardDefaults,
+): string {
+  return deliberateHelperModel(source, protocol, modelIds, defaults) || modelIds[0] || ''
+}
+
+// The "Recommended: ..." helper hint. It names only a DELIBERATE pick: unlike the
+// auto-pick it must never fall back to the list head (that would read "Recommended:
+// claude-opus-4-8 — a small, fast model" on a curated flagship card, or the omni
+// model on a NetMind card). When no deliberate pick is on the card it shows the
+// protocol-table model instead.
+export function recommendedHelperModel(
+  source: string | undefined,
+  protocol: string | undefined,
+  modelIds: string[],
+  defaults: OnboardDefaults,
+): string {
+  return (
+    deliberateHelperModel(source, protocol, modelIds, defaults) ||
+    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[protocol || 'openai'] ||
+    'gpt-5.4-mini'
+  )
 }
 
 // Curated model list OpenAI's OWN codex backend (codex_oauth) accepts, gated by

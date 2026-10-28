@@ -19,13 +19,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 
 HOMESERVER = "matrix.netmind.chat"
@@ -86,7 +86,16 @@ def _member_event(
     )
 
 
-def test_apply_member_join_increments_count_and_stores_displayname():
+def _seed_verified_roster(t: MatrixTrigger, room: str, size: int) -> None:
+    """Seed a roster that a joined_members lookup already verified, and a
+    room with no ``ai.netmind.room_creation.v1`` state (404 already seen),
+    so the classifier trusts both without touching the (fake) client."""
+    t._room_joined[room] = {f"@member{i}:h" for i in range(size)}
+    t._room_roster_authoritative.add(room)
+    t._room_kind_checked.add(room)
+
+
+def test_apply_member_join_adds_to_roster_and_stores_displayname():
     t = MatrixTrigger()
     room = "!room1:h"
     t._apply_member_event(
@@ -95,11 +104,11 @@ def test_apply_member_join_increments_count_and_stores_displayname():
             state_key=OWNER_ID, membership="join", displayname="Owner"
         ),
     )
-    assert t._room_member_count[room] == 1
+    assert len(t._room_joined[room]) == 1
     assert t._display_name_cache[(room, OWNER_ID)] == "Owner"
 
 
-def test_apply_member_leave_decrements_and_drops_name():
+def test_apply_member_leave_removes_from_roster_and_drops_name():
     t = MatrixTrigger()
     room = "!room1:h"
     # Seed a join first so leave has something to subtract.
@@ -109,7 +118,7 @@ def test_apply_member_leave_decrements_and_drops_name():
             state_key=OWNER_ID, membership="join", displayname="Owner"
         ),
     )
-    assert t._room_member_count[room] == 1
+    assert len(t._room_joined[room]) == 1
     t._apply_member_event(
         room,
         _member_event(
@@ -118,32 +127,30 @@ def test_apply_member_leave_decrements_and_drops_name():
             prev_membership="join",
         ),
     )
-    assert t._room_member_count[room] == 0
+    assert len(t._room_joined[room]) == 0
     assert (room, OWNER_ID) not in t._display_name_cache
 
 
 def test_apply_member_re_join_is_idempotent_on_count():
-    """A duplicate join (no prev_membership='join') should count once."""
+    """A duplicate join (no prev_membership='join') counts once."""
     t = MatrixTrigger()
     room = "!room1:h"
     ev = _member_event(state_key=OWNER_ID, membership="join", displayname="Owner")
     t._apply_member_event(room, ev)
-    # Replaying the SAME event (prev_membership empty on both) would
-    # otherwise increment twice. The current rule increments on any
-    # not-was-joined -> is-joined transition; here prev_membership is
-    # empty (initial join), so replay counts as another initial join.
-    # If this changes, this test fails loudly and we know we changed
-    # semantics.
+    # Replaying the SAME event (state block + timeline, or a since-token
+    # rewind) must not inflate the room shape: the roster is a set keyed
+    # by MXID. The old running counter counted this twice, which is how
+    # a real 1:1 room could stop reading as a DM.
     t._apply_member_event(room, ev)
-    assert t._room_member_count[room] == 2  # documents current behavior
+    assert t._room_joined[room] == {OWNER_ID}
 
 
 @pytest.mark.asyncio
 async def test_classify_dm_when_member_count_two():
     t = MatrixTrigger()
     room = "!room:h"
-    t._room_member_count[room] = 2
-    fake_client = SimpleNamespace()  # not touched because cache hits
+    _seed_verified_roster(t, room, 2)
+    fake_client = SimpleNamespace()  # not touched: roster already verified
     target = await t._classify(
         fake_client, _msg(body="hi", chat_id=room), _cred()
     )
@@ -154,7 +161,7 @@ async def test_classify_dm_when_member_count_two():
 async def test_classify_group_mention_by_msc3952_intentional_mentions():
     t = MatrixTrigger()
     room = "!bigroom:h"
-    t._room_member_count[room] = 5
+    _seed_verified_roster(t, room, 5)
     fake_client = SimpleNamespace()
     target = await t._classify(
         fake_client,
@@ -168,7 +175,7 @@ async def test_classify_group_mention_by_msc3952_intentional_mentions():
 async def test_classify_group_mention_by_raw_mxid_inline():
     t = MatrixTrigger()
     room = "!bigroom:h"
-    t._room_member_count[room] = 5
+    _seed_verified_roster(t, room, 5)
     fake_client = SimpleNamespace()
     target = await t._classify(
         fake_client,
@@ -182,7 +189,7 @@ async def test_classify_group_mention_by_raw_mxid_inline():
 async def test_classify_group_mention_by_at_displayname():
     t = MatrixTrigger()
     room = "!bigroom:h"
-    t._room_member_count[room] = 5
+    _seed_verified_roster(t, room, 5)
     # Seed our own display name.
     t._display_name_cache[(room, AGENT_ID)] = "Agent Bot"
     fake_client = SimpleNamespace()
@@ -198,7 +205,7 @@ async def test_classify_group_mention_by_at_displayname():
 async def test_classify_group_silent_when_no_mention():
     t = MatrixTrigger()
     room = "!bigroom:h"
-    t._room_member_count[room] = 5
+    _seed_verified_roster(t, room, 5)
     t._display_name_cache[(room, AGENT_ID)] = "Agent Bot"
     fake_client = SimpleNamespace()
     target = await t._classify(
@@ -216,7 +223,7 @@ async def test_classify_bare_word_displayname_is_not_a_mention():
     "Agent" used to false-fire group_mention → a full agent run + reply."""
     t = MatrixTrigger()
     room = "!bigroom:h"
-    t._room_member_count[room] = 5
+    _seed_verified_roster(t, room, 5)
     t._display_name_cache[(room, AGENT_ID)] = "Agent"
     fake_client = SimpleNamespace()
     target = await t._classify(
@@ -233,7 +240,7 @@ async def test_classify_displayname_from_other_room_is_ignored():
     cached for a different room must not leak in as a mention here."""
     t = MatrixTrigger()
     other_room, this_room = "!roomA:h", "!roomB:h"
-    t._room_member_count[this_room] = 5
+    _seed_verified_roster(t, this_room, 5)
     t._display_name_cache[(other_room, AGENT_ID)] = "Agent"  # NOT this_room
     fake_client = SimpleNamespace()
     target = await t._classify(

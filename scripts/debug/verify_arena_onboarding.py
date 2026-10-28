@@ -81,7 +81,7 @@ def main() -> None:
         _check(cj.get("agent_id") == creds.agent_id, "credentials.json agent_id matches")
 
         # The real test: does the running agent's SkillModule consume these files?
-        from xyz_agent_context.module.skill_module.skill_module import SkillModule
+        from narranexus_plugins.skill_module.skill_module import SkillModule
 
         sm = SkillModule(agent_id=agent_id, user_id=user_id, database_client=None)
         sm.skills_dir = workspace / "skills"  # point at our temp workspace

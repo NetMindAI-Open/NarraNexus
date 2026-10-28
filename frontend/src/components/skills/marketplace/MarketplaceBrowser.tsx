@@ -86,7 +86,7 @@ export function MarketplaceBrowser({
           </h3>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+            className="p-1.5 rounded-[var(--radius-lg)] hover:bg-[var(--nm-paper-warm)] transition-colors"
             aria-label={t('skills.marketplace.close')}
           >
             <X className="w-4 h-4 text-[var(--text-tertiary)]" />
@@ -102,13 +102,13 @@ export function MarketplaceBrowser({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={t('skills.marketplace.searchPlaceholder')}
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
+              className="w-full pl-9 pr-4 py-2.5 rounded-[var(--radius-xl)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
             />
           </div>
         </div>
 
         {installError && (
-          <div className="mx-5 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
+          <div className="mx-5 mb-2 flex items-center gap-2 px-3 py-2 rounded-[var(--radius-lg)] bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
             <AlertCircle className="w-4 h-4 text-[var(--color-error)] shrink-0" />
             <span className="text-xs text-[var(--color-error)]">{installError}</span>
           </div>
@@ -179,7 +179,7 @@ export function MarketplaceCard({
   return (
     <div
       className={cn(
-        'p-4 rounded-xl border bg-[var(--bg-elevated)] cursor-pointer',
+        'p-4 rounded-[var(--radius-xl)] border bg-[var(--bg-elevated)] cursor-pointer',
         'border-[var(--border-subtle)] hover:border-[var(--border-strong)] transition-colors'
       )}
       onClick={onOpenDetail}

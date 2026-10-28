@@ -22,8 +22,8 @@ import sys
 
 from loguru import logger
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.db.schema_registry import (
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.schema_registry import (
     TABLES,
     _verify_all_tables_present,
     auto_migrate,

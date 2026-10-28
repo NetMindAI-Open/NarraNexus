@@ -72,8 +72,8 @@ it configurable when you do this.
 
 ### Code sites to grep
 
-- `src/xyz_agent_context/bundle/importer.py` — `preflight()` `confirm()`
-- `src/xyz_agent_context/bundle/security.py` — `extract_zip_safely`
+- `src/narranexus/platform/bundle/importer.py` — `preflight()` `confirm()`
+- `src/narranexus/platform/bundle/security.py` — `extract_zip_safely`
 - `backend/routes/bundle.py` — upload handler
 
 ---
@@ -114,9 +114,9 @@ location.
 
 ### Code sites to grep
 
-- `src/xyz_agent_context/bundle/skill_backup.py` — `_user_archive_dir`,
+- `src/narranexus/platform/bundle/skill_backup.py` — `_user_archive_dir`,
   `archive_github_tarball`, `archive_md_only`, `archive_local_zip`
-- `src/xyz_agent_context/bundle/builder.py` — full_copy / zip method
+- `src/narranexus/platform/bundle/builder.py` — full_copy / zip method
   reads `archive_path` directly from DB row
 - `backend/routes/skills.py` — `install_skill` route's auto-archive call
 - `backend/routes/bundle.py` — `/api/bundle/skills/archives/upload`
@@ -153,10 +153,10 @@ already shows the volume pattern; k8s manifests need to mirror it.
 
 ### Code sites to grep
 
-- `src/xyz_agent_context/bundle/builder.py` — `_pack_workspace_sync` (path
+- `src/narranexus/platform/bundle/builder.py` — `_pack_workspace_sync` (path
   candidates: `_user_<user_id>` and `_<user_id>`)
-- `src/xyz_agent_context/bundle/importer.py` — workspace tar extract target
-- `src/xyz_agent_context/module/skill_module/skill_module.py` — pre-existing
+- `src/narranexus/platform/bundle/importer.py` — workspace tar extract target
+- `plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py` — pre-existing
   workspace path resolution
 
 ---

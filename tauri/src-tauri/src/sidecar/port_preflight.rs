@@ -2,7 +2,7 @@
 //
 // Problem:
 //   Every sidecar service binds a hardcoded port (backend 8000, sqlite_proxy
-//   8100, MCP 7801, lark_trigger 7830). If any of those ports is already held
+//   8100, the module MCP host 7801, lark health 47831). If any of those ports is already held
 //   by another process — very common for :8000 because every Django / Flask /
 //   Jupyter workflow binds it — the Python service fails to bind, exits
 //   immediately after spawn, and the user sees "black screen loading forever"
@@ -48,28 +48,15 @@ use std::process::Command;
 /// run_*_trigger.py):
 ///   8000   — backend uvicorn
 ///   8100   — sqlite_proxy
-///   7801   — MCP AwarenessModule
-///   7802   — MCP SocialNetworkModule
-///   7803   — MCP JobModule
-///   7804   — MCP ChatModule
-///   7806   — MCP SkillModule (7805 retired, leave a gap)
-///   7807   — MCP CommonToolsModule
-///   7808   — MCP BasicInfoModule
-///   7809   — MCP GeneralMemoryModule
-///   7810   — MCP HomeAssistantModule
-///   7820   — MCP MessageBusModule
-///   7830   — MCP LarkModule (+ LarkTrigger SDK subscriber)
-///   7831   — MCP SlackModule
-///   7832   — MCP TelegramModule
-///   7833   — MCP NarramessengerModule
-///   7834   — MCP DiscordModule
-///   7835   — MCP WeChatModule
+///   7801   — the module MCP host (MCP_PORT): since plugin platform batch 5a
+///            EVERY module server (core, channel, plugin) is mounted by path
+///            under this one port (http://127.0.0.1:7801/mcp/<server>/sse), so
+///            no module owns a port and installing a plugin adds none.
 ///   47831  — LarkTrigger health endpoint (_health_server.py)
 ///
-/// This list is the single Rust-side copy of module_runner.all_module_ports().
-/// The Python test tests/module/test_port_preflight_ports_sync.py fails if any
-/// MCP port here is missing, so a new module / channel can't silently drift out
-/// of preflight coverage.
+/// This list is the single Rust-side copy of the Python side's ports
+/// (module/base.py mcp_port() + the trigger health port). The Python test
+/// tests/module/test_port_preflight_ports_sync.py fails if the two diverge.
 ///
 /// History (2026-05-27): the list used to be only `[8000, 8100, 7801,
 /// 7830]`. A real incident with the Owner showed that when a
@@ -82,10 +69,9 @@ use std::process::Command;
 /// next launch auto-recovers from every sidecar port, not just the
 /// "primary four".
 pub const REQUIRED_PORTS: &[u16] = &[
-    8000, 8100,                                                   // backend + sqlite proxy
-    7801, 7802, 7803, 7804, 7806, 7807, 7808, 7809, 7810, 7820, // core MCP modules
-    7830, 7831, 7832, 7833, 7834, 7835,                          // channel MCP modules
-    47831,                                                        // LarkTrigger health endpoint
+    8000, 8100, // backend + sqlite proxy
+    7801,       // the module MCP host — every module server mounted by path (plugin platform batch 5a)
+    47831,      // LarkTrigger health endpoint
 ];
 
 #[derive(Debug, Clone)]
@@ -199,7 +185,7 @@ fn process_cmdline(pid: u32) -> Option<String> {
 /// True iff the given command-line is something this app would have spawned
 /// as one of its sidecars. The patterns intentionally match BOTH bundled-
 /// python paths (resources/python/.../python3) AND module-launch fragments
-/// (`-m backend.main`, `-m xyz_agent_context.utils.sqlite_proxy`, etc.) so
+/// (`-m backend.main`, `-m narranexus.platform.utils.sqlite_proxy`, etc.) so
 /// the heuristic catches dmg-bundled spawns *and* `bash run.sh` dev-mode
 /// spawns alike. Anything outside this whitelist is treated as third-party
 /// and never auto-killed.
@@ -208,11 +194,18 @@ fn is_narranexus_sidecar_cmdline(cmdline: &str) -> bool {
         // Module launches (most reliable — backend / sqlite_proxy / mcp /
         // worker supervisor all launch via `python -m <one of these>`).
         "backend.main",
-        "xyz_agent_context.utils.sqlite_proxy",
-        "xyz_agent_context.module.module_runner",
+        "narranexus.platform.utils.sqlite_proxy",
+        "narranexus.platform.module_system.module_runner",
         // The consolidated worker supervisor (poller + job + message-bus + all
         // IM channel triggers). run_channel_triggers is still launchable
         // standalone (cloud `--only channels`), so match it too.
+        "narranexus.platform.module_system.run_worker_supervisor",
+        "narranexus.platform.module_system.run_channel_triggers",
+        // Sidecars of the previous release (the one-release xyz_agent_context
+        // alias, batch 6a): an orphan from an older build still names the old
+        // module paths, and it must still be recognised as ours.
+        "xyz_agent_context.utils.sqlite_proxy",
+        "xyz_agent_context.module.module_runner",
         "xyz_agent_context.module.run_worker_supervisor",
         "xyz_agent_context.module.run_channel_triggers",
         // Uvicorn invocation: when the backend is spawned as
@@ -289,13 +282,13 @@ mod tests {
 
     #[test]
     fn classifier_recognises_sqlite_proxy() {
-        let cmd = "python3 -m xyz_agent_context.utils.sqlite_proxy --port 8100";
+        let cmd = "python3 -m narranexus.platform.utils.sqlite_proxy --port 8100";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
     #[test]
     fn classifier_recognises_module_runner_mcp() {
-        let cmd = "python3 -m xyz_agent_context.module.module_runner mcp";
+        let cmd = "python3 -m narranexus.platform.module_system.module_runner mcp";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
@@ -305,14 +298,14 @@ mod tests {
         // every IM channel trigger). Per-channel trigger processes
         // (run_lark_trigger / run_slack_trigger / ...) no longer spawn
         // standalone — they live inside this supervisor now.
-        let cmd = "python3 -m xyz_agent_context.module.run_worker_supervisor";
+        let cmd = "python3 -m narranexus.platform.module_system.run_worker_supervisor";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
     #[test]
     fn classifier_recognises_standalone_channel_triggers() {
         // Cloud `--only channels` still launches this entrypoint standalone.
-        let cmd = "python3 -m xyz_agent_context.module.run_channel_triggers";
+        let cmd = "python3 -m narranexus.platform.module_system.run_channel_triggers";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 

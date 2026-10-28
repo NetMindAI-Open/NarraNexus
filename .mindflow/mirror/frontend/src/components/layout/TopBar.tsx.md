@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/layout/TopBar.tsx
-last_verified: 2026-07-22
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — hamburger keeps its own size (GitHub #129)
+
+The left cluster (hamburger + BindingDot + truncating breadcrumb span) is
+a flex row; the hamburger button had no `shrink-0`, so on a narrow phone
+it shrank alongside the breadcrumb's `truncate` text instead of the
+breadcrumb absorbing the whole squeeze — reported as the icon getting
+squeezed down to ~15px. `truncate` already implies `overflow: hidden` on
+the span, which per the flexbox spec already zeroes its own automatic
+minimum width, so it was always the right element to give up space; the
+hamburger just needed `shrink-0` to opt out of that squeeze.
+
+## 2026-08-06 — Chat UI v4:移动端专属化
+
+根节点加 `md:hidden`,桌面不再渲染 — 桌面的 Find Us 移到 Sidebar 底部,
+⌘K palette 宿主移到 MainLayout(触发经 uiStore.setPaletteOpen)。
+FIND_US_URL 改为具名导出供 Sidebar 复用,外链约束(纯 <a>、noopener)不变。
+topBarFindUs 测试仍然有效(移动端形态未变)。
 
 # layout/TopBar.tsx — narrow global status strip + ⌘K trigger
 
@@ -44,3 +62,7 @@ logout) are deliberately kept *out* of here.
   drawer; on desktop the sidebar is in normal flow so the toggle is inert. A
   cross-agent unread bell is a planned addition once a rollup exists — left out
   on purpose rather than faked.
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+A `SlotOutlet` in the right cluster (before ⌘K) mounts `topBarItems`.

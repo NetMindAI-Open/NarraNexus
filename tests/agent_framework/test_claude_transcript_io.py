@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from xyz_agent_context.agent_framework.adapters.claude.transcript import (
+from narranexus_plugins.frameworks_claude_code.transcript import (
     remove_transcript,
     transcript_path,
     write_transcript,

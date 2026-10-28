@@ -24,8 +24,8 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.codex import cli_sdk as codex_mod
-from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import (
+from narranexus_plugins.frameworks_codex_cli import cli_sdk as codex_mod
+from narranexus_plugins.frameworks_codex_cli.cli_sdk import (
     CodexSDK,
     _STDOUT_LINE_LIMIT,
 )

@@ -1,8 +1,132 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19（当天第三条）— 余额是**账户级**的，这件事此前一个字都没说
+
+用户反馈（P2）：「usage 显示的是 model usage / api usage，而不是 narra usage」——
+在别的平台用同一个 NetMind 账号，Narra 里看到的余额跟着掉。
+
+**属实，且是设计使然**：本卡的余额、流水、eligibility 全部来自 NetMind 的 finance
+域，口径是整个 NetMind 账号。问题不在数字，在于**界面从头到尾没有一处说明这个口径**，
+而旧文案还在往反方向推：副标题写「used for your LLM API usage」、流水区叫「最近流水」
+—— 于是别的产品造成的余额下降，读起来就是 Narra 的用量。
+
+三处文案改成点名口径（副标题 / 余额 hero 下新增 `balanceScope` / `activityTitle`
+改「NetMind 账户流水（全部产品）」；页脚 `scopeNote` 补一句账户级），并挂上
+[[NarraUsageSection.tsx]] —— 平台自己的 `cost_records` 账本，就放在账户流水正上方。
+
+**为什么不是「把余额换成 Narra 的数字」**：`cost_records` 是牌价估算，NetMind 是
+聚合商、不按直营价出账（[[model_pricing.py]]）。两个数字并排就必须让人一眼看出
+它们**不该相等**，所以新区块以 token 为主、金额带 `≈` 和一句说明。真正能对账的做法
+需要 NetMind 侧按 API key 归因（[[netmind_key_client.py]] 已经为每个用户铸了独占的
+`NarraNexus-<uuid8>` key，归因的钥匙是现成的），那要等上游开接口。
+
+顺带：`formatTokens` / `formatCost` 抽到 [[tokenFormat.ts]]，与 [[CostPopover.tsx]]
+共用 —— 同一周用量在两个屏幕上不能读出两个数。
+
+## 2026-08-19（当天第二条）— 续订侧汇率查询补上防抖
+
+原注释写着「月数网格只会被点击、不会被按键改变，所以不需要合并请求」。**这句话被
+同一次改动证伪**：网格被做成了 radiogroup，按住方向键从 1 走到 12 会连发六次
+`/fx-rate`，而这个端点是**刻意不缓存**的。
+
+**一条能被自己文件证伪的理由比没有理由更糟** —— 下一个人会在它之上继续决策。而且
+方向反了：刚把无障碍做对，就让无障碍路径成了唯一会打爆上游的路径。
+
+现在与充值侧共用 `FX_DEBOUNCE_MS`。`renewFx.forAmount === renewTotalUsd` 的渲染守卫
+保留 —— 防抖减少请求，守卫防止乱序显示，两者不能互相替代。
+
+
+## 2026-08-19 — `handleBuyPro`：一个入口，两条轨，两套轮询
+
+开通与续期合并成一个处理器。**两条轨需要不同的锁和不同的轮询**，因为上游把它们建模成
+不同的东西：卡是真订阅（`busyRef` + 轮询 `/me` 等 ACTIVE），一次性是**一笔 recharge**
+（`rechargeRef` + 轮询那个 session）。对**延长**去轮询 `/me` 会在第一跳就报成功
+（订阅本来就是 ACTIVE），所以 session 轮询不是优化，是**唯一可能为真的读法**。
+
+两把锁**没有合并**——它们的释放语义本就不同（subscribe 在轮询开始前就释放，recharge
+要等轮询结束），强行统一风险大于收益。取而代之的是 `anyMoneyBusy`：**任一花钱动作在飞，
+所有花钱控件都禁用**。这既堵住了评审抓到的「另一个按钮点了没反应」，也不必动锁。
+
+`buyMethodEffective` 见 [[NetmindProPurchase]]：默认轨必须在 render 和请求之前归一，
+否则表单和实际发出去的支付方式会不一致。
+
+
+## 2026-08-19 — `resolveState` 认第四态，靠 `/me` 的 `payment_method`
+
+⚠ **作废下方「plan(free/pro_active/pro_cancelled)」的三状态枚举**，现在是四个。
+
+一次性（支付宝/微信）购买**终其一生** `auto_renew` 都是 false —— 和「卡订阅已取消」
+落在完全相同的元组里。分开它们的只有 `subscription.payment_method`
+（2026-08-19 dev 实测确认存在），而两者需要的动作**正好相反**（恢复自动续费 vs 再买几个月）。
+
+顺序是载荷：`pro_onetime` 必须在 `auto_renew` 分叉**之前**判，否则它会被读成
+「卡·已取消」。`payment_method` **缺失视为卡** —— 早于 nexus 账号的订阅全是卡，
+这也正是改动前那两行本来就假设的。
+
+两件顺带修掉的：
+
+- **状态机喂三个互相独立的界面**：徽章、套餐说明、动作区。第一版 `pro_onetime`
+  只教会了第三个，另外两个双双落进各自的 Free 兜底 —— 付了钱的订阅者会在
+  「Pro 生效中」正上方读到「Free — usage billed from your balance」。**加状态时
+  必须 grep 全部 `state ===` 分支**，不能只改自己盯着的那一处。已有测试钉住整行。
+- 一次性订阅的徽章用 **Pro 的强调色，不用 `pro_cancelled` 的警告色**：「即将结束」
+  对卡用户是他自己选的、可撤销的状态，对一次性购买则**就是这个商品本身**、终其一生
+  如此。给一个正常付费状态挂常驻警告，是训练用户不再看警告的标准做法。到期日和
+  「不会自动续费」放在紧邻的 `planExpl` 里。
+- `isPro` 原本只认 `pro_active | pro_cancelled`，一次性订阅用户会被当成非 Pro
+  走进免费额度视图。
+- **「忙」和「叙事」是两个 prop，别只拆一个**（评审抓到）。共用提交锁是对的，但
+  `rechargeRef` 是 ref、进不了渲染；只按 `payFlow` 路由 `disabled` 的结果是**另一个
+  按钮仍可点**，点下去撞上守卫的早返回 —— 没有 loading、没有报错、DOM 毫无变化。
+  用户在支付弹窗里遇到「点了没反应」，只会重复点或刷新，而刷新会丢掉正在跑的轮询。
+  现在 `state`/`rechargeState` 按 flow 路由（只有发起方讲故事），另一个与 flow 无关的
+  `busy` 单独驱动两边的 `disabled`。有测试钉住。
+- **金额一律走 `netmindFormat.moneyOrNull`**，不要就地 `Number().toFixed(2)`：
+  `FxQuote` 每个字段都是可选的（类型注释自己写了后端不校验 200），无守卫转换会在
+  「付款前最后一眼」那行渲染出 `¥NaN`。
+- **`payFlow` 把两笔购买的反馈分开**。提交锁和轮询代次是**故意共用**的（同时开两个
+  结账不是我们想要的状态），但反馈不能共用：两个控件同处一个弹窗，没有这个标记时
+  一笔续订完成后会在旁边宣布「Top-up complete — balance updated」。有测试钉住。
+- 续订的轮询**复用充值那条 `pollRechargeStatus`**，因为上游把一次性购买建模成一笔
+  **recharge**（by-session 回 `method="subscription_onetime"`，2026-08-19 实测）。这才是
+  叠加续期**可被检测**的原因：延长时订阅本来就是 ACTIVE，等 ACTIVE 的轮询会在付款
+  发生之前就宣布成功。
+
+
+## 2026-08-18 — 汇率报价：两个寿命不同的东西装在一个响应里
+
+微信按人民币结算，所以充值区要在用户掏钱前报出真实扣款额。实现里有一个**踩过的
+坑**，值得单独记：
+
+`/fx-rate` 一次返回的东西有**两种寿命**：
+- **换算结果**（`$10 ≈ ¥73`）—— 金额一变立刻过期；
+- **最低额**（`min_amount_usd`）—— 是微信这条通道的属性，**跟金额无关**。
+
+第一版把整个报价在金额变化时清空，结果最低额跟着没了：用户敲一个很小的数、在
+防抖的 400ms 内就点提交，守卫读到 `undefined` 直接放行，一路撞上上游 400 ——
+正是这个下限存在的意义所在。**是自己写的测试逮到的，不是线上。**
+
+现在报价连同「它描述的是哪个金额」一起存（`{ quote, forAmount }`）：
+- 传给 [[NetmindTopUpControls]] 的换算结果**必须** `forAmount === selectedAmount`，
+  否则传 `null` —— 陈旧的两个数永远不会同屏；
+- 最低额守卫**不看** `forAmount`，只要还在微信这条通道上就一直有效；
+- 离开微信才整个清空（此时下限也确实不再适用）。
+
+另外两条：
+- **`selectedAmount` 只推导一次**，报价 effect 和提交 handler 共用 —— 报出去的
+  数和扣掉的数不能来自两套规则。
+- **报价失败一律吞掉，不阻断付款**。它是展示辅助；因为一个展示接口 502 就让人
+  付不了钱，是把化妆品故障升级成营收故障（铁律 #16 的精神）。上游自己会换算、
+  也会自己卡下限。
+
+## 2026-08-10 — subscription intent and checkout open
+
+The upgrade action records `subscribe_clicked` before session creation and
+`checkout_opened` only after a valid URL returns. Capture remains non-blocking.
 
 ## 2026-07-31 — 套餐名统一为 "Nexus Pro"
 

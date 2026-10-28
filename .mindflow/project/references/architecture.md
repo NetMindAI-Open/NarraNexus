@@ -2,7 +2,7 @@
 doc_type: reference
 last_verified: 2026-04-10
 scope:
-  - src/xyz_agent_context/
+  - src/narranexus/platform/
   - backend/
   - frontend/src/
   - tauri/src-tauri/src/
@@ -45,11 +45,11 @@ AsyncDatabaseClient + Schema      ← 数据层
 |------|------|---------|
 | **Step 0: Initialize** | 加载 Agent 配置与 Session 信息，初始化运行上下文 `RuntimeContext`。若 Agent 不存在或被禁用则提前终止。 | `step0_initialize.py` |
 | **Step 1.5: Init Markdown** | 构建初始 Markdown 结构，用于后续上下文拼接。设置系统提示词模板和基础格式框架。 | `step1_5_init_markdown.py` |
-| **Step 2: Load Modules** | 加载当前 Agent 激活的所有 Module Instance，调用各模块的 `hook_data_gathering` 收集上下文数据，并根据触发来源决定执行路径（`agent_loop` 或 `direct_trigger`）。 | `step2_load_modules.py` |
+| **Step 2: Load Modules** | 加载当前 Agent 激活的所有 Module Instance，调用各模块的 `gather` 收集上下文数据，并根据触发来源决定执行路径（`agent_loop` 或 `direct_trigger`）。 | `step2_load_modules.py` |
 | **Step 2.5: Sync Instances** | 建立或移除 Instance 与 Narrative 的关联关系。确保新创建的 Instance 绑定到正确的 Narrative，已删除的 Instance 解除关联。 | `step2_5_sync_instances.py` |
 | **Step 3: Execute Path** | 根据 Step 2 确定的执行路径运行核心逻辑。`agent_loop` 路径调用 LLM 进行多轮对话；`direct_trigger` 路径直接执行预定义动作而不经过 LLM。 | `step3_execute_path.py` |
 | **Step 4: Persist Results** | 持久化运行结果：保存新产生的 Event、更新 Narrative 状态与摘要、记录 Token 消耗量等统计信息。 | `step4_persist_results.py` |
-| **Step 5: Execute Hooks** | 遍历所有激活模块，依次调用 `hook_after_event_execution`。模块在此阶段执行后处理逻辑，如更新外部系统、触发下游任务等。 | `step5_execute_hooks.py` |
+| **Step 5: Execute Hooks** | 遍历所有激活模块，依次调用 `after_turn`。模块在此阶段执行后处理逻辑，如更新外部系统、触发下游任务等。 | `step5_execute_hooks.py` |
 
 ## 3. Trigger 架构
 
@@ -131,5 +131,5 @@ Channel 系统负责多渠道消息的统一接入与回复分发。
 | Repository 模式 | `repository/` | `BaseRepository` 泛型基类封装 CRUD，统一分页、批量查询，解决 N+1 问题。 |
 | 服务协议层 + Bridge | `NarrativeService`, `ModuleService` | 对外暴露稳定接口，内部委托 `_*_impl/` 实现，隔离变更影响。 |
 | 工厂/单例 | `db_factory.py` | 全局唯一 `AsyncDatabaseClient` 实例，统一连接池管理。 |
-| Hook 模式 | `module/base.py` | 生命周期钩子 `hook_data_gathering` 和 `hook_after_event_execution`，模块通过钩子参与流水线而无需修改核心逻辑。 |
+| Hook 模式 | `module/base.py` | 生命周期钩子 `gather` 和 `after_turn`，模块通过钩子参与流水线而无需修改核心逻辑。 |
 | 共享轮询 + 路由 | `MessageBusTrigger`, `JobTrigger` | 单进程轮询 + 路由分发，避免为每个 Agent 创建独立监听器，实现可扩展的事件处理。 |

@@ -4,15 +4,18 @@
 @date: 2026-07-29
 @description: End-to-end loop runs against a scripted fake ModelClient:
 the tool round-trip, monologue-only stop, argument streaming for marker
-tools, cancellation pairing, overflow-compaction retry, and the legacy
-adapter's golden shapes.
+tools, cancellation pairing, overflow-compaction retry, the legacy
+adapter's golden shapes, and live steering (a queued injection reaches
+the next request through DRAIN_STEERING, with a no-steering control).
 """
 
+import asyncio
 import dataclasses
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.events import (
+from narranexus.platform.schema.runtime_message import OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+from narranexus.contracts.agent_events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
     DATA_TYPE_REPLY_DELTA,
@@ -23,7 +26,7 @@ from xyz_agent_context.agent_framework.loop.events import (
     ITEM_TYPE_TOOL_CALL,
     ITEM_TYPE_TOOL_CALL_OUTPUT,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import (
     TYPE_ERROR,
     TYPE_TOOL_ARG_DELTA,
     TYPE_TOOL_USE_START,
@@ -31,44 +34,51 @@ from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
     TYPE_TURN_DONE,
     Usage,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     ModelEvent,
     ModelParams,
     ProviderProfile,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import (
     PolicyContext,
     ToolAnnotations,
     ToolCall,
     ToolContext,
+    ToolImage,
     ToolResult,
     ToolSpec,
 )
-from xyz_agent_context.agent_framework.nexus_power.assembly import LoopAssembly
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.event_adapter import (
+from narranexus_plugins.frameworks_nexus_power.core.assembly import LoopAssembly
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.event_adapter import (
     LegacyEventAdapter,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.harness.expression import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.expression import (
     ExpressionContract,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.loop import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.harness.steering import (
+    QueueSteeringInlet,
+)
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.loop import (
     CONTINUE_PREFILL,
     NexusPowerLoop,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.projector import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
+    resolve_profile,
+)
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
     PassthroughProjector,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.error_classifier import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.error_classifier import (
     DefaultErrorClassifier,
     StepRetry,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.event_log import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.event_log import (
     NullEventLogWriter,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
 
@@ -90,6 +100,8 @@ class FakeModel:
         if isinstance(step, Exception):
             raise step
         for event in step:
+            if isinstance(event, Exception):
+                raise event  # the step streamed a prefix, then broke
             yield event
 
 
@@ -101,6 +113,9 @@ class FakeTools:
 
     def visible_tools(self):
         return list(self._specs)
+
+    def model_tools(self):
+        return self.visible_tools()
 
     def spec_for(self, name):
         return next((s for s in self._specs if s.name == name), None)
@@ -128,6 +143,10 @@ class CancelAfter:
 
 def _text(t):
     return ModelEvent(kind="text_delta", payload={"text": t})
+
+
+def _thinking(t):
+    return ModelEvent(kind="thinking_delta", payload={"text": t})
 
 
 def _use(cid, name, args=None, index=0):
@@ -180,6 +199,127 @@ async def test_tool_roundtrip_then_stop():
     second = model.requests[1]
     roles = [m["role"] for m in second.messages]
     assert roles == ["user", "assistant", "tool"]
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_gives_a_mute_turn_one_more_step():
+    """Opt-in (voice turns): a turn about to close with ZERO expressive
+    calls while expressive tools exist gets ONE steering nudge and one
+    more step — an unanswered voice turn is never the right outcome
+    (2026-08-13: 1/22 adversarial turns went silent on a garbled STT
+    input)."""
+    model = FakeModel([
+        [_text("hmm, unclear input"), _done(stop="end_turn")],
+        [_use("c1", "mcp__chat__reply", {"text": "could you say that again?"}),
+         _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(
+        _assembly(model, tools, expression_nudge=True)
+    )
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    # The nudge rode the second request as an injected message; once the
+    # reply landed, the close is normal (no second nudge on step 3).
+    assert len(model.requests) == 3
+    nudge_msgs = [m for m in model.requests[1].messages
+                  if "reply tool" in str(m.get("content", ""))]
+    assert nudge_msgs, "second request must carry the expression nudge"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_fires_at_most_once():
+    model = FakeModel([
+        [_text("silent one"), _done(stop="end_turn")],
+        [_text("still silent"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert len(model.requests) == 2  # nudge once, then close — no spin
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_skips_turns_that_already_expressed():
+    """Mutation lock for the `_turn_expressed` guard (review 2026-08-13
+    Important #5): a turn whose EARLIER step already called the reply
+    tool closes silently on a later no-call step — nudging it would
+    claim \"you have not replied\" falsely and provoke a duplicated
+    spoken reply."""
+    model = FakeModel([
+        [_use("c1", "mcp__chat__reply", {"text": "the answer"}),
+         _done(stop="tool_use")],
+        [_text("wrap-up thoughts"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert len(model.requests) == 2  # no third, nudged step
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert not any(
+        "reply tool" in str(m.get("content", ""))
+        for m in model.requests[1].messages
+        if m.get("role") == "user"
+    )
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_fires_when_the_only_reply_call_failed_to_parse():
+    """Pipeline review Important #1: a reply call whose argument JSON was
+    truncated is ANSWERED, not executed — nothing was delivered, so the
+    turn must still count as mute and get its nudge. This is the
+    highest-probability mute-turn shape on voice (long speak args hit
+    the output-token ceiling)."""
+    model = FakeModel([
+        [_broken_use("c1", "mcp__chat__reply",
+                     "unterminated string", truncated=True),
+         _done(stop="tool_use")],
+        # The model gives up after seeing the parse-error result — the
+        # turn is about to close having delivered NOTHING.
+        [_text("oh well"), _done(stop="end_turn")],
+        # The nudge buys one more step; the retry succeeds.
+        [_use("c2", "mcp__chat__reply", {"text": "short version"}),
+         _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ])
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools, expression_nudge=True))
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert len(model.requests) == 4
+    nudge_msgs = [m for m in model.requests[2].messages
+                  if m.get("role") == "user"
+                  and "reply tool" in str(m.get("content", ""))]
+    assert nudge_msgs, "truncated reply call must still trigger the nudge"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
+async def test_expression_nudge_defaults_off_and_respects_mute_state():
+    # Off by default: silent turn closes immediately (group rooms / bus
+    # turns keep their legal silence).
+    model = FakeModel([[_text("quiet"), _done(stop="end_turn")]])
+    events, _ = await _run(_assembly(model, FakeTools()))
+    assert len(model.requests) == 1
+    # Opt-in but NO expressive tools: mute agents are legal — no nudge.
+    model2 = FakeModel([[_text("quiet"), _done(stop="end_turn")]])
+    events2, _ = await _run(_assembly(
+        model2, FakeTools(), expression=ExpressionContract(()),
+        expression_nudge=True,
+    ))
+    assert len(model2.requests) == 1
 
 
 @pytest.mark.asyncio
@@ -257,12 +397,12 @@ async def test_non_expressive_arg_stream_stays_internal():
 
 @pytest.mark.asyncio
 async def test_plan_events_stream_and_reinject_into_prompt():
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.tooling.scheduling_channel import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.tooling.scheduling_channel import (
         PlanState,
         SchedulingChannel,
     )
 
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
         TurnLedger,
     )
 
@@ -526,7 +666,7 @@ async def test_tool_name_reaches_the_ui_before_arguments_finish():
 
 
 def test_adapter_maps_tool_use_start_to_a_pending_tool_call():
-    from xyz_agent_context.agent_framework.nexus_power.contracts.events import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.events import (
         LoopEvent,
     )
 
@@ -743,3 +883,510 @@ async def test_prefill_rejection_keeps_retrying_after_the_repair():
     assert len(model.requests) == 3          # repair + one real retry
     assert not [e for e in events if e.type == TYPE_ERROR]
     assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+
+
+_IMAGE_400 = (
+    "litellm.BadRequestError: OpenAIException - Failed to deserialize the JSON body "
+    "into the target type: messages[3]: unknown variant `image_url`, expected `text`"
+)
+
+
+def _image_parts(request):
+    return [
+        part for message in request.messages if isinstance(message.get("content"), list)
+        for part in message["content"] if isinstance(part, dict) and part.get("type") == "image_url"
+    ]
+
+
+def _look_tools():
+    image = ToolImage(mime_type="image/png", data="iVBORw0KGgo" + "A" * 64)
+    return FakeTools(
+        [ToolSpec(name="look", description="", input_schema={})],
+        {"look": ToolResult(call_id="", ok=True, content='{"observation_id": "v1"}', images=(image,))},
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_rejects_images_gets_them_withheld_not_a_dead_turn():
+    """The user's model choice is theirs (binding rule #15); a text-only
+    model must not turn one browser_look into a failed turn. On the
+    provider's actual rejection the loop withholds images for the rest of
+    the turn, says so in place of each image, and replays the step."""
+    model = FakeModel([
+        [_use("c1", "look"), _done()],
+        BadRequestError(_IMAGE_400),
+        [_use("c2", "look"), _done()],
+        [_text("I cannot see images with this model"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(_assembly(model, _look_tools()))
+
+    _, rejected, repaired, later = model.requests
+    assert len(_image_parts(rejected)) == 1
+    assert not _image_parts(repaired) and not _image_parts(later)
+    notes = [part["text"] for message in later.messages if isinstance(message.get("content"), list)
+             for part in message["content"] if part.get("type") == "text"]
+    assert sum("rejected image input" in note for note in notes) == 2  # both looks explained
+    assert later.messages[2]["content"] == '{"observation_id": "v1"}'   # tool text intact
+    assert not [e for e in events if e.type == TYPE_ERROR]
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+
+
+@pytest.mark.asyncio
+async def test_image_rejection_without_images_is_an_honest_failure():
+    """The repair is keyed on what was SENT: with no image in the request
+    there is nothing to withhold, so replaying would be a byte-identical
+    retry of a deterministic 400."""
+    model = FakeModel([BadRequestError(_IMAGE_400), [_text("never"), _done(stop="end_turn")]])
+    events, _ = await _run(_assembly(model, FakeTools()))
+    assert len(model.requests) == 1
+    assert [e.type for e in events].count(TYPE_ERROR) == 1
+
+
+@pytest.mark.asyncio
+async def test_image_withholding_is_armed_once():
+    model = FakeModel([
+        [_use("c1", "look"), _done()],
+        BadRequestError(_IMAGE_400),
+        BadRequestError(_IMAGE_400),
+        [_text("never"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(_assembly(model, _look_tools()))
+    assert len(model.requests) == 3
+    assert [e.type for e in events].count(TYPE_ERROR) == 1
+
+
+@pytest.mark.asyncio
+async def test_queued_steering_reaches_the_next_model_request():
+    """The P4 live-steering path, end to end through the real loop.
+
+    A message queued on a QueueSteeringInlet is drained at the step
+    boundary (DRAIN_STEERING), recorded on the ledger, and rides the NEXT
+    model request — so a mid-turn interjection reaches the agent on its
+    next LLM step without a fresh turn. Delete DRAIN_STEERING or the
+    concrete inlet and this goes red.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put({"role": "user", "content": "STEERED: stop and reconsider"})
+
+    model = FakeModel([
+        # Step 1: no tool calls. Queue is non-empty, so the step-boundary
+        # drain injects and forces another step instead of stopping.
+        [_text("working on it"), _done(stop="end_turn")],
+        # Step 2: queue now empty -> drain empty -> normal stop.
+        [_text("reconsidered"), _done(stop="end_turn")],
+    ])
+    events, _ = await _run(
+        _assembly(model, FakeTools(), steering=QueueSteeringInlet(queue)),
+    )
+
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+    # The injection forced a second step rather than closing on step 1.
+    assert len(model.requests) == 2
+    injected = [
+        m for m in model.requests[1].messages
+        if "STEERED" in str(m.get("content", ""))
+    ]
+    assert injected, "the queued steering message must ride the next request"
+
+
+@pytest.mark.asyncio
+async def test_no_steering_closes_on_the_first_stoppable_step():
+    """Guard the negative: with the default (null) inlet, a mute step
+    with no queued input closes immediately — the second-step behaviour
+    above is caused by the injection, not by the harness always looping.
+
+    Shares its underlying fact (a default-inlet mute step stops in one)
+    with ``test_expression_nudge_defaults_off_and_respects_mute_state``;
+    kept as an explicit control beside the steering e2e for readability.
+    A change to the default stop semantics touches both assertions."""
+    model = FakeModel([[_text("done"), _done(stop="end_turn")]])
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    assert len(model.requests) == 1
+    assert [e.type for e in events].count(TYPE_TURN_DONE) == 1
+
+
+# A thinking-capable profile (``thinks_by_default=True``) with a tight
+# context_window so the first computed output_budget lands on the
+# thinking floor (8_192, see profiles.py) rather than the huge
+# max_output_tokens ceiling — leaving real room for the retry to double
+# it (16_384) instead of the ceiling capping both attempts to the same
+# number. ``thinking_replay="keep"`` is also set (independently of
+# ``thinks_by_default``) so this profile doubles as the
+# reasoning_content-replay fixture for the CoT-concatenation test.
+_THINKING_PROFILE = ProviderProfile(
+    name="deepseek-like", thinking_replay="keep", thinks_by_default=True,
+    context_window=1_000, max_output_tokens=100_000,
+)
+
+# The real DeepSeek-V4-Pro profile, unmodified: NetMind never registered
+# a catalog ``max_output_tokens`` for it, so its ceiling is the dialect
+# row's conservative default (8_192) — exactly equal to the thinking
+# floor. Used to prove the no-replay guard: doubling a floor
+# that is ALREADY at the ceiling can never grow the actual request, so
+# the loop must fail immediately rather than replay an identical one.
+_REAL_DEEPSEEK_V4_PRO_PROFILE = resolve_profile("deepseek-ai/DeepSeek-V4-Pro", "openai")
+
+
+@pytest.mark.asyncio
+async def test_truncated_empty_step_retries_with_doubled_budget_then_succeeds():
+    """A step with zero text and zero tool calls that stopped on
+    ``max_tokens`` is thinking-exhaustion, not NO_MORE_ACTIONS (B-03).
+    The loop doubles the output budget and replays the step once; a
+    model that then answers closes the turn normally with no error."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_text("finally"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert TYPE_ERROR not in types
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    assert len(model.requests) == 2
+    # The retry doubles the FLOOR MULTIPLIER on the request itself, never
+    # the shared ``params.extra`` dict — the first
+    # request carries the default multiplier, the retried one carries 2x.
+    assert model.requests[0].floor_multiplier == 1
+    assert model.requests[1].floor_multiplier == 2
+    # And ``a.params`` is untouched: nothing was ever written into the
+    # shared extra dict, so a later, unrelated step in the same turn
+    # would still get ``output_budget``'s wall clamp fresh.
+    assert "max_tokens" not in model.requests[0].params.extra
+    assert "max_tokens" not in model.requests[1].params.extra
+    assert model.requests[0].params is model.requests[1].params
+
+
+@pytest.mark.asyncio
+async def test_floor_multiplier_resets_after_the_retried_step_succeeds():
+    """The doubled floor serves only the replayed step. Once that step
+    produces output, the next step's request is back to multiplier 1 —
+    the floor wins over headroom, so a sticky multiplier would keep
+    pushing every later, larger-input step of the turn past the wall."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(_assembly(model, tools))
+
+    assert TYPE_ERROR not in [e.type for e in events]
+    assert [r.floor_multiplier for r in model.requests] == [1, 2, 1]
+
+
+@pytest.mark.asyncio
+async def test_truncated_empty_step_fails_after_one_retry():
+    """If the doubled budget ALSO comes back empty, a third try would not
+    help either — the loop must surface a real, terminal error instead
+    of retrying forever (iron rule #14 bounds retries by progress, not by
+    a ceiling, but "no progress twice in a row" IS the progress signal)."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+        [_done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert "output budget" in error.payload["message"]
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    # Exactly one retry attempt — no unbounded spin on a hopeless budget.
+    assert len(model.requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_truncation_with_a_pinned_max_tokens_fails_without_replay_and_reports_it():
+    """A pinned ``max_tokens`` always wins at the client, so no multiplier
+    can grow the request: fail on the first truncated step, and report
+    the value that was actually sent, not the budget we computed."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    params = ModelParams(model="fake-model", extra={"max_tokens": 777})
+    events, _ = await _run(_assembly(model, FakeTools(), params=params))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert "max_tokens=777" in error.payload["message"]
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_brief_but_real_answer_is_not_treated_as_truncation():
+    """Negative case: a step that stopped on ``max_tokens`` but DID
+    produce text must not be misclassified as an empty-output failure —
+    only the zero-text, zero-tool-call combination is truncation. With
+    no tool calls, STOP_CHECK closes the turn normally on step 1 (v1: no
+    actions = stop) — the point is that it closes as NO_MORE_ACTIONS
+    with the text delivered, not as a retried/failed truncation."""
+    model = FakeModel([
+        [_text("a short answer"), _done(stop="max_tokens")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert TYPE_ERROR not in types
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "NO_MORE_ACTIONS"
+    # No budget-doubling retry happened: only one request was ever made.
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_truncation_fails_immediately_when_the_real_ceiling_cant_grow():
+    """This is the REAL DeepSeek-V4-Pro profile (no catalog
+    ``max_output_tokens`` override registered for it), whose ceiling
+    already equals the thinking floor (8_192). Doubling the floor can
+    never ask the client for more than what was already sent, so the
+    loop must fail on the FIRST truncated step instead of wastefully
+    replaying a byte-identical request (the synthetic
+    ``_THINKING_PROFILE`` fixture, with its artificially huge ceiling,
+    cannot exercise this branch)."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_REAL_DEEPSEEK_V4_PRO_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["error_type"] == "output_truncated"
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    # No replay: growth was recognised as impossible on the first try.
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_replayed_step_after_truncation_does_not_concatenate_reasoning():
+    """The discarded step's abandoned chain-of-thought must not leak
+    into the replayed step's ``reasoning_content``. DeepSeek's thinking
+    contract requires the CoT that PRODUCED the eventual tool call, not
+    a concatenation of an abandoned CoT plus the real one — the same 400
+    family as the reasoning_content-passback contract this profile's
+    ``thinking_replay="keep"`` exists to satisfy. Regression: without
+    ``ledger.discard_step()`` on the retry path, ``_step_thinking``
+    survives the empty step's early-return fold and gets prepended onto
+    the next step's real CoT."""
+    model = FakeModel([
+        [_thinking("aborted-cot-that-exhausted-the-budget"), _done(stop="max_tokens")],
+        [_thinking("real-cot"), _use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        [_text("done"), _done(stop="end_turn")],
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, ledger = await _run(_assembly(model, tools))
+
+    assert not [e for e in events if e.type == TYPE_ERROR]
+    messages = ledger.provider_messages()
+    assistant_with_call = next(
+        m for m in messages if m.get("role") == "assistant" and m.get("tool_calls")
+    )
+    assert assistant_with_call["reasoning_content"] == "real-cot"
+
+
+@pytest.mark.asyncio
+async def test_fail_after_an_already_expressed_reply_is_not_marked_fatal():
+    """``_fail`` also fires for unrecoverable provider errors that
+    have nothing to do with output-budget truncation (retry-exhausted
+    429/5xx, an uncompactable CONTEXT_OVERFLOW) — and those can land
+    AFTER the agent already delivered a real answer via an expressive
+    tool call. ``fatal`` must reflect that: a turn that already produced
+    output must never be classified the same way as a turn that produced
+    nothing, or chat_module/message_bus would erase or paper over an
+    already-delivered reply (the exact "one provider wobble cost the
+    sender their answer" defect run_collector.py's docstring documents
+    fixing, reintroduced at the framework level if this regresses)."""
+    model = FakeModel([
+        [_use("c1", "mcp__chat__reply", {"text": "here is your answer"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(
+        name="mcp__chat__reply", description="reply", input_schema={},
+        annotations=ToolAnnotations(expressive=True),
+    )])
+    events, _ = await _run(_assembly(model, tools))
+
+    types = [e.type for e in events]
+    assert types.count(TYPE_ERROR) == 1
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+    assert types.count(TYPE_TURN_DONE) == 1
+    assert events[-1].payload["end_reason"] == "ERROR"
+    assert [c.name for c in tools.executed] == ["mcp__chat__reply"]
+
+
+@pytest.mark.asyncio
+async def test_fail_with_no_prior_expression_is_marked_fatal():
+    """Negative case: a turn that never produced ANY expressive
+    output before an unrecoverable error must still be fatal — the fix
+    narrows fatal to "no output delivered", it does not disable it."""
+    model = FakeModel([Exception("totally unclassified provider failure")],
+                       profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_plain_text_turn_that_already_spoke_is_not_marked_fatal():
+    """A turn with NO expression tool (the team patrol shape, where the
+    platform posts the composed line) delivers BY writing: its streamed
+    text is the reply. A later unrecoverable error must therefore report
+    ``fatal: False`` — otherwise message_bus swaps the already-streamed
+    status line for a failure notice."""
+    model = FakeModel([
+        [_text("status: all green"), _use("c1", "bash", {"command": "ls"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(
+        _assembly(model, tools, expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+
+
+@pytest.mark.asyncio
+async def test_plain_text_discarded_by_a_broken_attempt_is_not_delivery():
+    """Text streamed by an attempt that then broke is thrown away by
+    ``discard_step()`` — it never reached the ledger, so it was not
+    delivered. A plain-text turn whose only text came from such an
+    attempt must stay ``fatal: True`` (delivery is sampled when the step
+    commits, not when a delta arrives)."""
+    model = FakeModel([
+        [_text("status: all gre"), Exception("totally unclassified provider failure")],
+    ], profile=_THINKING_PROFILE)
+    events, _ = await _run(
+        _assembly(model, FakeTools(), expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+class _GrantingTools(FakeTools):
+    """Executing ``expand`` grants a delivery tool mid-turn, the way
+    tooling/expansion.py feeds ``ExpressionContract.add_tools``."""
+
+    def __init__(self, specs, expression):
+        super().__init__(specs)
+        self._expression = expression
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        if call.name == "expand":
+            self._expression.add_tools(["mcp__chat__reply"])
+        return await super().execute(call)
+
+
+@pytest.mark.asyncio
+async def test_plain_text_committed_before_a_mid_turn_grant_is_still_delivery():
+    """Whether text is the delivered reply is a fact of the moment it was
+    written: no expression tool existed then, so it was the reply. An
+    ``expand()`` that grants a delivery tool later in the turn must not
+    retroactively turn it into monologue and flip ``fatal`` to True."""
+    expression = ExpressionContract(())
+    model = FakeModel([
+        [_text("status: all green"), _use("c1", "expand", {}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = _GrantingTools(
+        [ToolSpec(name="expand", description="", input_schema={})], expression
+    )
+    events, _ = await _run(_assembly(model, tools, expression=expression))
+
+    assert expression.names() == ("mcp__chat__reply",)
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is False
+
+
+@pytest.mark.asyncio
+async def test_plain_text_after_a_mid_turn_grant_is_monologue():
+    """Negative twin: once ``expand()`` granted a delivery tool, text
+    written in later steps is monologue — it does not count."""
+    expression = ExpressionContract(())
+    model = FakeModel([
+        [_use("c1", "expand", {}), _done(stop="tool_use")],
+        [_text("thinking out loud"), _use("c2", "expand", {}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = _GrantingTools(
+        [ToolSpec(name="expand", description="", input_schema={})], expression
+    )
+    events, _ = await _run(_assembly(model, tools, expression=expression))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_plain_text_turn_that_never_spoke_is_still_fatal():
+    """Negative case for the plain-text shape: no text streamed before
+    the failure means nothing was delivered, so ``fatal`` stays True."""
+    model = FakeModel([
+        [_use("c1", "bash", {"command": "ls"}), _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([ToolSpec(name="bash", description="", input_schema={})])
+    events, _ = await _run(
+        _assembly(model, tools, expression=ExpressionContract(()))
+    )
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_monologue_text_on_an_expressive_turn_does_not_count_as_delivery():
+    """Negative case: when expression tools exist, plain text is
+    monologue nobody receives — streaming it and then failing without an
+    expressive call still delivered nothing, so ``fatal`` stays True."""
+    model = FakeModel([
+        [_text("thinking out loud"), _use("c1", "bash", {"command": "ls"}),
+         _done(stop="tool_use")],
+        Exception("totally unclassified provider failure"),
+    ], profile=_THINKING_PROFILE)
+    tools = FakeTools([
+        ToolSpec(name="bash", description="", input_schema={}),
+        ToolSpec(
+            name="mcp__chat__reply", description="reply", input_schema={},
+            annotations=ToolAnnotations(expressive=True),
+        ),
+    ])
+    events, _ = await _run(_assembly(model, tools))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert error.payload["fatal"] is True
+
+
+@pytest.mark.asyncio
+async def test_truncation_failure_reaches_the_platform_as_output_budget_exhausted():
+    """Output-budget exhaustion must reach the platform as the structured
+    ``output_budget_exhausted`` error_type (the circuit breaker's exemption
+    key), not folded into ``invalid_request`` — and a classified provider
+    error must still fold as before."""
+    model = FakeModel([
+        [_done(stop="max_tokens")],
+    ], profile=_REAL_DEEPSEEK_V4_PRO_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert "max_tokens=8192" in error.payload["message"]
+    legacy = LegacyEventAdapter().translate(error)
+    assert legacy[0]["data"]["error_type"] == OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+
+    model = FakeModel([Exception("totally unclassified provider failure")],
+                      profile=_THINKING_PROFILE)
+    events, _ = await _run(_assembly(model, FakeTools()))
+    error = next(e for e in events if e.type == TYPE_ERROR)
+    assert LegacyEventAdapter().translate(error)[0]["data"]["error_type"] != (
+        OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE
+    )

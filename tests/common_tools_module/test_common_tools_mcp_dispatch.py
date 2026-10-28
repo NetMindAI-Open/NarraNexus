@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module import _common_tools_mcp_tools as factory
+from narranexus_plugins.common_tools_module import _common_tools_mcp_tools as factory
 
 
 @pytest.mark.asyncio
@@ -29,14 +29,14 @@ async def test_without_brave_key_registers_ddgs_tool(monkeypatch):
     def fake_brave_register(mcp, api_key):
         register_calls.append("brave")
 
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         web_search_ddgs_tool as ddgs_tool,
         web_search_brave_tool as brave_tool,
     )
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    mcp = factory.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server()
 
     assert register_calls == ["ddgs"]
     tools = await mcp.list_tools()
@@ -59,14 +59,14 @@ async def test_with_brave_key_registers_brave_tool(monkeypatch):
         async def web_search(queries: list[str], max_results_per_query: int = 5) -> str:
             return "brave-stub"
 
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         web_search_ddgs_tool as ddgs_tool,
         web_search_brave_tool as brave_tool,
     )
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    mcp = factory.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server()
 
     assert register_calls == [("brave", "tvly-test-key")]
     tools = await mcp.list_tools()
@@ -93,14 +93,14 @@ async def test_empty_string_brave_key_treated_as_missing(monkeypatch):
     def fake_brave_register(mcp, api_key):
         register_calls.append("brave")
 
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         web_search_ddgs_tool as ddgs_tool,
         web_search_brave_tool as brave_tool,
     )
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    factory.create_common_tools_mcp_server(port=0)
+    factory.create_common_tools_mcp_server()
     assert register_calls == ["ddgs"]
 
 
@@ -120,12 +120,12 @@ async def test_whitespace_only_brave_key_treated_as_missing(monkeypatch):
     def fake_brave_register(mcp, api_key):
         register_calls.append("brave")
 
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         web_search_ddgs_tool as ddgs_tool,
         web_search_brave_tool as brave_tool,
     )
     monkeypatch.setattr(ddgs_tool, "register", fake_ddgs_register)
     monkeypatch.setattr(brave_tool, "register", fake_brave_register)
 
-    factory.create_common_tools_mcp_server(port=0)
+    factory.create_common_tools_mcp_server()
     assert register_calls == ["ddgs"]

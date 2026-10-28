@@ -26,15 +26,16 @@ describe('ForgotPasswordCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /send code/i }));
     await waitFor(() => expect(sendResetCode).toHaveBeenCalledWith('a@b.com'));
 
-    // Step 2: code + new password -> reset (fields appear only after code sent)
+    // Step 2: code + a POLICY-VALID new password -> reset (fields appear only
+    // after code sent). 'NewPw12!' satisfies length/upper/lower/digit/special.
     const codeInput = await screen.findByPlaceholderText(/verification code/i);
     fireEvent.change(codeInput, { target: { value: '123456' } });
     fireEvent.change(screen.getByPlaceholderText(/new password/i), {
-      target: { value: 'NewPw1234' },
+      target: { value: 'NewPw12!' },
     });
     fireEvent.click(screen.getByRole('button', { name: /reset password/i }));
     await waitFor(() =>
-      expect(resetPassword).toHaveBeenCalledWith('a@b.com', '123456', 'NewPw1234'),
+      expect(resetPassword).toHaveBeenCalledWith('a@b.com', '123456', 'NewPw12!'),
     );
   });
 
@@ -47,5 +48,20 @@ describe('ForgotPasswordCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /send code/i }));
     await waitFor(() => expect(sendResetCode).toHaveBeenCalled());
     expect(screen.queryByPlaceholderText(/verification code/i)).toBeNull();
+  });
+
+  test('a policy-violating password cannot be submitted (no reset request sent)', async () => {
+    sendResetCode.mockResolvedValue(true);
+    render(<ForgotPasswordCard onClose={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText(/you@/i), { target: { value: 'a@b.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /send code/i }));
+    const codeInput = await screen.findByPlaceholderText(/verification code/i);
+    fireEvent.change(codeInput, { target: { value: '123456' } });
+    // 'weakpass' has no uppercase/digit/special — client policy must block it,
+    // so resetPassword never runs and can't return a mask that hides the real cause.
+    fireEvent.change(screen.getByPlaceholderText(/new password/i), { target: { value: 'weakpass' } });
+    expect(screen.getByRole('button', { name: /reset password/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /reset password/i }));
+    expect(resetPassword).not.toHaveBeenCalled();
   });
 });

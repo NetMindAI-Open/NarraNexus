@@ -1,142 +1,103 @@
 /**
- * OnboardingJourney — the "JourneyBand" empty state for a fresh conversation.
+ * OnboardingJourney — the v4 in-stream onboarding card for a fresh
+ * conversation (Codex-style: a bordered card at the top of the chat flow,
+ * not a full-height hero).
  *
  * Why this exists
  * ---------------
- * When an agent is selected but the conversation has no messages yet, the old
- * empty state was a single generic line ("Start a conversation"). The Narra
- * Agent App design ref replaces that blank moment with a JourneyBand: the
- * carbon·silicon binding-dot eyebrow, a short framing line, the three product
- * stations (Narra·Memory → Nexus·Network → Your Team) with a carbon pulse
- * travelling the baseline, and a few suggested-prompt chips.
+ * When an agent is selected but the conversation has no messages yet, this
+ * card frames the blank moment: "<Agent> is ready", one line of guidance,
+ * and a few suggested-prompt chips. It is dismissible (v4 tweak #1) — the
+ * dismissal persists per agent in localStorage, so a user who closed it
+ * isn't nagged on every visit.
  *
  * The chips don't auto-send — clicking one fills the composer (via
  * ChatPanel's composerRef.setText) and focuses it, so the user can edit then
  * hit Enter. The literal day-zero "I just woke up" copy stays in
- * BOOTSTRAP_GREETING (shown for brand-new unnamed agents); this band is the
- * generic fresh-start surface for any selected agent.
+ * BOOTSTRAP_GREETING (shown for brand-new unnamed agents); this card is the
+ * generic fresh-start surface for any selected agent. Prompt copy stays
+ * scenario-generic (binding rule #4).
  */
-import { BookMarked, Share2, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { BindingDot } from '@/components/nm';
 
 interface OnboardingJourneyProps {
-  /** Display name of the selected agent, woven into the framing line. */
+  /** Persists the per-agent dismissal; without it the card can't be closed. */
+  agentId?: string | null;
+  /** Display name of the selected agent, woven into the title. */
   agentName?: string;
   /** Fill the composer with a suggested prompt (does not send). */
   onPrompt: (text: string) => void;
 }
 
-interface Station {
-  icon: typeof BookMarked;
-  brandKey: string;
-  captionKey: string;
-  color: string;
+const SUGGESTED_PROMPTS: string[] = [
+  'chat.onboarding.prompt1',
+  'chat.onboarding.prompt2',
+  'chat.onboarding.prompt3',
+];
+
+const DISMISS_KEY_PREFIX = 'onboarding_card_dismissed:';
+
+function readDismissed(agentId: string | null | undefined): boolean {
+  if (!agentId || typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(DISMISS_KEY_PREFIX + agentId) === '1';
+  } catch {
+    return false;
+  }
 }
 
-const STATIONS: Station[] = [
-  { icon: BookMarked, brandKey: 'chat.onboarding.narraBrand', captionKey: 'chat.onboarding.narraCaption', color: 'var(--color-carbon)' },
-  { icon: Share2, brandKey: 'chat.onboarding.nexusBrand', captionKey: 'chat.onboarding.nexusCaption', color: 'var(--color-silicon)' },
-  { icon: Sparkles, brandKey: 'chat.onboarding.teamBrand', captionKey: 'chat.onboarding.teamCaption', color: 'var(--nm-ink)' },
-];
-
-const SUGGESTED_PROMPTS: { dot: string; textKey: string }[] = [
-  { dot: 'var(--color-carbon)', textKey: 'chat.onboarding.prompt1' },
-  { dot: 'var(--color-silicon)', textKey: 'chat.onboarding.prompt2' },
-  { dot: 'var(--nm-ink)', textKey: 'chat.onboarding.prompt3' },
-];
-
-export function OnboardingJourney({ agentName, onPrompt }: OnboardingJourneyProps) {
+export function OnboardingJourney({ agentId, agentName, onPrompt }: OnboardingJourneyProps) {
   const { t } = useTranslation();
+  const [dismissed, setDismissed] = useState(() => readDismissed(agentId));
   const name = agentName?.trim() || t('chat.onboarding.defaultAgentName');
 
+  if (dismissed) return null;
+
+  const handleDismiss = () => {
+    setDismissed(true);
+    if (!agentId) return;
+    try {
+      window.localStorage.setItem(DISMISS_KEY_PREFIX + agentId, '1');
+    } catch { /* storage unavailable — dismissal just won't persist */ }
+  };
+
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto py-10 px-6 animate-fade-in">
-      <div className="mx-auto flex max-w-[640px] flex-col items-center text-center">
-        {/* eyebrow: binding-dot + mono label */}
-        <div className="mb-6 flex items-center gap-2.5">
-          <BindingDot size={7} />
-          <span
-            className="font-mono uppercase"
-            style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--nm-ink50)' }}
-          >
-            {t('chat.onboarding.eyebrow')}
-          </span>
-        </div>
-
-        <h1
-          className="font-display"
-          style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.1, margin: '0 0 14px', color: 'var(--nm-ink)' }}
-        >
-          {t('chat.onboarding.heading')}
-        </h1>
-        <p style={{ fontSize: 15, lineHeight: 1.65, color: 'var(--nm-ink70)', maxWidth: '30rem', margin: '0 0 40px' }}>
-          {t('chat.onboarding.framing', { name })}
-        </p>
-
-        {/* JourneyBand: memory → network → team */}
-        <div className="relative mb-2 w-full" style={{ maxWidth: 520 }}>
-          {/* dotted baseline */}
-          <div
-            style={{ position: 'absolute', top: 24, left: '8%', right: '8%', height: 0, borderTop: '1.5px dotted var(--nm-ink30)' }}
-          />
-          {/* travelling carbon pulse */}
-          <div
-            className="animate-travel"
-            style={{ position: 'absolute', top: 21, width: 7, height: 7, borderRadius: 9999, background: 'var(--color-carbon)', boxShadow: '0 0 0 5px var(--color-carbon-soft)' }}
-          />
-          <div className="relative flex items-start justify-between">
-            {STATIONS.map((s) => {
-              const Icon = s.icon;
-              return (
-                <div key={s.brandKey} className="flex flex-col items-center gap-2.5" style={{ width: '33%' }}>
-                  <span
-                    className="inline-flex items-center justify-center"
-                    style={{ width: 48, height: 48, borderRadius: 9999, background: 'var(--nm-card)', border: `2px solid ${s.color}`, color: s.color }}
-                  >
-                    <Icon className="h-5 w-5" strokeWidth={2} />
-                  </span>
-                  <div>
-                    <div
-                      className="font-mono uppercase"
-                      style={{ fontSize: 10, letterSpacing: '0.1em', color: s.color, fontWeight: 500 }}
-                    >
-                      {t(s.brandKey)}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--nm-ink50)', marginTop: 3 }}>{t(s.captionKey)}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* suggested prompts */}
-        <div className="mt-11 w-full">
-          <div
-            className="font-mono uppercase"
-            style={{ fontSize: 10, letterSpacing: '0.16em', color: 'var(--nm-ink30)', marginBottom: 14 }}
-          >
-            {t('chat.onboarding.tryAsking')}
-          </div>
-          <div className="mx-auto flex flex-col gap-2" style={{ maxWidth: 420 }}>
-            {SUGGESTED_PROMPTS.map((p) => {
-              const promptText = t(p.textKey);
-              return (
-                <button
-                  key={p.textKey}
-                  type="button"
-                  onClick={() => onPrompt(promptText)}
-                  className="hover-lift flex items-center gap-2.5 text-left"
-                  style={{ padding: '12px 14px', border: '1px solid var(--nm-hairline)', borderRadius: 'var(--radius-lg)', background: 'var(--nm-card)' }}
-                >
-                  <span style={{ width: 6, height: 6, borderRadius: 9999, background: p.dot, flexShrink: 0 }} />
-                  <span style={{ fontSize: 14, color: 'var(--nm-ink)' }}>{promptText}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+    <div
+      className="relative rounded-[var(--radius-md)] border px-4 py-3.5 animate-fade-in"
+      style={{ borderColor: 'var(--nm-hairline)', background: 'var(--nm-paper)' }}
+    >
+      <button
+        type="button"
+        onClick={handleDismiss}
+        title={t('chat.onboarding.dismiss')}
+        aria-label={t('chat.onboarding.dismiss')}
+        className="absolute right-2 top-2 rounded p-1 text-[var(--nm-ink30)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+      <div className="mb-1.5 text-[13px] font-semibold text-[var(--nm-ink)]">
+        {t('chat.onboarding.readyTitle', { name })}
+      </div>
+      <div className="mb-2.5 text-[13px] leading-relaxed text-[var(--nm-ink70)]">
+        {t('chat.onboarding.readyBody')}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {SUGGESTED_PROMPTS.map((key) => {
+          const promptText = t(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onPrompt(promptText)}
+              className="rounded-[var(--radius-sm)] border px-2.5 py-1.5 text-left text-[12px] text-[var(--nm-ink70)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--nm-ink)]"
+              style={{ borderColor: 'var(--nm-hairline)', background: 'var(--nm-card)' }}
+            >
+              {promptText}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

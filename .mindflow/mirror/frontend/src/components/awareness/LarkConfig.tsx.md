@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/awareness/LarkConfig.tsx
-last_verified: 2026-07-13
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — import fixed to the registry, not a sibling component (I-8)
+
+`ChannelConfigProps` is now imported directly from `@/platform/registries`, not from
+`./IMChannelsSection` (which merely re-exported the type — see that file's mirror doc). Same fix
+applied identically to the other five channel config components.
+
+## 2026-08-11 — unbind 失败优先显示 message
+
+`/api/lark/unbind` 现原样返回 do_unbind 信封：失败时 `error` 是机器码
+（`no_credential`），`message` 才是人话（"No Lark bot bound…"）。unbind 错误显示
+改 `res.message || res.error || t(errUnbind)`（[[api]] ApiResponse 加了可选 `message`）。
 
 ## 2026-07-13 — activation toggle + parent-list sync
 
@@ -58,3 +70,7 @@ Falls back to the plain `error` string when `error_detail` is absent
   mid-polling.
 - `mountedRef` guards every async setState — the parent (`IMChannelsSection`)
   can unmount this mid-flight when the user closes the panel.
+
+## 2026-09-04 · generic channel API (batch 4d.3)
+
+Calls `api.channel*('lark', …)` with the channel's own typed envelopes; the bind body is the descriptor's `bind_fields` as a `fields` object. UI and flow unchanged. Reads `credential.enabled` (was `is_active`) for the active toggle.

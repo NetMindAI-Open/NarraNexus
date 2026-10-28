@@ -1,8 +1,34 @@
 ---
 code_file: backend/routes/dashboard/_helpers.py
-last_verified: 2026-07-24
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-10（review r3 M2）— banner / 状态灯按状态分组派生
+
+`derive_attention_banners` / `derive_health` 不再硬写 `failed/blocked/paused` 三个状态名，改为数四个分组常量：
+`_FAILED_JOB_STATES=(failed)`、`_BLOCKED_JOB_STATES=(blocked, blocked_failed)`、
+`_PAUSED_JOB_STATES=(paused, paused_no_quota, paused_spend_cap)`、`_NOMINAL_JOB_STATES=(running, pending,
+active, cooling)`。banner `kind` 集合不变（`job_failed` / `job_blocked` / `jobs_paused`），前端无需改动；
+全部 job 被花费上限停掉的 agent 现在显示 `paused` 灯 + 「N jobs paused」banner，而不是 `healthy_idle`。
+测试钉住「`_LIVE_JOB_STATES` 每个状态恰好属于一个分组」，下一个新状态漏分组会直接变红。
+锁：`tests/backend/test_dashboard_live_job_states.py` 的 `test_every_live_state_has_exactly_one_attention_group`、
+`test_paused_family_raises_the_paused_banner_and_rail`、`test_blocked_family_raises_the_blocked_banner_and_warning_rail`、
+`test_nominal_states_raise_nothing`。
+
+## 2026-09-10（review r1 C1）— `_LIVE_JOB_STATES` + `paused_spend_cap`；`_QUEUED_JOB_STATES` 派生
+
+2026-06-01 注释里记录的 `paused_no_quota` 隐形缺口，`paused_spend_cap` 又踩了一遍：新状态没进
+WHERE，看板计数与 pending 列表把这类 job 直接滤掉。现在加入，并新增
+`_QUEUED_JOB_STATES = _LIVE_JOB_STATES - running` 供 [[routes.py]] 的两个逐状态循环派生——
+routes.py 原来手抄两份状态元组，改成只认这里一份。
+`tests/backend/test_dashboard_live_job_states.py` 钉死「`_LIVE_JOB_STATES` == 所有 JobStatus
+去掉 completed/cancelled」以及 [[_schema.py]] 的 `QueueCounts` 字段 / `queue_status` Literal
+与之对齐；`test_fetch_jobs_surfaces_a_spend_capped_job` 直接查库验证。
+r2 M-a：元组顺序只在一处有意义——`pending_jobs` 按 `_QUEUED_JOB_STATES` 顺序发射；派生后曾把原来的
+`pending, active, …` 变成 `active, pending, …`，现把 `_LIVE_JOB_STATES` 调回 `running, pending, active, …`，
+测试钉住 `_QUEUED_JOB_STATES[:2] == ("pending", "active")`。
+r2 M-e 记下的既有缺口已在 r3 M2 修掉（见上节）。
 
 # dashboard/_helpers.py — pure helpers behind GET /api/dashboard/agents-status
 
@@ -68,7 +94,7 @@ route/FastAPI coupling.
 ## 上下游
 - **上游**：`backend/routes/dashboard/routes.py` 的主路由 + lazy 详情路由都调这里的函数
 - **下游**：
-  - `xyz_agent_context.utils.db.db_factory.get_db_client` 做所有 DB 查询
+  - `narranexus.platform.utils.db.db_factory.get_db_client` 做所有 DB 查询
   - `backend/state/active_sessions.py::get_session_registry` 只被 route 直接调用（这里不碰 registry）
   - `backend/routes/dashboard/_schema.py` 所有 Pydantic 类型
 - **测试**：`tests/backend/test_dashboard_helpers.py`（纯函数）+ `test_dashboard_fetchers.py`（async DB）+ `test_dashboard_v21.py`（v2.1 additions）
@@ -94,3 +120,11 @@ route/FastAPI coupling.
 - `humanize_verb` 对未知 `kind` 返回 `Running ({kind})` 作为最后 fallback——这意味着后端若加了新 `WorkingSource` 但忘了更新这个函数，前端会看到字面 `Running (NEW_KIND)`，不崩但难看。加 kind checklist：改这里 + StatusBadge ICON_MAP + types/api.ts `AgentKind` union。
 - **`_is_instance_stale` 对 `updated_at=None` 返回 `False`（不当 stale 处理）**：DB 里 updated_at 可能为 null（旧数据）。宁可漏报 stale 也不误报，避免把正常运行的 module 标成 zombie。
 - **`fetch_instances` 签名变更**（v2.2 G3 breaking change）：从 `dict[str, list[dict]]` 变为 `dict[str, dict[str, list[dict]]]`。任何直接调用这个函数的代码（包括测试）都必须更新取值方式为 `inst_map[aid]["active"]`。
+
+## 2026-09-04 · `classify_kind` for any channel (batch 4e)
+
+The core kinds stay in `_KIND_MAP`; an IM channel source (`WorkingSource.is_channel`) maps to its upper-cased value (`LARK`, a plugin's `ACME_CHAT`) — no channel entry in the table.
+
+## 2026-09-04 · no long-run whitelist (batch 5d)
+
+`_long_running(module_class)` reads `ModuleConfig.long_running_instances`; `LONGRUN_MODULE_WHITELIST` is gone.

@@ -1,0 +1,10 @@
+{
+  "_comment": "Bundle budgets (bytes). A ratchet: ceilings pin today's build and may only go down. initial = entry script + modulepreloaded chunks + css from index.html. Known exception: vendor-echarts is still preloaded at first load (1.1 MB); shrinking it is tracked, growing it is a failure.",
+  "initial_total_bytes": 4300000,
+  "entry_script_bytes": 2400000,
+  "initial_forbidden_chunk_patterns": [
+    "plugin",
+    "vendor-reactflow"
+  ],
+  "largest_lazy_chunk_bytes": 1300000
+}

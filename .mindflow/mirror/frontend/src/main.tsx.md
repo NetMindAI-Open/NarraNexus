@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-06-16
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03（批 2d）— `bootPlugins()`
+
+内置注册之后、首帧之前发起（不 await），用户插件的声明式元数据进注册表，代码按激活事件加载。
+
+## 2026-09-03 — 首帧前 import `./platform/builtin`
+
+壳的页面/侧栏/面板注册是 side-effect import，紧跟 i18n 与 echarts 主题之后。
 
 ## 2026-06-16 — inbound entry capture moved pre-render
 

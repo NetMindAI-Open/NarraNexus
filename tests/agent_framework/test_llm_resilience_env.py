@@ -10,11 +10,11 @@ probe must classify reachability for the stall diagnostic.
 """
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.agent_framework.adapters.claude.sdk import (
+from narranexus.platform.agent_framework.api_config import ClaudeConfig
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _probe_provider_reachable,
 )
-from xyz_agent_context.settings import settings
+from narranexus.platform.settings import settings
 
 
 def test_to_cli_env_injects_timeout_and_retries():

@@ -1,0 +1,14 @@
+{
+  "id": "builtin.browser",
+  "version": "1.0.0",
+  "displayName": "Browser",
+  "description": "Builtin module BrowserModule — drive a real browser the user can watch and take over.",
+  "hosts": ["backend", "mcp", "workers"],
+  "api": { "module": 0 },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.browser_module.contribution:MODULES"
+    ]
+  },
+  "quality": "gold"
+}

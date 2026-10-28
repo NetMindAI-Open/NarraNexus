@@ -3,7 +3,7 @@
 @date: 2026-06-08
 @description: Live-streaming citation-strip path inside ResponseProcessor.
 
-When the model calls ``send_message_to_user_directly`` (or any other
+When the model calls ``reply_owner`` (or any other
 user-reply tool) with ``content`` that contains OpenAI Responses-API
 ``citeturnNviewN`` markers, the live-streamed ProgressMessage shipped
 to the frontend must carry CLEAN content — not the raw model output.
@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     ResponseProcessor,
     ResponseType,
 )
-from xyz_agent_context.schema import ProgressMessage
+from narranexus.platform.schema import ProgressMessage
 
 
 def _reply_tool_event(tool_name: str, content: str) -> dict:
@@ -49,7 +49,7 @@ def test_send_message_content_stripped_in_progress_message():
 
     events = list(rp._handle_run_item_stream_event(
         _reply_tool_event(
-            "mcp__chat_module__send_message_to_user_directly", raw
+            "mcp__chat_module__reply_owner", raw
         ),
         state,
     ))
@@ -73,7 +73,7 @@ def test_multiple_citation_tokens_stripped_in_progress_message():
 
     events = list(rp._handle_run_item_stream_event(
         _reply_tool_event(
-            "mcp__chat_module__send_message_to_user_directly", raw
+            "mcp__chat_module__reply_owner", raw
         ),
         state,
     ))
@@ -125,7 +125,7 @@ def test_reply_tool_without_content_field_safe():
             "type": "run_item_stream_event",
             "item": {
                 "type": "tool_call_item",
-                "tool_name": "mcp__chat_module__send_message_to_user_directly",
+                "tool_name": "mcp__chat_module__reply_owner",
                 "tool_call_id": "call_x",
                 "arguments": {},
             },

@@ -23,7 +23,7 @@ import time
 
 import pytest
 
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
 
 
 class _NeverYields:

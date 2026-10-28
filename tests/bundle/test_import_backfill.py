@@ -15,9 +15,9 @@ import json
 
 import pytest
 
-from xyz_agent_context.memory.backfill import backfill_agent_search_indexes
-from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine
-import xyz_agent_context.memory.specs  # noqa: F401 — registers kinds
+from narranexus.platform.memory.backfill import backfill_agent_search_indexes
+from narranexus.platform.memory import MemoryCoordinator, MemoryEngine
+import narranexus_plugins.memory_kinds.specs  # noqa: F401 — registers kinds
 
 AGENT = "agent_backfill01"
 
@@ -94,7 +94,7 @@ async def test_backfill_is_idempotent(db_client):
 def test_app_version_is_real_not_stale():
     """__version__ must reflect the installed package (pyproject anchor), not the
     old hardcoded 0.1.0; the builder stamps that same live version into manifests."""
-    from xyz_agent_context import __version__
-    from xyz_agent_context.bundle.builder import _current_app_version
+    from narranexus.platform import __version__
+    from narranexus.platform.bundle.builder import _current_app_version
     assert __version__ not in ("0.1.0", "1.3.4")
     assert _current_app_version() == __version__

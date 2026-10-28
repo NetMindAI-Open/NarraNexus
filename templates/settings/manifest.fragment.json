@@ -1,0 +1,10 @@
+{
+  "api": {
+    "settings": 0
+  },
+  "provides": {
+    "backend.settings": [
+      "nxplugins.__PLUGIN_PKG__:SETTINGS"
+    ]
+  }
+}

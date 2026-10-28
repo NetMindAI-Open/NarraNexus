@@ -7,7 +7,7 @@
 
 import pytest
 
-from xyz_agent_context.utils.backoff import (
+from narranexus.platform.utils.backoff import (
     DEFAULT_BACKOFF_BASE_SECONDS,
     DEFAULT_BACKOFF_CAP_SECONDS,
     compute_cooldown_seconds,

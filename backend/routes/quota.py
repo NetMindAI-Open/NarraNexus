@@ -20,15 +20,16 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
-from xyz_agent_context.agent_framework.providers.free_tier import (
+from narranexus.platform.agent_framework.providers.free_tier import (
     is_free_tier_enabled,
 )
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletBalance,
     WalletClient,
     WalletError,
     WalletMissing,
 )
+from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 
 router = APIRouter(prefix="/api/quota", tags=["quota"])
 
@@ -62,7 +63,7 @@ async def get_my_quota(request: Request) -> dict:
 
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
 
     try:
         return balance_to_dict(await client.balance(user_id))

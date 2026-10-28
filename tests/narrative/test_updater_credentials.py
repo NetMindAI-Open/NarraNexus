@@ -10,10 +10,10 @@ import types
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers import resolver as provider_resolver
-from xyz_agent_context.narrative._narrative_impl import updater as updater_mod
-from xyz_agent_context.utils.db import db_factory
-from xyz_agent_context.services import background_llm_alerts as alerts
+from narranexus.platform.agent_framework.providers import resolver as provider_resolver
+from narranexus.platform.narrative._narrative_impl import updater as updater_mod
+from narranexus.platform.utils.db import db_factory
+from narranexus.platform.services import background_llm_alerts as alerts
 
 
 def _make_updater():
@@ -25,12 +25,6 @@ def _fake_narrative():
     # Minimal stand-in — the updater only reads .id / .agent_id in the paths
     # under test (LLM call + context build are monkeypatched).
     return types.SimpleNamespace(id="nar_1", agent_id="agt_1")
-
-
-@pytest.fixture(autouse=True)
-def _reset():
-    alerts.reset_alert_state()
-    yield
 
 
 @pytest.mark.asyncio

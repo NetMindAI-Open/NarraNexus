@@ -1,8 +1,54 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-08-04
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Detached work participates in shutdown
+
+BackgroundRun, run-job execution and managed post-run bookkeeping start through
+the backend's `RunTasks` owner. Disconnection still does not cancel execution,
+but lifespan now awaits all of this work before releasing its DB and workers.
+Registration occurs before Step 0, including runs queued for admission.
+
+## 2026-09-10（PR #394 review 第四轮 M-1）— 认领后、run 起来前抛异常时归还探测
+
+`BackgroundRun(...)` 构造与 `bg.task = asyncio.create_task(...)` 包进 `try/except BaseException`：
+认领之后、run 的 task 存在之前抛异常 → `release_probe(agent_id, token)` 再 re-raise，与 WS handler
+的同款归还带一致。task 一旦建成，run 持有 token 自行结算，之后不得归还（会在活探测下误重挂）。
+锁：`test_a_claim_whose_run_never_starts_is_handed_back`（去掉归还即红）。
+
+## 2026-09-10（PR #394 review I5）— 第五个起 turn 的入口补上熔断门
+
+原来本端点无条件 `BackgroundRun(...)`，零闸门，却由 `BackgroundRun` 照常记账：暂停中的
+agent 照样起 turn；半开期间一个从未认领的请求还能替探测下结论。现在与其他入口同一契约
+（[[circuit_breaker]]）：`should_skip` → `try_begin_probe(prior=)`，放在 run-job 控制消息、
+managed `before_run` 拒绝、群聊非 @ 静默入库这些「不起 turn」的分支**之后**（否则它们会白吃
+唯一的探测名额），紧挨 `BackgroundRun` 构造之前。拒绝时回 OpenAI 形状的 **503**：
+`error.type="agent_circuit_open"`、`error.code=<reason>`（`paused:auth` / `paused:quota` /
+`cooling` / `probing`）、`message` 为 `describe_skip_reason` 的同一份文案、`model` 回显
+agent_id。赢得的 `probe_token` 交给 `BackgroundRun(probe_token=...)`。锁：
+`tests/backend/test_openai_compat_circuit_breaker_gate.py`（暂停拒绝不建 run、窗口开时认领并
+把 token 交给 run 且第二个请求拿 `probing`、健康 agent 无 token）。
+
+## 2026-08-26 — 托管 turn 在 `before_run` 之后重渲 tag 行
+
+`run_input` 在 `build_inbound_run_context` 里就定型了，而给 tag 盖
+`is_agent_peer` 的是后面的 ingress hooks——详见 [[sync.py]] 的同日条目。
+所以这里在 hooks 之后补一次 `retag_managed_input`。
+
+**放在 deny 早返回之后**：被拒的 turn 永远不会到达模型，为它重建一次只是
+语义噪声。`retrieval_anchor` / `trigger_id` / `manyfold_attachments` 都不受
+影响——重建只产出 `run_input`，传的是 `user_input` 而不是已渲染的串（理由见
+[[sync.py]] 同日条目：对渲染结果做字符串手术会被一个带换行的昵称静默绕过）。
+
+## 2026-08-10 — managed turn 的 route/duration 进审计(batch-2 §B)
+
+`managed_t0 = time.monotonic()` 锚在 before_run 门前后;两个
+`_schedule_managed_after_run` 位点(stream/nonstream finally)都带
+`audit_details={"route": "normal", "duration_ms": ...}` →
+`managed_ingress_processed` 行。deny/silent 两条路各有专属事件
+(coordinator 写),这里只覆盖真正起 run 的路。
 
 ## 2026-08-04 — _classify_event：剥空的回复工具事件整条丢弃
 
@@ -47,7 +93,7 @@ last_error_msg。客户端断线时 finally 仍执行——inbox/审计不因掉
 turn 用各渠道注册的 extract_reply_fn,lark 的 `--markdown` 解析等免费
 获得)。语义变化:reply 工具名命中但提取不到文本的调用,从"静默丢弃"
 改为按 tool_call 展示(对 lark_cli 的非发送命令这是必须的)。
-`_ensure_source_handlers_registered()` 在分类前 import MODULE_MAP 强制
+`_ensure_source_handlers_registered()` 在分类前 import module_registry 强制
 注册,防"进程首个请求撞上空 registry"。无回复兜底文案按来源分叉
 (`_no_reply_fallback`):MANYFOLD 保留诊断文案;渠道 turn 是中性回执
 ——agent 经本地渠道工具带外投递,无 owner 可见文本是正常结果(Q5 决策)。
@@ -119,7 +165,7 @@ SSE chunk 流，让外部平台无侵入地驱动 agent。
 复用 BackgroundRun + Broadcaster：创建 run 后 subscribe broadcaster，
 把事件按 `_classify_event` 映射到四个 OpenAI 通道——agent_thinking /
 agent_response → `delta.reasoning_content`；
-`send_message_to_user_directly` 的 args.content → `delta.content`；
+`reply_owner` 的 args.content → `delta.content`；
 其他 tool → `delta.tool_calls`；tool output → 非标准
 `delta.tool_results` 扩展（Manyfold 端 openclaw.adapter.ts 配对消费）。
 终结帧（`_TERMINAL_TYPES`）→ finish_reason="stop" + `data: [DONE]`。
@@ -130,3 +176,7 @@ agent_response → `delta.reasoning_content`；
   无害，但若它是终结语义必须加进 `_TERMINAL_TYPES`。
 - subscribe 必须发生在 run 启动后尽快完成，否则可能错过早期事件
   （见 L373 注释）。
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.

@@ -1,0 +1,10 @@
+{
+  "api": {
+    "skill": 0
+  },
+  "provides": {
+    "content.skills": [
+      "nxplugins.__PLUGIN_PKG__:SKILLS"
+    ]
+  }
+}

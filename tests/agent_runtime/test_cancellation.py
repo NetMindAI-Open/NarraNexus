@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-from xyz_agent_context.agent_runtime.cancellation import (
+from narranexus.platform.agent_runtime.cancellation import (
     CancellationToken,
     CancelledByUser,
 )

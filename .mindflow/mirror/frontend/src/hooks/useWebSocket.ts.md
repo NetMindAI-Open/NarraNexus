@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/hooks/useWebSocket.ts
-last_verified: 2026-05-13
+last_verified: 2026-08-24
 stub: false
 ---
+
+## 2026-08-24 — 暴露 `steer`(仅此一个,不再 wrap `isSteerable`)
+
+照 `stop` 手法 wrap `wsManager.steer(agentId, content, clientMsgId)`(返回是否真发出),供 [[ChatPanel.tsx]] 运行中发送用。**不**wrap `isSteerable`:ChatPanel 用 store 的响应式 `currentSteerable` 门控 composer(快照读取不会随 run_started 重渲染),`steer()` 自身在发送时再查活性;`wsManager.isSteerable` 作为公开面留给非 React 调用方(#354 云端交付/team 面板),但 hook 层为一个不存在的调用方建 wrapper 是 dead surface,已删。
+
+## 2026-08-14 — chat fast mode: run() 增第 6 参 fastMode
+
+`run(agentId, userId, inputContent, agentName?, attachments?, fastMode?)`
+——可选布尔原样进 wsManager.run 的 options.fastMode（[[useFastMode]] 是
+状态源，[[wsManager]] 负责上 wire）。缺省 undefined = 今日行为。
 
 ## 2026-05-13 — Phase C: 增加 reconnect 回调
 

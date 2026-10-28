@@ -13,7 +13,7 @@ others still come up.
 
 import pytest
 
-from xyz_agent_context.module.run_channel_triggers import (
+from narranexus.platform.module_system.run_channel_triggers import (
     _parse_only,
     start_channel_triggers,
 )
@@ -177,7 +177,7 @@ class _HealthTrigger:
 
 
 async def test_health_payload_ok_when_all_channels_ok():
-    from xyz_agent_context.channel.channel_health_server import build_health_payload
+    from narranexus.platform.channel.channel_health_server import build_health_payload
 
     triggers = [
         ("lark", _HealthTrigger(running=True)),
@@ -193,7 +193,7 @@ async def test_health_payload_ok_when_all_channels_ok():
 
 
 async def test_health_payload_degraded_when_a_channel_starting():
-    from xyz_agent_context.channel.channel_health_server import build_health_payload
+    from narranexus.platform.channel.channel_health_server import build_health_payload
 
     triggers = [
         ("lark", _HealthTrigger(running=True)),

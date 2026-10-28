@@ -28,7 +28,7 @@ def test_guide_teaches_both_no_wait_and_device_code_sides():
     (poll side). Failure here means the agent is being taught only half
     the flow — which is exactly the bug that trapped demo_user_v1.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -43,7 +43,7 @@ def test_guide_teaches_two_turn_boundary():
     agent_c9af2f03afec logs 2026-04-22 20:42:19 → 20:42:23), get
     `authorization_pending`, and conclude the device_code was broken.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -72,7 +72,7 @@ def test_guide_forbids_re_minting_while_url_in_flight():
     rule was absent and the agent re-minted on every turn (6 URLs in
     13 minutes for demo_user).
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -99,7 +99,7 @@ def test_guide_teaches_remembering_device_code_from_prior_turn():
     `--no-wait` response, not to mint again. This ties the two turns
     together.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -129,19 +129,19 @@ def test_guide_is_rendered_only_when_stage_completed():
     confuse the agent. Confirm the module gates the guide the same way
     it already gates _IDENTITY_GUIDE.
     """
-    # We verify the gating by reading the source text of get_instructions
+    # We verify the gating by reading the source text of contribute_instructions
     # rather than rendering it — rendering requires a ctx_data fixture
     # with lark_info, which is overkill for a prompt-presence test.
     import inspect
 
-    from xyz_agent_context.module.lark_module import lark_module as lm
+    from narranexus_plugins.lark_module import lark_module as lm
 
-    src = inspect.getsource(lm.LarkModule.get_instructions)
+    src = inspect.getsource(lm.LarkModule.contribute_instructions)
     # The guide constant must appear in the render function's body, and
     # must be gated on stage == "completed" (same pattern as the
     # existing _IDENTITY_GUIDE gate).
     assert "_INCREMENTAL_AUTH_GUIDE" in src, (
-        "get_instructions must reference _INCREMENTAL_AUTH_GUIDE so the "
+        "contribute_instructions must reference _INCREMENTAL_AUTH_GUIDE so the "
         "guide actually reaches the agent's system prompt."
     )
     assert 'stage == "completed"' in src
@@ -153,7 +153,7 @@ def test_guide_distinguishes_bot_scope_recovery_from_user_scope():
     guide that collapses both into "mint a URL" would push bot-scope
     failures down a dead-end path the user can't redeem.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -182,7 +182,7 @@ def test_guide_mentions_scope_accumulation():
     every new login URL, forcing the user to re-authorize them each
     time.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -207,7 +207,7 @@ def test_guide_points_agent_at_lark_shared_skill_doc():
     the agent at `lark_skill(agent_id, "lark-shared")` for the
     authoritative contract.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -225,7 +225,7 @@ def test_iron_rules_include_destructive_confirmation():
     high-blast-radius actions. The iron rules must require
     confirmation before executing when intent is ambiguous.
     """
-    from xyz_agent_context.module.lark_module.lark_module import _IRON_RULES
+    from narranexus_plugins.lark_module.lark_module import _IRON_RULES
 
     lower = _IRON_RULES.lower()
     # A rule that addresses destructive writes — accept either framing.
@@ -246,7 +246,7 @@ def test_narranexus_specifics_teaches_workspace_isolation():
     Missing this, the agent will keep trying `Read` on paths that
     cross-references like `../lark-shared/SKILL.md` suggest.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _NARRANEXUS_SPECIFICS,
     )
 
@@ -270,7 +270,7 @@ def test_narranexus_specifics_teaches_per_agent_auth():
     another, and that `lark_setup` / `lark_bind` manage credentials
     per agent (i.e. do NOT shell out to `lark-cli config init`).
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _NARRANEXUS_SPECIFICS,
     )
 
@@ -304,7 +304,7 @@ def test_guide_warns_about_admin_approval_preceding_user_authorization():
     expectations ("this may first need admin approval") and handles
     `pending approval` errors without re-minting prematurely.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -355,7 +355,7 @@ def test_guide_reminds_agent_to_restate_device_code_in_reasoning():
     ending the mint turn. Otherwise it'll still lose the value next
     turn even with the new persistence path working.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -381,11 +381,11 @@ def test_narranexus_specifics_rendered_only_when_stage_completed():
     """
     import inspect
 
-    from xyz_agent_context.module.lark_module import lark_module as lm
+    from narranexus_plugins.lark_module import lark_module as lm
 
-    src = inspect.getsource(lm.LarkModule.get_instructions)
+    src = inspect.getsource(lm.LarkModule.contribute_instructions)
     assert "_NARRANEXUS_SPECIFICS" in src, (
-        "get_instructions must render _NARRANEXUS_SPECIFICS so the "
+        "contribute_instructions must render _NARRANEXUS_SPECIFICS so the "
         "workspace / per-agent-auth callouts actually reach the agent."
     )
 
@@ -411,7 +411,7 @@ def test_guide_says_bot_scope_needs_console_enable_plus_version_publish():
     console" lets the agent/owner believe a console click is enough and
     loop forever while the tenant token still lacks the scope.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -432,7 +432,7 @@ def test_guide_says_user_click_cannot_grant_bot_scope():
     more URLs. The guide must say this so the agent stops minting
     auth-login URLs for `--as bot` scope errors.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -461,7 +461,7 @@ def test_guide_requires_verifying_before_claiming_scope_resolved():
     as resolved in memory. Pre-fix, the agent recorded "已解决" while the
     bot call kept returning 99991672.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -482,7 +482,7 @@ def test_guide_separates_incremental_topup_from_three_click_binding():
     must tell the agent that a top-up is NOT the three-click binding
     flow and never calls permission_advance.
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 
@@ -501,7 +501,7 @@ def test_guide_distinguishes_post_scope_resource_failure_from_auth():
     (which is what it did during the Xiong transcript saga after scopes
     were granted).
     """
-    from xyz_agent_context.module.lark_module.lark_module import (
+    from narranexus_plugins.lark_module.lark_module import (
         _INCREMENTAL_AUTH_GUIDE,
     )
 

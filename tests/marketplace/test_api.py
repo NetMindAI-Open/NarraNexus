@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as secret_box_module
 
 AGENT_ID = "agt_test"
 USER_ID = "usr_test"
@@ -29,7 +29,7 @@ TOKEN = "test-publish-token"
 
 @pytest.fixture
 def app(db_client, tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_SECRETS_KEY", raising=False)
@@ -38,7 +38,7 @@ def app(db_client, tmp_path, monkeypatch):
     monkeypatch.setenv("MARKETPLACE_PUBLISH_TOKEN", TOKEN)
 
     # Force "cloud" so SkillMarketplaceService uses the local DB registry.
-    import xyz_agent_context.marketplace.skill_marketplace_service as service_module
+    import narranexus.platform.marketplace.skill_marketplace_service as service_module
 
     monkeypatch.setattr(service_module, "get_deployment_mode", lambda: "cloud")
 
@@ -46,14 +46,14 @@ def app(db_client, tmp_path, monkeypatch):
     async def _get_db():
         return db_client
 
-    import xyz_agent_context.utils.db.db_factory as db_factory
+    import narranexus.platform.utils.db.db_factory as db_factory
 
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 
     async def _noop_backup(**kwargs):
         return None
 
-    import xyz_agent_context.bundle.skill_backup as skill_backup
+    import narranexus.platform.bundle.skill_backup as skill_backup
 
     monkeypatch.setattr(skill_backup, "backup_after_api_install", _noop_backup)
 
@@ -106,11 +106,28 @@ async def test_publish_requires_token(app, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_publish_token_is_checked_before_the_body(app):
+    """No token and no file must be 403, not a 422 that spells out the
+    multipart schema; the right token with no file reaches body validation."""
+    async with await _client(app) as ac:
+        missing = await ac.post("/api/marketplace/skills/publish")
+        wrong = await ac.post(
+            "/api/marketplace/skills/publish", headers={"X-Publish-Token": "wrong"}
+        )
+        right = await ac.post(
+            "/api/marketplace/skills/publish", headers={"X-Publish-Token": TOKEN}
+        )
+    assert missing.status_code == 403, missing.text
+    assert wrong.status_code == 403, wrong.text
+    assert right.status_code == 422, right.text
+
+
+@pytest.mark.asyncio
 async def test_publish_without_configured_token_allowed_in_local_mode(
     app, tmp_path, monkeypatch
 ):
     monkeypatch.delenv("MARKETPLACE_PUBLISH_TOKEN", raising=False)
-    import xyz_agent_context.utils.deployment_mode as dm
+    import narranexus.platform.utils.deployment_mode as dm
 
     monkeypatch.setattr(dm, "is_cloud_mode", lambda: False)
     response = await _publish(app, tmp_path, name="local-pub", token="")
@@ -122,7 +139,7 @@ async def test_publish_without_configured_token_closed_on_cloud(
     app, tmp_path, monkeypatch
 ):
     monkeypatch.delenv("MARKETPLACE_PUBLISH_TOKEN", raising=False)
-    import xyz_agent_context.utils.deployment_mode as dm
+    import narranexus.platform.utils.deployment_mode as dm
 
     monkeypatch.setattr(dm, "is_cloud_mode", lambda: True)
     response = await _publish(app, tmp_path, name="cloud-pub", token="")
@@ -131,7 +148,7 @@ async def test_publish_without_configured_token_closed_on_cloud(
 
 @pytest.mark.asyncio
 async def test_local_registry_flag_forces_registry_host(monkeypatch):
-    from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
+    from narranexus.platform.marketplace.skill_marketplace_service import SkillMarketplaceService
 
     monkeypatch.setenv("SKILL_MARKETPLACE_LOCAL_REGISTRY", "1")
     assert SkillMarketplaceService()._is_registry_host() is True

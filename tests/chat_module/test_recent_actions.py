@@ -18,8 +18,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema.instance_schema import ModuleInstanceRecord
 
 
 def _ts(minutes_ago: int) -> str:
@@ -41,7 +41,7 @@ def _patch_links(nar_map):
         return [nid] if nid else []
 
     return patch(
-        "xyz_agent_context.repository.instance_link_repository."
+        "narranexus.platform.repository.instance_link_repository."
         "InstanceNarrativeLinkRepository.get_narratives_for_instance",
         new=AsyncMock(side_effect=_get_nars),
     )
@@ -78,10 +78,10 @@ async def test_recent_actions_collects_activity_rows_only_latest_first(chat_modu
         side_effect=lambda module_name, inst_id: fake_memories.get(inst_id)
     )
     with patch(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         new=AsyncMock(return_value=MagicMock(get_by_ids=AsyncMock(return_value=[]))),
     ), patch(
-        "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",
+        "narranexus.platform.repository.InstanceRepository.get_chat_instances_by_user",
         new=AsyncMock(return_value=fake_instances),
     ), _patch_links(nar_map):
         actions = await chat_module._load_recent_actions()
@@ -101,10 +101,10 @@ async def test_recent_actions_caps_at_max(chat_module):
         return_value={"messages": msgs}
     )
     with patch(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         new=AsyncMock(return_value=MagicMock(get_by_ids=AsyncMock(return_value=[]))),
     ), patch(
-        "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",
+        "narranexus.platform.repository.InstanceRepository.get_chat_instances_by_user",
         new=AsyncMock(return_value=fake_instances),
     ), _patch_links({"chat_cur": "nar_cur"}):
         actions = await chat_module._load_recent_actions()

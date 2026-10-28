@@ -1,0 +1,16 @@
+{
+  "id": "acme.crm",
+  "version": "0.1.0",
+  "displayName": "Acme CRM",
+  "description": "Example custom plugin bundled into the Acme distribution: a backend that activates on startup.",
+  "minAppVersion": "1.15.0",
+  "hosts": [
+    "backend"
+  ],
+  "backend": {
+    "activate": true
+  },
+  "activationEvents": [
+    "onStartup"
+  ]
+}

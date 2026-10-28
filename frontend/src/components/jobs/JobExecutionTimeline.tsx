@@ -23,9 +23,9 @@ interface JobExecutionTimelineProps {
 const statusColorClasses: Record<JobNodeStatus, string> = {
   pending: 'bg-gray-300',
   active: 'bg-blue-400',
-  running: 'bg-[var(--color-yellow-500)] animate-pulse',
+  running: 'bg-[var(--color-warning)] animate-pulse',
   completed: 'bg-green-500',
-  failed: 'bg-[var(--color-red-500)]',
+  failed: 'bg-[var(--color-error)]',
   cancelled: 'bg-gray-400',
 };
 
@@ -218,13 +218,13 @@ export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExe
           <div className="w-3 h-3 rounded bg-blue-400" /> {t('jobs.status.active')}
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-[var(--color-yellow-500)]" /> {t('jobs.status.running')}
+          <div className="w-3 h-3 rounded bg-[var(--color-warning)]" /> {t('jobs.status.running')}
         </span>
         <span className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-green-500" /> {t('jobs.status.completed')}
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-[var(--color-red-500)]" /> {t('jobs.status.failed')}
+          <div className="w-3 h-3 rounded bg-[var(--color-error)]" /> {t('jobs.status.failed')}
         </span>
       </div>
     </div>

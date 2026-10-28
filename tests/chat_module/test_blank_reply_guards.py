@@ -6,7 +6,7 @@
 
 The 2026-07-13 blank-bubble report: a reply that is *only* whitespace
 ("\n" after citation-token stripping, or literal spaces) is truthy, so
-it slipped past the falsy-only guard in hook_persist_turn and landed in
+it slipped past the falsy-only guard in persist_turn and landed in
 history as a blank message bubble. The silent-batch branch already
 strips (`if not content.strip()`); the main path must match, falling
 back to the same placeholder an empty reply gets.
@@ -19,14 +19,14 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -78,11 +78,11 @@ def _params(
 def _reply(content: str) -> ProgressMessage:
     return ProgressMessage(
         step="3.4.1",
-        title="send_message_to_user_directly",
+        title="reply_owner",
         description="reply",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
         },
     )
@@ -97,7 +97,7 @@ async def _rows(chat_module) -> list:
 
 @pytest.mark.asyncio
 async def test_newline_only_reply_persists_placeholder(chat_module):
-    await chat_module.hook_persist_turn(
+    await chat_module.persist_turn(
         _params(agent_loop_response=[_reply("\n")])
     )
     messages = await _rows(chat_module)
@@ -106,7 +106,7 @@ async def test_newline_only_reply_persists_placeholder(chat_module):
 
 @pytest.mark.asyncio
 async def test_spaces_only_reply_persists_placeholder(chat_module):
-    await chat_module.hook_persist_turn(
+    await chat_module.persist_turn(
         _params(agent_loop_response=[_reply("   ")])
     )
     messages = await _rows(chat_module)
@@ -118,7 +118,7 @@ async def test_whitespace_reply_on_interrupted_turn_says_interrupted(chat_module
     """The strip guard must not clobber the interrupt branch: a stopped
     turn whose only output was whitespace reads "cut short", not "chose
     not to answer"."""
-    await chat_module.hook_persist_turn(
+    await chat_module.persist_turn(
         _params(agent_loop_response=[_reply("\n")], interrupted=True)
     )
     messages = await _rows(chat_module)
@@ -129,7 +129,7 @@ async def test_whitespace_reply_on_interrupted_turn_says_interrupted(chat_module
 async def test_real_reply_with_surrounding_whitespace_is_kept(chat_module):
     """Guard is strip-for-emptiness only — real content keeps its exact
     persisted form."""
-    await chat_module.hook_persist_turn(
+    await chat_module.persist_turn(
         _params(agent_loop_response=[_reply("Here you go.\n")])
     )
     messages = await _rows(chat_module)

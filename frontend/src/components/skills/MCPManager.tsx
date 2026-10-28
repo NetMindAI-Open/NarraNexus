@@ -48,9 +48,9 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
 
     switch (mcp.connection_status) {
       case 'connected':
-        return <CheckCircle className="w-3 h-3 text-[var(--color-green-500)]" />;
+        return <CheckCircle className="w-3 h-3 text-[var(--color-success)]" />;
       case 'failed':
-        return <XCircle className="w-3 h-3 text-[var(--color-red-500)]" />;
+        return <XCircle className="w-3 h-3 text-[var(--color-error)]" />;
       default:
         return <Circle className="w-3 h-3 text-[var(--text-tertiary)]" />;
     }
@@ -71,14 +71,14 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
   return (
     <div
       className={cn(
-        'flex items-center gap-2 p-2 bg-[var(--bg-secondary)] rounded group hover:bg-[var(--bg-tertiary)] transition-colors',
+        'flex items-center gap-2 p-2 bg-[var(--bg-secondary)] rounded group hover:bg-[var(--nm-paper-warm)] transition-colors',
         !mcp.is_enabled && 'opacity-50'
       )}
     >
       {/* Status Indicator */}
       <button
         onClick={() => onValidate(mcp.mcp_id)}
-        className="shrink-0 p-0.5 hover:bg-[var(--bg-tertiary)] rounded"
+        className="shrink-0 p-0.5 hover:bg-[var(--nm-paper-warm)] rounded"
         // Full error in the tooltip (the inline label is truncated). Click to
         // re-validate. A Failed dot here means the URL is unreachable or not a
         // valid SSE endpoint — see the add-form hints.
@@ -121,7 +121,7 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
           className="w-6 h-6"
           title={mcp.is_enabled ? t('skills.mcp.disable') : t('skills.mcp.enable')}
         >
-          <Power className={cn('w-3 h-3', mcp.is_enabled ? 'text-[var(--color-green-500)]' : 'text-[var(--text-tertiary)]')} />
+          <Power className={cn('w-3 h-3', mcp.is_enabled ? 'text-[var(--color-success)]' : 'text-[var(--text-tertiary)]')} />
         </Button>
         <Button
           variant="ghost"
@@ -176,7 +176,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 p-2 bg-[var(--bg-secondary)] rounded-lg">
+    <form onSubmit={handleSubmit} className="space-y-2 p-2 bg-[var(--bg-secondary)] rounded-[var(--radius-lg)]">
       <input
         type="text"
         placeholder={t('skills.mcp.namePlaceholder')}
@@ -501,7 +501,7 @@ export function MCPManager() {
 
       {/* Error Message */}
       {error && (
-        <div className="flex items-center gap-1.5 text-xs text-[var(--color-error)] p-2 border border-[var(--color-red-500)]">
+        <div className="flex items-center gap-1.5 text-xs text-[var(--color-error)] p-2 border border-[var(--color-error)]">
           <AlertCircle className="w-3 h-3 shrink-0" />
           {error}
         </div>
@@ -514,7 +514,7 @@ export function MCPManager() {
           <div className="animate-pulse bg-[var(--bg-secondary)] rounded h-12" />
         </div>
       ) : mcps.length === 0 ? (
-        <div className="text-xs text-[var(--text-tertiary)] text-center py-3 bg-[var(--bg-secondary)] rounded-lg">
+        <div className="text-xs text-[var(--text-tertiary)] text-center py-3 bg-[var(--bg-secondary)] rounded-[var(--radius-lg)]">
           <Server className="w-5 h-5 mx-auto mb-1 opacity-50" />
           {t('skills.mcp.noServers')}
           <button
@@ -545,11 +545,11 @@ export function MCPManager() {
       {mcps.length > 0 && (
         <div className="flex items-center gap-3 text-[9px] text-[var(--text-tertiary)] pt-1">
           <span className="flex items-center gap-1">
-            <CheckCircle className="w-2.5 h-2.5 text-[var(--color-green-500)]" />
+            <CheckCircle className="w-2.5 h-2.5 text-[var(--color-success)]" />
             {t('skills.mcp.connected')}
           </span>
           <span className="flex items-center gap-1">
-            <XCircle className="w-2.5 h-2.5 text-[var(--color-red-500)]" />
+            <XCircle className="w-2.5 h-2.5 text-[var(--color-error)]" />
             {t('skills.mcp.failed')}
           </span>
           <span className="flex items-center gap-1">

@@ -1,9 +1,10 @@
 ---
 code_file: tauri/src-tauri/src/commands/mod.rs
-last_verified: 2026-07-23
+last_verified: 2026-09-03
 ---
-
 # mod.rs — Module declaration for the commands directory
+
+## 2026-09-03（批 2d.2）— `pub mod plugin_scheme;`
 
 Just module declarations: `auth`, `config`, `deep_link`, `file_download`,
 `health`, `netmind_oauth`, `notify`, `power`, `service`, `tray`, `updater`, `artifact_fetch`,

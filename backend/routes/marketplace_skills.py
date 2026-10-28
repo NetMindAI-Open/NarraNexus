@@ -14,13 +14,14 @@ search annotations, agent-scoped updates) resolve identity via
 auth_middleware. Publish is gated by MARKETPLACE_PUBLISH_TOKEN.
 """
 
+import hmac
 import os
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 
@@ -29,7 +30,8 @@ from backend.auth import (
     resolve_current_user_id,
     resolve_optional_user_id,
 )
-from xyz_agent_context.marketplace.skill_marketplace_service import (
+from backend.routes._ownership import assert_owned
+from narranexus.platform.marketplace.skill_marketplace_service import (
     PublishRejectedError,
     SkillMarketplaceService,
 )
@@ -158,6 +160,9 @@ async def install_skill(skill_id: str, request: Request, body: Optional[dict] = 
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is required")
     user_id = await resolve_current_user_id(request)
+    # Installing writes a skill_installations row against the agent and
+    # re-syncs its discovery profile — owner-only (2026-10-28).
+    await assert_owned(request, agent_id)
 
     try:
         result = await SkillMarketplaceService().install(
@@ -191,32 +196,44 @@ async def install_skill(skill_id: str, request: Request, body: Optional[dict] = 
     }
 
 
-@router.post("/publish")
-async def publish_skill(
+async def publish_token_dependency(
     request: Request,
-    file: UploadFile = File(...),
-    publisher: str = Form("narranexus-team"),
     x_publish_token: Optional[str] = Header(None),
-):
+) -> None:
+    """Gate ``/publish`` on MARKETPLACE_PUBLISH_TOKEN.
+
+    Declared as a ``Depends`` so it is resolved BEFORE the multipart body is
+    validated: a caller without the token gets 403 whatever the body, never a
+    422 that spells out the upload schema (2026-10-28 audit, same shape as the
+    admin-secret routes). The compare is constant-time.
+    """
     expected = os.environ.get("MARKETPLACE_PUBLISH_TOKEN")
     if expected:
-        if x_publish_token != expected:
+        provided = x_publish_token or ""
+        if not hmac.compare_digest(provided.encode(), expected.encode()):
             raise HTTPException(status_code=403, detail="Invalid or missing publish token")
-    else:
-        # No token configured: publishing stays CLOSED on cloud (multi-tenant),
-        # but is allowed in local mode — the backend is loopback-bound and the
-        # OS user is the security boundary (same trust model as the rest of
-        # the local API). Lets dev/desktop hosts run their own registry.
-        from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+        return
+    # No token configured: publishing stays CLOSED on cloud (multi-tenant),
+    # but is allowed in local mode — the backend is loopback-bound and the
+    # OS user is the security boundary (same trust model as the rest of
+    # the local API). Lets dev/desktop hosts run their own registry.
+    from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
-        if is_cloud_mode():
-            raise HTTPException(status_code=403, detail="Publishing is not enabled on this server")
-        # Local no-token: loopback-trust only. Reject cross-origin (CSRF) —
-        # a browser always sends Origin on a cross-site POST; the CLI sends
-        # none. Without this a malicious page could POST to localhost:8000.
-        reject_cross_origin(request)
-        logger.info("Marketplace publish: local mode without token — allowed")
+    if is_cloud_mode():
+        raise HTTPException(status_code=403, detail="Publishing is not enabled on this server")
+    # Local no-token: loopback-trust only. Reject cross-origin (CSRF) —
+    # a browser always sends Origin on a cross-site POST; the CLI sends
+    # none. Without this a malicious page could POST to localhost:8000.
+    reject_cross_origin(request)
+    logger.info("Marketplace publish: local mode without token — allowed")
 
+
+@router.post("/publish")
+async def publish_skill(
+    _: None = Depends(publish_token_dependency),
+    file: UploadFile = File(...),
+    publisher: str = Form("narranexus-team"),
+):
     temp_dir = Path(tempfile.mkdtemp())
     try:
         # NEVER trust the client-supplied filename — pathlib does not

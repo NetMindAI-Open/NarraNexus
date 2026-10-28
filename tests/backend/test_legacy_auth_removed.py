@@ -49,7 +49,7 @@ def test_cloud_password_login_is_gone(db_client, monkeypatch):
 def test_local_login_still_works(db_client, monkeypatch):
     import asyncio
 
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
 
     asyncio.get_event_loop().run_until_complete(
         UserRepository(db_client).add_user(user_id="lily", user_type="local")

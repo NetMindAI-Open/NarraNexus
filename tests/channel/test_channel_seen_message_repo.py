@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.channel_seen_message_repository import (
+from narranexus.platform.repository.channel_seen_message_repository import (
     ChannelSeenMessageRepository,
 )
 

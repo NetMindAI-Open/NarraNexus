@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import backend.routes.quota as mod
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletBalance,
     WalletMissing,
     WalletUnavailable,

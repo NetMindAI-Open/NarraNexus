@@ -1,0 +1,13 @@
+{
+  "hosts": [
+    "frontend"
+  ],
+  "frontend": {
+    "entry": "plugin.js",
+    "ui": {
+      "themes": [
+        "__PLUGIN_ID__.theme"
+      ]
+    }
+  }
+}

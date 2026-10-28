@@ -15,7 +15,15 @@ Protocol quirks (verified against Arena's client, netmind.ts):
 - The auth header is a custom header literally named `token`, with a
   `Bearer ` prefix. It is NOT the standard Authorization header.
 - The response envelope is {"data": {"user": {...}}}; an explicit
-  {"success": false} body means the token was rejected.
+  {"success": false} body means the token was rejected (observed for a
+  MISSING token: 200 + {success:false, errorcode:"NOT_LOGGEDIN"}).
+- A PRESENT but invalid/expired/forged token is NOT answered with that
+  envelope. Captured live 2026-09-08 on both dev and prod hosts: HTTP 500
+  with Spring Boot's generic error page, whose `exception` field names the
+  Shiro authc exception ("org.apache.shiro.authc.AuthenticationException",
+  message "Authentication failed for token submission [...JwtToken@...]").
+  The only auth signal in that shape is the exception class, so the client
+  reads it (GitHub #102: this used to surface as 502).
 
 Error semantics are deliberately two-valued:
 - NetmindAuthError      -> the token is bad (caller maps to HTTP 401)
@@ -43,8 +51,38 @@ DEV_BYPASS_ENV = "NETMIND_DEV_BYPASS"
 DEV_BYPASS_PREFIX = "dev-bypass-"
 
 DEFAULT_BASE_URL_ENV = "NETMIND_AUTH_API_URL"
+# Spring/Shiro error page. Only a CREDENTIAL verdict maps to 401:
+# - the concrete Shiro credential exceptions below, or
+# - the base AuthenticationException *together with* the message Shiro
+#   emits when the JwtToken itself was refused (live capture 2026-09-08).
+# The base class is also what Shiro wraps a Realm's own failures in (its
+# DB / user service being down), so a bare AuthenticationException — or
+# any other authc class — stays an upstream fault (502): an auth-service
+# outage must not log every user out as "your token is invalid".
+_SHIRO_AUTHC_PACKAGE = "org.apache.shiro.authc."
+_SHIRO_AUTHC_BASE = _SHIRO_AUTHC_PACKAGE + "AuthenticationException"
+_SHIRO_CREDENTIAL_EXCEPTIONS = frozenset(
+    _SHIRO_AUTHC_PACKAGE + name
+    for name in (
+        "ExpiredCredentialsException",
+        "IncorrectCredentialsException",
+        "CredentialsException",
+        "UnknownAccountException",
+        "DisabledAccountException",
+        "LockedAccountException",
+        "ExcessiveAttemptsException",
+    )
+)
+_SHIRO_TOKEN_REFUSED_PHRASE = "Authentication failed for token submission"
 DEFAULT_TIMEOUT_ENV = "NETMIND_AUTH_TIMEOUT_SECONDS"
 _FALLBACK_TIMEOUT_SECONDS = 5.0
+
+
+def _is_shiro_credential_verdict(exception_cls: str, message: str) -> bool:
+    """True only when the Spring/Shiro error page is a verdict on the token."""
+    if exception_cls in _SHIRO_CREDENTIAL_EXCEPTIONS:
+        return True
+    return exception_cls == _SHIRO_AUTHC_BASE and _SHIRO_TOKEN_REFUSED_PHRASE in message
 
 
 class NetmindAuthError(Exception):
@@ -142,6 +180,21 @@ class NetmindAuthClient:
             raise NetmindAuthError(
                 f"NetMind rejected the token "
                 f"(status={response.status_code}, msg={msg!r})"
+            )
+
+        # The shape NetMind actually returns for a present-but-bad token: a
+        # Spring error page (any status; live-observed 500) whose `exception`
+        # is a Shiro authc class. The `message` is Shiro's own text — it names
+        # the JwtToken *object* (class@hash), never the token string.
+        exception_cls = body.get("exception") if isinstance(body, dict) else None
+        if isinstance(exception_cls, str) and _is_shiro_credential_verdict(
+            exception_cls, str(body.get("message") or "")
+        ):
+            short_cls = exception_cls.rsplit(".", 1)[-1]
+            msg = str(body.get("message") or "").strip()[:120]
+            raise NetmindAuthError(
+                f"NetMind rejected the token "
+                f"(status={response.status_code}, exception={short_cls}, msg={msg!r})"
             )
 
         if response.status_code >= 500:

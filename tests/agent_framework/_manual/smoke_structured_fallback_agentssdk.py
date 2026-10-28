@@ -25,13 +25,13 @@ os.environ["OPENAI_API_KEY"] = os.getenv("NETMIND_API_KEY", "")
 os.environ["OPENAI_BASE_URL"] = "https://api.netmind.ai/inference-api/openai/v1"
 
 # Disable cost recording (no DB available in this test harness)
-from xyz_agent_context.agent_framework import api_config  # noqa: E402
+from narranexus.platform.agent_framework import api_config  # noqa: E402
 api_config.openai_config.api_key = os.getenv("NETMIND_API_KEY")
 api_config.openai_config.base_url = "https://api.netmind.ai/inference-api/openai/v1"
 # Will be overridden per-call by passing model=
 api_config.openai_config.model = "deepseek-ai/DeepSeek-V3.1"
 
-from xyz_agent_context.agent_framework.adapters.openai_agents import (  # noqa: E402
+from narranexus.platform.agent_framework.adapters.openai_agents import (  # noqa: E402
     OpenAIAgentsSDK,
     _response_format_capability,
     _capability_key,
@@ -109,7 +109,7 @@ async def run_once(sdk, model: str, schema, instructions: str, user_input: str) 
             output_type=schema,
             model=model,
         )
-        from xyz_agent_context.agent_framework.adapters.openai_agents import (
+        from narranexus.platform.agent_framework.adapters.openai_agents import (
             get_last_llm_call_info,
         )
         info = get_last_llm_call_info() or {}

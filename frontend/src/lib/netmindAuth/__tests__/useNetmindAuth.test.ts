@@ -1,9 +1,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { useNetmindAuth } from '../useNetmindAuth';
+import { NetmindApiError } from '../request';
 
 const netmindPost = vi.fn();
-vi.mock('../request', () => ({ netmindPost: (...a: unknown[]) => netmindPost(...a) }));
+// Keep the real NetmindApiError (the hook does `instanceof`); override the call.
+vi.mock('../request', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../request')>()),
+  netmindPost: (...a: unknown[]) => netmindPost(...a),
+}));
 const netmindLogin = vi.fn();
 const reportAuthFunnel = vi.fn();
 vi.mock('@/lib/api', () => ({ api: {
@@ -33,11 +38,15 @@ describe('useNetmindAuth.emailLogin', () => {
     expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ success: true }), 'nm-tok');
   });
 
-  test('surfaces emailLogin failure as error state', async () => {
-    netmindPost.mockRejectedValue(new Error('Invalid password'));
+  test('surfaces emailLogin failure as a generic (non-enumerating) error state', async () => {
+    // A real upstream rejection (NetmindApiError) is what gets masked.
+    netmindPost.mockRejectedValue(new NetmindApiError('Invalid password'));
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => { await result.current.emailLogin('a@b.com', 'bad'); });
-    expect(result.current.error).toBe('Invalid password');
+    // The upstream message is MASKED to prevent account enumeration
+    // (see useNetmindAuth.emailLogin.test.ts); some error is still shown.
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.error).not.toMatch(/invalid password/i);
     expect(netmindLogin).not.toHaveBeenCalled();
     // The browser->NetMind failure must be reported server-side — this call
     // is the only trace the funnel gets (Base recvre9LlfwXAP).
@@ -69,8 +78,10 @@ describe('useNetmindAuth.emailLogin', () => {
 });
 
 describe('useNetmindAuth.handleAuthCallback reporting split', () => {
-  test('a NetMind-direct callback failure reports netmind_oauth_failed', async () => {
-    netmindPost.mockRejectedValue(new Error('oauth upstream down'));
+  test('a NetMind-direct callback rejection reports netmind_oauth_failed', async () => {
+    // An upstream rejection (NetmindApiError) keeps its message; a transport
+    // failure would show connectionFailed. Both still report to the funnel.
+    netmindPost.mockRejectedValue(new NetmindApiError('oauth upstream down'));
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => { await result.current.handleAuthCallback('code', 'state'); });
     expect(result.current.error).toBe('oauth upstream down');
@@ -114,13 +125,53 @@ describe('useNetmindAuth password reset', () => {
     }));
   });
 
-  test('surfaces resetPassword failure as error state', async () => {
-    netmindPost.mockRejectedValue(new Error('Invalid code'));
+  test('resetPassword masks an upstream rejection to one generic message (no enumeration)', async () => {
+    // "Invalid code" and "email not registered" both map to the same generic —
+    // echoing the latter verbatim would re-open the enumeration this flow closes.
+    netmindPost.mockRejectedValue(new NetmindApiError('email not registered'));
     const { result } = renderHook(() => useNetmindAuth());
     await act(async () => {
       await result.current.resetPassword('a@b.com', 'bad', 'NewPw1234');
     });
-    expect(result.current.error).toBe('Invalid code');
+    expect(result.current.error).not.toMatch(/not registered/i);
+    expect(result.current.error).toMatch(/pages\.login\.resetCodeInvalid|invalid or has expired/i);
+    // The real reason is this step's only server-side trace.
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_reset_password_failed', 'a@b.com', 'email not registered',
+    );
+  });
+
+  test('resetPassword transport failure shows connectionFailed, not bare English', async () => {
+    netmindPost.mockRejectedValue(new Error('Failed to fetch'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => {
+      await result.current.resetPassword('a@b.com', '123456', 'NewPw1234');
+    });
+    expect(result.current.error).toMatch(/pages\.login\.connectionFailed|connection failed/i);
+    expect(result.current.error).not.toMatch(/failed to fetch/i);
+  });
+
+  test('sendResetCode advances (returns true) on an upstream rejection — no boolean enumeration', async () => {
+    netmindPost.mockRejectedValue(new NetmindApiError('email not registered'));
+    const { result } = renderHook(() => useNetmindAuth());
+    let advanced: boolean | undefined;
+    await act(async () => { advanced = await result.current.sendResetCode('probe@x.com'); });
+    // Registered vs not-registered must look identical: advance either way, no error.
+    expect(advanced).toBe(true);
+    expect(result.current.error).toBe('');
+    // Real reason still reaches the funnel.
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_reset_code_failed', 'probe@x.com', 'email not registered',
+    );
+  });
+
+  test('sendResetCode stops (returns false) only on a transport failure', async () => {
+    netmindPost.mockRejectedValue(new Error('Failed to fetch'));
+    const { result } = renderHook(() => useNetmindAuth());
+    let advanced: boolean | undefined;
+    await act(async () => { advanced = await result.current.sendResetCode('a@b.com'); });
+    expect(advanced).toBe(false);
+    expect(result.current.error).toMatch(/pages\.login\.connectionFailed|connection failed/i);
   });
 });
 

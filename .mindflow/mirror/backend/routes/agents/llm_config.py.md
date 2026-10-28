@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents/llm_config.py
-last_verified: 2026-07-28
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -10,6 +10,8 @@ GET 响应里的 `free_tier: {active, model}` 块删除。免费额度是普通 
 卡，per-agent override 不会被任何东西抢占，composer 的模型 chip 永远是可用
 控件 —— 继续下发一个恒为 inactive 的锁块，只会诱导前端渲染一种不可能发生的
 状态。
+（2026-09-11：`get_agent_llm_config` 的 docstring 里残留的 `free_tier` 描述一并删除，
+前端最后一个读它的面板 [[AgentLlmConfigPanel]] 同日移除死 banner。）
 
 ## 2026-07-23 — GET 响应新增 `free_tier` 锁定块（诚实化模型选择器）
 
@@ -93,3 +95,5 @@ Design decisions / gotchas:
 - **No hot-reload**: config is resolved per run from the DB, and
   ``set_user_config`` is ContextVar/task-scoped (can't reach a running loop), so a
   change here applies on the agent's NEXT run. The handler says so explicitly.
+
+> **2026-08-20 平台默认框架变更**: 无显式选择时的默认 agent framework 由 `claude_code` 改为 `nexus_power`（免费/默认用户跑自研 NexusPower loop；模型不变）。本文件相关默认/兜底串已随之更新。

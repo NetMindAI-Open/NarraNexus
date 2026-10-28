@@ -1,0 +1,473 @@
+"""
+Narrative update implementation
+
+@file_name: updater.py
+@author: NetMind.AI
+@date: 2025-12-22
+@description: Narrative update + LLM dynamic summary generation
+
+Features:
+1. update_with_event: Update Narrative with an Event
+2. LLM dynamic update: Asynchronously update name, current_summary, actors, topic_keywords
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timezone
+from typing import List, Optional, TYPE_CHECKING
+
+from pydantic import BaseModel, Field
+from loguru import logger
+
+from ..config import config
+from ..models import (
+    DynamicSummaryEntry,
+    Event,
+    Narrative,
+    NarrativeActor,
+    NarrativeActorType,
+)
+from .crud import NarrativeCRUD
+from .prompts import NARRATIVE_UPDATE_INSTRUCTIONS
+from narranexus.platform.utils.text import strip_routing_prefix
+
+# Use common utilities from utils
+
+if TYPE_CHECKING:
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+
+
+# ============================================================================
+# Action digest — REMOVED (C3), recoverable at a9260baa4
+# ============================================================================
+# Defect A1's fix (compressing the turn's tool actions into the updater
+# context so their nouns reach the BM25 surface) had an unmapped second
+# reader: the updater's output IS the continuity anchor, and digest content
+# made the updater rename threads after their latest tool call — continuity
+# then judged normal follow-ups as topic switches (same-line rate 65.3% ->
+# 56.8% on anchor-rewritten rows, McNemar p=0.0002 with untouched rows flat
+# at p=0.60 as the built-in control; net 24 correct continuations broken per
+# replay exam; author-side raw data: replay run 2026-08-26,
+# PR2_CROWDING_ANALYSIS).
+#
+# The whole section (build_action_digest, its four-layer secret redaction,
+# budget, dedup counting — ~255 lines plus tests) is DELETED per rule #2, not
+# parked: an uncalled public function with rich tests is exactly how a next
+# reader re-wires it and reproduces C3. It lives at commit a9260baa4. The
+# planned successor (step 2) is a SUPPLEMENTARY RETRIEVAL-TERMS FIELD with
+# this contract: BM25's searchable_text reads it, continuity NEVER does;
+# each writing source (digest terms, A-kw rescue terms, future sources) gets
+# its own cap so no single source floods the surface; and its benefit
+# criteria must be pre-registered before it ships — the digest's own benefit
+# was weak (action-only terms were 3.4-4.4% of gold-line BM25 mass,
+# recall@3 flat), so the retrieval gap must be re-proven first.
+
+# ============================================================================
+# LLM Output Schema
+# ============================================================================
+
+class ActorOutput(BaseModel):
+    """Actor output"""
+    name: str = Field(description="Actor name")
+    actor_type: str = Field(description="Type: user, agent, system, tool")
+
+
+class NarrativeUpdateOutput(BaseModel):
+    """
+    LLM 生成的 Narrative 更新内容
+
+    用于随着对话演进动态更新 Narrative 元数据。
+    """
+    name: str = Field(
+        description="Short name for the Narrative (3-8 words), the core topic"
+    )
+    current_summary: str = Field(
+        description=(
+            "Structured fact sheet in bullet format. "
+            "Format: 'Topic: ...\\nKey facts:\\n- fact1\\n- fact2\\n...\\nStatus: ...' "
+            "Max 8-12 bullets. No paragraphs, no filler. Just atomic facts."
+        )
+    )
+    topic_keywords: List[str] = Field(
+        default_factory=list,
+        description="Concrete topic keywords (5-10 items) for retrieval matching"
+    )
+    actors: List[ActorOutput] = Field(
+        default_factory=list,
+        description="Participants: users, Agents, and important named entities mentioned"
+    )
+    dynamic_summary_entry: str = Field(
+        default="",
+        description="One short sentence summarizing this turn, e.g. 'User requested X; Agent did Y.'"
+    )
+
+
+class NarrativeUpdater:
+    """
+    Narrative Updater
+
+    Responsibilities:
+    - Update Narrative with Events
+    - Regenerate topic hints
+    """
+
+    def __init__(self, agent_id: str):
+        """
+        Initialize updater
+
+        Args:
+            agent_id: Agent ID
+        """
+        self.agent_id = agent_id
+        self._crud = NarrativeCRUD(agent_id)
+        self._event_service = None  # Dependency injection
+
+    def set_database_client(self, db_client: "AsyncDatabaseClient"):
+        """Set the database client"""
+        self._crud.set_database_client(db_client)
+
+    def set_event_service(self, event_service):
+        """Inject EventService"""
+        self._event_service = event_service
+
+    async def update_with_event(
+        self,
+        narrative: Narrative,
+        event: Event,
+        is_main_narrative: bool = True,
+        is_default_narrative: bool = False
+    ) -> Narrative:
+        """
+        Update Narrative with an Event
+
+        Features:
+        - Associate Event ID
+        - Update dynamic summary (temporary)
+        - Asynchronously trigger LLM update (main_narrative only)
+
+        Args:
+            narrative: Narrative object
+            event: Event object
+            is_main_narrative: Whether this is the main Narrative
+                - True: Full update, including async LLM dynamic update
+                - False: Basic update only (associate Event, update dynamic_summary)
+                  Note: Auxiliary Narrative LLM updates require different prompts,
+                  as they provide supplementary information with a different summarization perspective.
+                  TODO: Implement dedicated update logic for auxiliary Narratives in the future
+            is_default_narrative: Whether this is a default Narrative (is_special="default")
+                - True: Only add event_id, no other updates
+                - False: Normal update
+
+        Returns:
+            Updated Narrative
+        """
+        logger.debug(f"update_with_event: narrative={narrative.id}, event={event.id}, is_default={is_default_narrative}")
+
+        # [Fix] Reload the latest Narrative from database to avoid overwriting concurrent modifications (e.g., PARTICIPANT)
+        # This is because the passed-in narrative object may be a stale version loaded at the start of the flow
+        latest_narrative = await self._crud.load_by_id(narrative.id)
+        if not latest_narrative:
+            logger.warning(f"Narrative {narrative.id} not found in database, skipping update_with_event")
+            return narrative
+
+        # Default Narrative: Only add event_id, no other updates
+        if is_default_narrative:
+            logger.info(f"Default Narrative only adding event_id: {latest_narrative.id}")
+
+            # Add event_id
+            if event.id not in latest_narrative.event_ids:
+                latest_narrative.event_ids.append(event.id)
+
+            # Update timestamp
+            latest_narrative.updated_at = datetime.now(timezone.utc)
+
+            # Save
+            await self._crud.save(latest_narrative)
+
+            logger.debug(f"Default Narrative update completed: {latest_narrative.id} (only added event_id)")
+            return latest_narrative
+
+        # Non-default Narrative: Normal update flow
+        # Add event_id
+        if event.id not in latest_narrative.event_ids:
+            latest_narrative.event_ids.append(event.id)
+
+        # Temporary dynamic_summary update (waiting for LLM to generate a better version)
+        if event.final_output:
+            summary_entry = DynamicSummaryEntry(
+                event_id=event.id,
+                summary=event.final_output[:200],
+                timestamp=event.updated_at,
+                references=[],
+            )
+            latest_narrative.dynamic_summary.append(summary_entry)
+
+        # Update timestamp
+        latest_narrative.updated_at = datetime.now(timezone.utc)
+
+        # Save basic updates
+        await self._crud.save(latest_narrative)
+
+        # EverMemOS write has been migrated to MemoryModule.after_turn()
+        # See docs/MEMORY_MODULE_REFACTOR.md
+
+        # Update the passed-in object reference so subsequent code uses the latest data
+        narrative = latest_narrative
+
+        # Determine whether to trigger LLM update (async execution, non-blocking)
+        # Note: Only main_narrative triggers the async LLM update
+        # Auxiliary Narratives only get basic updates for now; dedicated update logic can be implemented in the future
+        if is_main_narrative:
+            event_count = len(narrative.event_ids)
+            update_interval = config.NARRATIVE_LLM_UPDATE_INTERVAL
+
+            if update_interval > 0 and event_count % update_interval == 0:
+                logger.info(f"Triggering Narrative LLM update: {narrative.id} (event_count={event_count})")
+                # Async execution, non-blocking main flow. Tracked via `spawn`
+                # (incident lesson #2) — this is the same detached path whose
+                # 401s went unnoticed for ~2 weeks in 2026-07; the credential
+                # alerting added then only fires if the task actually runs and
+                # its failure actually surfaces.
+                from narranexus.platform.utils.background_tasks import spawn
+
+                spawn(
+                    self._async_llm_update(narrative, event),
+                    name=f"narrative_llm_update:{narrative.id}",
+                )
+        else:
+            # Auxiliary Narrative: Only record basic info, skip LLM update
+            # TODO: Implement dedicated update logic for auxiliary Narratives in the future
+            # Auxiliary Narratives have a different summarization perspective than main_narrative, requiring different prompts
+            logger.debug(f"Skipping LLM update for auxiliary Narrative: {narrative.id}")
+
+        return narrative
+
+    # _async_evermemos_write has been migrated to MemoryModule.after_turn()
+    # See docs/MEMORY_MODULE_REFACTOR.md
+
+    async def _async_llm_update(
+        self,
+        narrative: Narrative,
+        event: Event,
+    ) -> None:
+        """
+        Asynchronously update Narrative metadata using LLM
+
+        Updated content:
+        - narrative_info.name
+        - narrative_info.current_summary
+        - narrative_info.actors
+        - topic_keywords
+        - dynamic_summary (last entry)
+
+        Args:
+            narrative: Narrative object
+            event: Latest Event object
+        """
+        from narranexus.platform.agent_framework.llm.failure import is_credential_error
+        from narranexus.platform.agent_framework.providers.resolver import (
+            ProviderResolverError,
+            inject_owner_helper_credentials,
+        )
+        from narranexus.platform.services.background_llm_alerts import (
+            alert_background_llm_failure,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        # This runs in a detached ``asyncio.create_task`` (see caller) whose
+        # context does NOT carry the per-turn helper-LLM config that
+        # AgentRuntime.run set. Resolve the agent OWNER's Helper LLM here so the
+        # update runs on the user's provider — never the platform key it used to
+        # silently fall through to (2026-07 credential incident).
+        owner_user_id = None
+        try:
+            db = await get_db_client()
+            owner_user_id = await inject_owner_helper_credentials(
+                narrative.agent_id, db
+            )
+        except ProviderResolverError as e:
+            # No usable provider / free tier exhausted. Do NOT fall through to
+            # the platform key — skip the update and surface it to the owner.
+            await alert_background_llm_failure(
+                agent_id=narrative.agent_id,
+                owner_user_id=None,
+                source="narrative_update",
+                error=e,
+                source_id=narrative.id,
+            )
+            return
+        except Exception as e:
+            logger.exception(
+                f"Narrative update credential injection failed: {narrative.id}, error={e}"
+            )
+            return
+
+        try:
+            logger.info(f"Starting LLM update for Narrative: {narrative.id}")
+
+            # Build context: recent conversation history
+            context = await self._build_update_context(narrative, event)
+
+            # Call LLM to generate update content
+            update_output = await self._call_llm_for_update(narrative, context)
+
+            if update_output:
+                # Apply updates
+                await self._apply_llm_update(narrative, update_output, event)
+                logger.info(f"LLM Narrative update completed: {narrative.id}")
+            else:
+                logger.warning(f"LLM update failed, skipping: {narrative.id}")
+
+        except Exception as e:
+            # A credential-class failure here means the resolved key is bad
+            # (expired/revoked) — alert the owner instead of silently degrading
+            # long memory. Transient failures stay log-only (retried next turn).
+            if is_credential_error(e):
+                await alert_background_llm_failure(
+                    agent_id=narrative.agent_id,
+                    owner_user_id=owner_user_id,
+                    source="narrative_update",
+                    error=e,
+                    source_id=narrative.id,
+                )
+            logger.exception(f"LLM Narrative update exception: {narrative.id}, error={e}")
+
+    async def _build_update_context(self, narrative: Narrative, event: Event) -> str:
+        """Build context for LLM update"""
+        context_parts = []
+
+        # Current Narrative information
+        context_parts.append("## Current Narrative Information")
+        context_parts.append(f"- Name: {narrative.narrative_info.name}")
+        # Read-side cap: 291 prod rows carry >1,500-char frozen descriptions
+        # (max 198,398) that the write-side cap never backfills. Here the
+        # description is the object BEING updated, so clamping loses nothing.
+        context_parts.append(
+            "- Description: "
+            f"{narrative.narrative_info.description[:config.DESCRIPTION_MAX_LENGTH]}"
+        )
+        context_parts.append(f"- Current Summary: {narrative.narrative_info.current_summary}")
+        context_parts.append(f"- Keywords: {', '.join(narrative.topic_keywords or [])}")
+        context_parts.append("")
+
+        # Recent conversation history
+        context_parts.append("## Recent Conversation History")
+
+        # Get recent summaries from dynamic_summary
+        recent_count = config.NARRATIVE_LLM_UPDATE_EVENTS_COUNT
+        recent_summaries = narrative.dynamic_summary[-recent_count:]
+        for i, entry in enumerate(recent_summaries):
+            context_parts.append(f"{i+1}. {entry.summary}")
+
+        context_parts.append("")
+
+        # Latest Event details
+        context_parts.append("## Latest Conversation")
+        if event.env_context:
+            user_input = event.env_context.get("input", "")
+            if user_input:
+                context_parts.append(f"User Input: {user_input}")
+        if event.final_output:
+            context_parts.append(f"Agent Response: {event.final_output[:500]}")
+
+        # C3 — no tool-action digest here, ever (removed at a9260baa4^..;
+        # rationale and recovery pointer in the section tombstone at the top
+        # of this file). NOTE the residual: final_output and user input above
+        # flow through the SAME rename path (_apply_llm_update overwrites
+        # name/summary/keywords unconditionally each round), and their rename
+        # rate after this removal is UNMEASURED — to be measured with the
+        # same replay + McNemar protocol as the digest study, stratified by
+        # anchor-rewritten rows. The structural option is an anchor-stability
+        # guard in _apply_llm_update: once a line has a real summary, do not
+        # rewrite `name` without topic-change evidence (current_summary must
+        # stay per-turn — only the identity-anchor field needs stability).
+
+        return "\n".join(context_parts)
+
+    async def _call_llm_for_update(
+        self,
+        narrative: Narrative,
+        context: str
+    ) -> Optional[NarrativeUpdateOutput]:
+        """Call LLM to generate Narrative update content.
+
+        Exceptions propagate to ``_async_llm_update``, which classifies them:
+        a credential-class failure raises an owner alert (it used to be
+        swallowed here as ``return None``, which is exactly how an expired key
+        went unnoticed for two weeks). The caller treats a ``None`` return as
+        "LLM produced nothing" and skips the update quietly.
+        """
+        from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
+
+        instructions = NARRATIVE_UPDATE_INSTRUCTIONS
+
+        from narranexus.platform.narrative.config import config as narrative_config
+        sdk = get_helper_sdk()
+        result = await sdk.llm_function(
+            instructions=instructions,
+            user_input=context,
+            output_type=NarrativeUpdateOutput,
+            model=narrative_config.NARRATIVE_LLM_UPDATE_MODEL,
+            reasoning_effort=narrative_config.NARRATIVE_LLM_UPDATE_REASONING_EFFORT or None,
+        )
+
+        return result.final_output
+
+    async def _apply_llm_update(
+        self,
+        narrative: Narrative,
+        update_output: NarrativeUpdateOutput,
+        event: Event
+    ) -> None:
+        """
+        Apply LLM-generated updates
+
+        [Important] To avoid lost update issues, reload the latest Narrative from database first,
+        then only update LLM-generated fields, preserving the latest actors and active_instances from the database.
+        This is because during async execution, other processes may have already modified actors (e.g., adding PARTICIPANT).
+        """
+        # [Fix] Reload the latest Narrative from database to avoid overwriting other concurrent modifications
+        latest_narrative = await self._crud.load_by_id(narrative.id)
+        if not latest_narrative:
+            logger.warning(f"Narrative {narrative.id} not found in database, skipping LLM update")
+            return
+
+        # Update narrative_info (only update name and current_summary, preserve actors).
+        # The helper LLM is handed raw event text and copies it into the name,
+        # channel label included — prod carries lines called
+        # "[From Liam] * 👊 刚甩过去..." and "[From U082541Q6AX] stop gre...".
+        # Once the label is in the name it is in the retrieval surface, and the
+        # next message from that channel matches its own thread on the sender
+        # at a low in-pool df (audit 1492: margin 357.79, judge never ran).
+        # Strip it on the way in; keep the raw name if that is all there was.
+        latest_narrative.narrative_info.name = (
+            strip_routing_prefix(update_output.name).strip() or update_output.name
+        )
+        latest_narrative.narrative_info.current_summary = update_output.current_summary
+        # Note: Do not update actors, preserve the latest actors from database (including PARTICIPANT)
+
+        # Update topic_keywords
+        latest_narrative.topic_keywords = update_output.topic_keywords
+
+        # Update the last dynamic_summary entry
+        if latest_narrative.dynamic_summary and update_output.dynamic_summary_entry:
+            latest_narrative.dynamic_summary[-1].summary = update_output.dynamic_summary_entry
+
+        # Update timestamp
+        latest_narrative.updated_at = datetime.now(timezone.utc)
+
+        # Save to database
+        await self._crud.save(latest_narrative)
+
+        logger.debug(
+            f"LLM update applied: name={update_output.name}, "
+            f"keywords={update_output.topic_keywords}"
+        )
+
+    # Embedding-update machinery removed (unified-memory refactor, 2026-06-04):
+    # narrative routing is BM25 over name/summary/keywords, so there is no
+    # routing_embedding / topic_hint / VectorStore to maintain. The DB columns
+    # (routing_embedding, embedding_updated_at, events_since_last_embedding_update,
+    # topic_hint) are left as inert tombstones per binding rule #6 (no
+    # destructive migrations); nothing reads or writes them anymore.

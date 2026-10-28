@@ -12,15 +12,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.discord_module import (
+from narranexus_plugins.discord_module import (
     _discord_credential_manager as cm_mod,
 )
-from xyz_agent_context.module.discord_module._discord_credential_manager import (
+from narranexus_plugins.discord_module._discord_credential_manager import (
     DiscordCredentialManager,
-    _decode_token,
-    _encode_token,
 )
-from xyz_agent_context.module.discord_module.discord_sdk_client import DiscordSDKError
+from narranexus_plugins.discord_module.discord_sdk_client import DiscordSDKError
 
 
 class _FakeDiscordClient:
@@ -56,19 +54,8 @@ def _patch_ok(monkeypatch: pytest.MonkeyPatch, **kwargs) -> None:
     )
 
 
-# ── Encoding round-trip ────────────────────────────────────────────────
 
 
-def test_encode_decode_round_trip():
-    raw = "MTA.secret.payload"
-    encoded = _encode_token(raw)
-    assert encoded != raw
-    assert _decode_token(encoded) == raw
-
-
-def test_encode_empty_returns_empty():
-    assert _encode_token("") == ""
-    assert _decode_token("") == ""
 
 
 # ── bind() ─────────────────────────────────────────────────────────────
@@ -85,10 +72,10 @@ async def test_bind_valid_inserts_row_and_returns_metadata(db_client, monkeypatc
     assert result["data"]["bot_user_id"] == "1001"
     assert result["data"]["bot_username"] == "acme"
 
-    row = await db_client.get_one("channel_discord_credentials", {"agent_id": "agent_a"})
+    row = await db_client.get_one("channel_credentials", {"channel": "discord", "agent_id": "agent_a"})
     assert row is not None
-    assert row["bot_token_encoded"] != "MTA.tok.real"
-    assert _decode_token(row["bot_token_encoded"]) == "MTA.tok.real"
+    assert "MTA.tok.real" not in row["secret_json"]  # encrypted at rest
+    assert (await mgr.get("agent_a")).bot_token == "MTA.tok.real"
 
 
 @pytest.mark.asyncio
@@ -158,9 +145,9 @@ async def test_bind_same_agent_is_rebind_not_conflict(db_client, monkeypatch):
     assert (await mgr.bind("agent_a", "MTA.tok1"))["success"] is True
     assert (await mgr.bind("agent_a", "MTA.tok2"))["success"] is True
 
-    rows = await db_client.get("channel_discord_credentials", {"agent_id": "agent_a"})
+    rows = await db_client.get("channel_credentials", {"channel": "discord", "agent_id": "agent_a"})
     assert len(rows) == 1
-    assert _decode_token(rows[0]["bot_token_encoded"]) == "MTA.tok2"
+    assert (await mgr.get("agent_a")).bot_token == "MTA.tok2"
 
 
 # ── Owner resolution by numeric id ─────────────────────────────────────
@@ -211,7 +198,7 @@ async def test_unbind_removes_row(db_client, monkeypatch):
     await mgr.bind("agent_a", "MTA.tok")
 
     assert await mgr.unbind("agent_a") is True
-    assert await db_client.get_one("channel_discord_credentials", {"agent_id": "agent_a"}) is None
+    assert await db_client.get_one("channel_credentials", {"channel": "discord", "agent_id": "agent_a"}) is None
 
 
 @pytest.mark.asyncio

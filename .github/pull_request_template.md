@@ -13,7 +13,7 @@
 <!-- Check the items you completed. CI will re-run them; this is your local sanity check. -->
 
 - [ ] `make lint && make typecheck` pass locally
-- [ ] Import check: `uv run python -c "import xyz_agent_context.module; import xyz_agent_context.narrative; import xyz_agent_context.services; print('OK')"`
+- [ ] Import check: `uv run python -c "import narranexus.platform.module_system; import narranexus.platform.narrative; import narranexus.platform.services; print('OK')"`
 - [ ] Frontend builds (if frontend changed): `cd frontend && npm run build`
 - [ ] Schema dry-run passes (if schema changed): `make db-sync-dry`
 - [ ] No secrets committed (`.env`, API keys, tokens, credentials)

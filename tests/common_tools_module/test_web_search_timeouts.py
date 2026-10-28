@@ -33,7 +33,7 @@ import time
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+from narranexus_plugins.common_tools_module._common_tools_impl import (
     web_search as ws,
 )
 
@@ -79,17 +79,77 @@ def test_search_sync_constructs_ddgs_with_explicit_timeout(monkeypatch):
     )
 
 
+# -------- the ladder itself ---------------------------------------------
+
+
+def test_the_timeout_ladder_keeps_its_order():
+    """Each layer must fire before the one above it, or the inner bound is
+    dead code and the incident's "every layer delegated downwards" shape is
+    back with extra steps.
+
+    Pinned here because the behavioural tests below scale these constants down
+    to run in a second — the shipped numbers need somewhere to be checked.
+    Ordering alone would be satisfied by 0.001 < 0.002 < 0.003, so the floors
+    are asserted too: a DDGS call has to get a realistic chance to answer
+    before we call it stuck, or the three-layer defense becomes a three-layer
+    way to fail fast on a slow network.
+    """
+    assert 0 < ws.DDGS_CLIENT_TIMEOUT_S < ws.PER_QUERY_TIMEOUT_S < ws.OVERALL_TIMEOUT_S
+    assert ws.DDGS_CLIENT_TIMEOUT_S >= 3
+    assert ws.PER_QUERY_TIMEOUT_S >= 10
+    assert ws.OVERALL_TIMEOUT_S >= 20
+
+
 # -------- layer 2 · per-query wait_for on to_thread ---------------------
+#
+# These three used to wait out the real ladder: 15s and 30s of genuine
+# sleeping, plus the to_thread blockers still running at loop teardown —
+# 80 of the suite's 178 seconds, for timeouts whose only interesting property
+# is that they fire. Scaled down the same way the Brave twin next door already
+# does it (`test_web_search_brave_tool.py`); the ladder's real values are
+# pinned above.
+#
+# The blockers still outlive the test — `asyncio.run` joins the default executor
+# at loop close — but they now sleep 1.5s instead of 25s, so teardown went from
+# ~10s to ~1.25s rather than to zero.
+
+# Scaled 100x/60x/50x, not ~300x, on purpose. The assertions have to separate
+# "the cap fired" from "the blocker finished" on a loaded CI runner, and a
+# 50ms budget makes thread-pool startup jitter look like a missing timeout.
+# A flaky guard is worse than a slow one.
+# Inert in practice — DDGS_CLIENT_TIMEOUT_S is only read inside `_search_sync`,
+# which all three tests below monkeypatch away. Kept so the fixture hands over a
+# COMPLETE ladder: a future test that exercises the real `_search_sync` should
+# not have to discover that one rung was missing.
+_FAST_DDGS = 0.05
+_FAST_PER_QUERY = 0.25
+_FAST_OVERALL = 0.6
+
+# Blockers overshoot the cap by 6x and the assertions sit halfway between:
+# cap working lands at ~1x, cap missing lands at ~6x, and the verdict is
+# never decided by a few milliseconds either way.
+_OVERSHOOT = 6
+_CEILING = 3
+
+
+@pytest.fixture
+def fast_ladder(monkeypatch):
+    """The shipped ladder, three orders of magnitude smaller, order intact."""
+    monkeypatch.setattr(ws, "DDGS_CLIENT_TIMEOUT_S", _FAST_DDGS)
+    monkeypatch.setattr(ws, "PER_QUERY_TIMEOUT_S", _FAST_PER_QUERY)
+    monkeypatch.setattr(ws, "OVERALL_TIMEOUT_S", _FAST_OVERALL)
 
 
 @pytest.mark.asyncio
-async def test_per_query_timeout_returns_structured_error_not_raises(monkeypatch):
+async def test_per_query_timeout_returns_structured_error_not_raises(
+    monkeypatch, fast_ladder
+):
     """If one query hangs, ``_one`` must return
     ``{"query": q, "error": <timeout msg>, "results": []}`` — not raise,
     not leak the CancelledError, not make gather return partial."""
     def _hang_forever(query, max_results):
-        # Simulate a stuck DDGS call — sleeps well beyond our per-query cap.
-        time.sleep(25)
+        # Simulate a stuck DDGS call — sleeps past our per-query cap.
+        time.sleep(_FAST_PER_QUERY * _OVERSHOOT)
         return []
 
     monkeypatch.setattr(ws, "_search_sync", _hang_forever)
@@ -98,8 +158,10 @@ async def test_per_query_timeout_returns_structured_error_not_raises(monkeypatch
     bundles = await ws.search_many(["slow-query"], max_results_per_query=3)
     elapsed = time.monotonic() - start
 
-    # Must return well before the 60s hang — per-query cap should fire.
-    assert elapsed < 20, f"search_many took {elapsed:.1f}s; per-query wait_for missing"
+    # Must return well before the blocker finishes — per-query cap should fire.
+    assert elapsed < _FAST_PER_QUERY * _CEILING, (
+        f"search_many took {elapsed:.2f}s; per-query wait_for missing"
+    )
     assert len(bundles) == 1
     b = bundles[0]
     assert b["query"] == "slow-query"
@@ -109,12 +171,14 @@ async def test_per_query_timeout_returns_structured_error_not_raises(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_per_query_timeout_isolates_failure_from_siblings(monkeypatch):
+async def test_per_query_timeout_isolates_failure_from_siblings(
+    monkeypatch, fast_ladder
+):
     """One hanging query must NOT block the other queries. After the
     per-query timeout fires, the fast query's result is still returned."""
     def _search(query, max_results):
         if query == "slow":
-            time.sleep(25)
+            time.sleep(_FAST_PER_QUERY * _OVERSHOOT)
             return []
         return [{"title": f"hit-{query}", "href": "https://ex/", "body": "b"}]
 
@@ -124,7 +188,9 @@ async def test_per_query_timeout_isolates_failure_from_siblings(monkeypatch):
     bundles = await ws.search_many(["slow", "fast"], max_results_per_query=3)
     elapsed = time.monotonic() - start
 
-    assert elapsed < 20, f"took {elapsed:.1f}s — sibling blocked by stuck query"
+    assert elapsed < _FAST_PER_QUERY * _CEILING, (
+        f"took {elapsed:.2f}s — sibling blocked by stuck query"
+    )
     by_q = {b["query"]: b for b in bundles}
     assert by_q["slow"]["error"] and by_q["slow"]["results"] == []
     assert by_q["fast"]["error"] is None
@@ -136,13 +202,15 @@ async def test_per_query_timeout_isolates_failure_from_siblings(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_overall_search_many_bounded_even_if_per_query_misses(monkeypatch):
+async def test_overall_search_many_bounded_even_if_per_query_misses(
+    monkeypatch, fast_ladder
+):
     """Defense in depth: if the per-query wrapper somehow fails to
     trigger (future refactor bug, new code path), the overall ``gather``
     must still be bounded by an outer ``wait_for``. We simulate by
     replacing ``_one`` directly with a bare coroutine that never returns."""
     async def _never_finishes(q, _capped):  # noqa: ARG001 — intentional hang
-        await asyncio.sleep(45)
+        await asyncio.sleep(_FAST_OVERALL * _OVERSHOOT)
         return {"query": q, "error": None, "results": []}
 
     monkeypatch.setattr(ws, "_one", _never_finishes)
@@ -151,8 +219,10 @@ async def test_overall_search_many_bounded_even_if_per_query_misses(monkeypatch)
     bundles = await ws.search_many(["q1", "q2"], max_results_per_query=3)
     elapsed = time.monotonic() - start
 
-    # Must hit the OVERALL cap (30s in impl, test allows slack).
-    assert elapsed < 40, f"took {elapsed:.1f}s — outer wait_for missing"
+    # Must hit the OVERALL cap, not the blocker.
+    assert elapsed < _FAST_OVERALL * _CEILING, (
+        f"took {elapsed:.2f}s — outer wait_for missing"
+    )
     # Still returns a bundle per query (errors populated).
     assert len(bundles) == 2
     for b in bundles:
@@ -176,10 +246,10 @@ async def test_mcp_tool_handler_has_outer_timeout(monkeypatch):
     (which spawns subprocesses) instead of ``search_many`` directly.
     We patch that single entry point to simulate a hang.
     """
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
+    from narranexus_plugins.common_tools_module._common_tools_impl import (
         web_search_ddgs_tool as tools,
     )
-    from xyz_agent_context.module.common_tools_module import _common_tools_mcp_tools as factory
+    from narranexus_plugins.common_tools_module import _common_tools_mcp_tools as factory
 
     # Shrink the outer handler timeout so the test completes in a few
     # seconds instead of waiting out the production 110s cap. The
@@ -193,7 +263,7 @@ async def test_mcp_tool_handler_has_outer_timeout(monkeypatch):
 
     monkeypatch.setattr(tools, "_web_search_with_retry", _hang_forever)
 
-    mcp = factory.create_common_tools_mcp_server(port=0)
+    mcp = factory.create_common_tools_mcp_server()
     tool_entries = await mcp.list_tools()
     ws_entry = next((t for t in tool_entries if t.name == "web_search"), None)
     assert ws_entry is not None, "web_search tool must be registered"

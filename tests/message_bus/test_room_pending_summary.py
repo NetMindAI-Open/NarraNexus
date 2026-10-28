@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import (
+from narranexus.platform.message_bus.local_bus import (
     POISON_FAILURE_THRESHOLD,
     LocalMessageBus,
     _as_utc,

@@ -35,7 +35,7 @@ holds a single operation under ``post`` or ``get``. Args live in flat
 
 Output layout::
 
-    src/xyz_agent_context/module/slack_module/skills/
+    plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/skills/
     ├── chat.postMessage.md
     ├── conversations.history.md
     ├── ...
@@ -64,7 +64,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SPEC = REPO_ROOT / "vendor" / "slack-api-specs" / "slack_web_openapi_v2.json"
 DEFAULT_OUT = (
-    REPO_ROOT / "src" / "xyz_agent_context" / "module" / "slack_module" / "skills"
+    REPO_ROOT / "plugins" / "builtin.channels.slack" / "src" / "narranexus_plugins" / "slack_module" / "skills"
 )
 
 _HTML_TAG = re.compile(r"<[^>]+>")

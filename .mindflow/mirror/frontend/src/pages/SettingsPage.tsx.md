@@ -1,8 +1,102 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-30
+last_verified: 2026-09-10
 stub: false
 ---
+
+## 2026-09-09 — left nav collapses to a horizontal strip below md (GitHub #130)
+
+The master–detail `<nav>` was a fixed `w-56` (224px) column with no
+breakpoint, eating most of a 360px viewport and leaving the detail pane
+unusably narrow. Below `md` it now becomes a `flex` row (`overflow-x-auto`,
+items `shrink-0`) stacked above the content (`flex-col md:flex-row` on the
+wrapper) instead of a fixed-width sidebar; at `md`+ it's pixel-identical to
+before (`md:block md:w-56 md:space-y-1 md:border-r`). DashboardPage's
+left rail is the same component shape and got the identical treatment
+in the same change. The wrapper, `<nav>` and item class strings are not
+written here: both pages import them from `lib/masterDetailNav`
+(`MASTER_DETAIL_ROW_CLASS`, `MASTER_NAV_CLASS`, `masterNavItemClass`), so
+the two rails cannot drift.
+
+## 2026-09-03 — 面板与导航来自 `SETTINGS_SECTIONS` 注册表
+
+分区组件拆到 `settings/sections.tsx`，由 `settings/registerBuiltinSections.ts` 在本 chunk 注册；
+`sortedSettingsSections(opts, useRegistryEntries(SETTINGS_SECTIONS))` 承担 desktopOnly/cloudHidden 过滤
+并订阅晚注册；`?tab=` 首帧读取与 `neverDefault`
+回退逻辑不变。既有 nav/deep-link 测试原样通过。
+
+## 2026-08-28 — 新增 `plugins` nav 项（[[PluginsSettings]]）
+
+放在 `modeldefaults` 和 `artifacts` 之间——插件是模型配置的前置条件（框架选
+不了就是因为插件没装），紧挨着放阅读顺序更顺。`ModelDefaultsSettings` 新增
+`onManagePlugins` 跳转回调（选中未装插件框架时弹窗里的按钮）——**云端传
+`undefined`** 让 ModelDefaults 走纯文本降级分支（见下方 08-31 补段的护栏演进）。`PluginsSettings` 自己在
+`cloud_managed` 时返回 `null`——云端央管这些插件，本地安装按钮在云端没有意义
+（装端点也会 403），所以这里不用像别的 pane 那样加"云端不可用"的占位文案，
+面板本身就是空的。
+
+## 2026-08-19(三)— neverDefault 取代内联 id 比较
+
+「account 不做默认落地页」从 `it.id !== 'account'` 字符串比较改为
+NavItem 的声明式 `neverDefault` 标记——规则住在数据上,读 NAV_ITEMS 即见。
+
+## 2026-08-19(二)— Account pane 全会话可见 + powerOnly 机制退役
+
+- 非 NetMind 会话点 Account 看到登录提示(pages.account.powerOnlyHint 复活),
+  而不是被过滤后静默落到 Providers——?tab=account 的深链对任何会话都有着陆点。
+- nav 的 `powerOnly` 字段随之无消费者,整个机制删除(铁律 #2)。
+
+## 2026-08-19 — Account 变**页内 pane**,左侧标签栏永不消失
+
+href 导航项撤销:点 Account 曾整页跳去 /app/account,左侧标签栏消失、
+无法切换其他页——现在它是普通 pane(内嵌 [[NetmindAccountPanel]]),
+nav 常驻。?tab=account 直接落本 pane(Stripe 回跳带查询参数原样工作),
+原 Navigate 重定向删除。[[AccountPage]] 退化为旧链接别名(反向 302 进来)。
+
+## 2026-08-19 — 设置成为唯一配置前门:个性化栏目 + 账户入口 + 内容居中
+
+- 新「Personalization」pane([[PersonalizationSettings]]):主题三档 + 语言
+  列表,从侧栏账户弹层整体迁入——两个「设置」并存让用户分不清差别,现在
+  可配置的东西只此一处。排序放 privacy 之后,默认落点仍是 Providers。
+- NavItem 支持 `href`:「Account & billing」对 NetMind 用户显示,点击
+  `navigate('/app/account')` 而非切 pane(账户页仍是 user-scoped 独立页,
+  设置只做入口)。`?tab=` 初始化忽略 href 项。
+- 内容列 `max-w-3xl` 加 `mx-auto` 居中([[AccountPage]] 同改)。
+
+## 2026-08-18 — "管理 Agent" 入口移除(与智能体管理页重合)
+
+merge 时从 dev 移植的 ManageAgentsContent(一个跳转按钮)被 Owner 裁掉:
+v4 的 Dashboard 已吸收批量管理,侧栏一级入口(中文现名"智能体管理")直达,
+设置里再放个跳转门是冗余。NAV_ITEMS 'agents' 项、组件、Users/useNavigate
+引入一并删除。locale 里 settings.manageAgents / nav.manageAgents 两处
+key 刻意**留存未删**——同名 key 在别的命名空间(agentList 菜单、旧
+pages.manageAgents)有活引用,机械清理误伤过一次;死 key 无害,留待
+下次 i18n 大扫除时人工核对。
+
+## 2026-08-06 (2) — 纯 app 设置:account/bundle 项移除
+
+Owner 指示:Settings 只留 app 级配置(providers / modeldefaults /
+artifacts / updates)。`bundle` 项删除(入口在侧栏 New 菜单 + Export 行);
+`account` 项(连同 powerOnly 机制)移到用户级 [[AccountPage.tsx]]
+(/app/account,侧栏账户弹层进入)。**Stripe 回跳契约保住了**:
+?tab=account 深链在首渲染即 <Navigate replace> 到 /app/account 并整串
+保留 query(status=…),后端 billing.py::_return_urls 无需改。
+其余 ?tab= 规则(首渲染独占、未知回退第一项、懒挂载)不变;
+SettingsPage.nav.test.tsx 已按新行为重写(重定向断言取代 powerOnly 断言)。
+
+## 2026-08-06 — manage-agents nav 项移除
+
+Chat UI v4 把 agent 批量管理并入 Dashboard(见 [[DashboardPage.tsx]]),
+`agents` nav 项与 ManageAgentsContent 删除。?tab= 深链、懒挂载、
+desktopOnly/powerOnly 过滤规则不变。
+
+## 2026-08-11 — Privacy 导航项(隐私面板首次可达)
+
+新增 `privacy` nav 项 + `PrivacySettings` 面板。后端的 analytics
+opt-out 自 06-08 就存在,但唯一 UI 活在**从未挂载**的 SettingsModal
+里——本条目让它(以及新的遥测同意开关)第一次对用户可达。
+`?tab=privacy` 深链是 TelemetryNotice 首次告知横幅的跳转目标,nav
+测试守住这条(横幅承诺"可去设置关闭",深链失效即承诺失效)。
 
 ## 2026-07-30 — `?tab=<nav id>` 深链（付款回跳的落点）
 
@@ -180,7 +274,7 @@ the state-machine rewrite above.
 
 ## Why it exists
 
-Provides a persistent settings surface within the `/app/settings` route. Currently composes two existing components: `ProviderSettings` (LLM API key and model configuration) and `EmbeddingStatus` (embedding index rebuild management). Neither component is exclusive to this page — `SetupPage` also uses `ProviderSettings`.
+Provides a persistent settings surface within the `/app/settings` route. Currently composes two existing components: `ProviderSettings` (LLM API key and model configuration) and `EmbeddingStatus` (embedding index rebuild management). Neither component is exclusive to this page — `WelcomePage` also uses `ProviderSettings`.
 
 ## Upstream / Downstream
 
@@ -197,3 +291,7 @@ Route: `/app/settings`, rendered inside `MainLayout` as a child route. No store 
 ## Gotchas
 
 **`EmbeddingStatus` starts polling on mount.** If the user navigates to Settings while a rebuild is running, `EmbeddingStatus` picks up the live status. But if they navigate away before polling stops, the `useEmbeddingStore._pollTimer` continues running. The component itself calls `stopPolling` in its cleanup, so this is handled — but only if `EmbeddingStatus` properly calls `stopPolling` on unmount. Verify this if embedding polling behavior seems wrong after a settings navigation.
+
+## 2026-08-28 补(auto-review I8) — 云端隐藏 plugins nav 项(同步 mode 判定)
+
+plugins 是本地专属概念(云端镜像预装框架)。用 `isForcedCloud()`(`@/lib/runtimeConfig`,读 `window.__NARRANEXUS_CONFIG__`,**真同步、零持久化**)从 NAV_ITEMS 过滤掉 plugins 项。**必须首帧就对**:`active` 的 useState initializer 首帧即跑——异步 fetch 版(初版)会让云端 `?tab=plugins` 深链首帧把 active 定成 plugins→过滤后仍渲染空面板(round-5 抓到)。**不用 `useRuntimeStore.mode`**(round-6 修正):那是 useEffect 置的、且 persist 进 localStorage,某云端 origin 若曾因 config.js 未注入落过 `mode:'local'`,首帧会是脏的 truthy→窄窗口漏面板;`isForcedCloud()` 无此窗口且与 useResolveAppMode 同判据。`onManagePlugins` 云端传 **`undefined`**(round-7 从 `if(!isCloud)` 护栏内吞改来:护栏内吞会让 prop 仍 truthy→ModelDefaults 渲染成"可点但点了没反应"的死链;传 undefined 则走它 `? :` 的纯文本降级分支)。PluginsSettings 仍按后端 `cloud_managed` return null 作独立第二层兜底。删了死 key cloudManagedNote。

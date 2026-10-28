@@ -1,35 +1,19 @@
-# xyz_agent_context/__init__.py
+---
+code_file: src/xyz_agent_context/__init__.py
+last_verified: 2026-09-07
+stub: false
+---
 
-Package entry point — re-exports the full public API of the `xyz_agent_context` package in dependency order.
+# xyz_agent_context/__init__.py — the one-release alias of narranexus.platform (D8)
 
-## 2026-06-09 — `__version__` sourced from package metadata
+## Intent
 
-`__version__` was a hardcoded `"0.1.0"` that silently went stale. It now reads
-`importlib.metadata.version("xyz-agent-context")` (= pyproject `[project].version`,
-one of the 5 release anchors), falling back to `"0.0.0+unknown"` in a source tree
-with no install metadata. This is the single source of truth the bundle builder
-stamps into every export manifest (`_current_app_version`).
+Batch 6a moved every domain package to `narranexus.platform` (`module` → `module_system`). This package exists so the old import spelling keeps working for exactly one release: a `sys.meta_path` finder (`_AliasFinder`, inserted first) answers every `xyz_agent_context.<path>` with the SAME module object as `narranexus.platform.<path>` (`_AliasLoader.create_module` returns the imported target, so monkeypatches, `isinstance` and singletons agree), the root re-exports the platform root, and one `DeprecationWarning` per process names the replacement. `_AliasLoader` also forwards the code-access API (`get_code` / `get_source` / `is_package` / `get_filename`) to the target's real loader: `python -m xyz_agent_context.<path>` goes through `runpy`, which never imports the module but asks the loader for its code — without the forwarding every `-m` entrypoint the deploy repo uses (workers supervisor, model-sync, executor, sqlite proxy) died before any application code ran. Physical shim files exist only where something references the path on disk (by-path launchers, the deploy gate scripts); everything else resolves through the finder.
 
-## Why it exists
+## Expiry
 
-`xyz_agent_context` is the core installable package. Its `__init__.py` defines what is importable from the package root (`from xyz_agent_context import AgentRuntime`). Without it, callers would have to know the deep module path for every symbol. The file also establishes the initialization order: `schema/` (no deps) → `utils/` (low deps) → `narrative/` → `module/` → `agent_framework/` → `context_runtime/` → `agent_runtime/`. This order is intentional — importing in a different order during testing can trigger circular import errors.
+`REMOVED_AT` is the host version at which importing the alias raises `ImportError` (`_refuse_if_expired`, read through `compat.host_version()`): a compat layer without a removal hook is exactly the shim the charter forbids, and this one competes with the plugin importer for `sys.meta_path[0]`, so forgetting to delete it must fail loudly rather than linger.
 
-## Upstream / Downstream
+## Removal
 
-**Re-exports from:** `schema/` (Pydantic data models), `utils/` (`DatabaseClient`), `narrative/` (`Narrative`, `Event`, `EventService`, `NarrativeService`), `module/` (`XYZBaseModule`, `ModuleService`, `HookManager`), `agent_framework/` (`ClaudeAgentSDK`), `context_runtime/` (`ContextRuntime`), `agent_runtime/` (`AgentRuntime`).
-
-**Consumed by:** external code and tests that import the package. The FastAPI `backend/` imports specific items directly from their submodules rather than via the package root (to avoid importing everything on startup), but integration tests typically import from here.
-
-## Design decisions
-
-**Dependency-ordered imports.** The six `from .xxx import ...` blocks are ordered from least to most dependent. This makes the initialization order explicit and ensures that if a circular import is introduced, it fails at the most understandable level.
-
-**`__version__ = "0.1.0"` is hardcoded.** Version management is not yet automated. Update this manually when tagging a release.
-
-**`__all__` covers everything re-exported.** All re-exported symbols are listed in `__all__` so `from xyz_agent_context import *` works correctly in scripts and REPL sessions.
-
-## Gotchas
-
-**Importing this module loads the entire package.** Every `from .xxx import ...` line executes the target module, which may trigger database schema checks, settings loading, or other side effects. Tests that only need a specific submodule (e.g., `schema/`) should import from that submodule directly to avoid the startup overhead.
-
-**New-contributor trap.** Adding a new top-level module to the package without adding it to `__init__.py` means it is not discoverable via `from xyz_agent_context import NewModule`. It can still be imported from its own path, but it will not appear in the package's public surface.
+Delete `src/xyz_agent_context/` (and the `packages` entry in pyproject) in the release after the deploy repo switched its compose entrypoints — `docs/PLUGIN_BATCH6_DEPLOY_LOCKSTEP.md` lists them.

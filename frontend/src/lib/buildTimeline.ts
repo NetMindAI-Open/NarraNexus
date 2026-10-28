@@ -4,8 +4,13 @@
  *
  * The chat view merges two independently-produced sources into one
  * chronological list:
- *   - history  — rows persisted in `agent_messages`, fetched via
- *                getSimpleChatHistory
+ *   - history  — the chat transcript persisted in
+ *                `instance_json_format_memory_chat` (ChatModule's per-instance
+ *                JSON memory), fetched via getSimpleChatHistory. NOT the
+ *                `events` table, and NOT `agent_messages` (a tombstone table
+ *                with no writer — reading "0 rows" there and concluding the
+ *                panel replays `events` is how the 0802 ordering report got
+ *                misdiagnosed).
  *   - session  — messages held live in chatStore (the user prompt added
  *                on send, the assistant reply assembled at stopStreaming)
  *
@@ -24,7 +29,7 @@
  * This replaces a `${role}:${content}` exact-string key that silently
  * missed whenever the session-assembled content and the DB-persisted
  * content drifted by even one character — different code paths produce
- * them (session = `send_message_to_user_directly` args joined by `\n\n`;
+ * them (session = owner-facing tool args joined by `\n\n`;
  * history = whatever the backend persisted, which it sometimes rewrites,
  * e.g. owner-notify substitution). That drift made the latest reply
  * occasionally render twice. event_id is immune to it.
@@ -43,6 +48,7 @@
 import type { SimpleChatMessage } from '@/types/api';
 import type { ChatMessage, AgentToolCall, Attachment, TurnEvent } from '@/types';
 import { isBlankText } from './isBlankText';
+import { NO_RESPONSE_MARKER } from './turnMarkers';
 
 /** Unified message item for the single timeline. */
 export interface TimelineItem {
@@ -103,11 +109,20 @@ function toSessionItem(msg: ChatMessage): TimelineItem {
  * @param historyMessages rows from getSimpleChatHistory (oldest → newest)
  * @param sessionMessages chatStore session messages (oldest → newest)
  */
+/** The session id ChatPanel gives the first-run greeting it folds into the
+ *  session on the user's first send. The backend seeds the same greeting into
+ *  history during that turn, so once history carries a `bootstrap` row the
+ *  folded copy must go — by identity, not by text: the client localises its
+ *  copy while the persisted row keeps the backend's text, so the content
+ *  heuristic below never matched and the greeting showed twice until a reload. */
+export const BOOTSTRAP_GREETING_SESSION_ID = 'bootstrap-greeting';
+
 export function buildUnifiedTimeline(
   historyMessages: SimpleChatMessage[],
   sessionMessages: ChatMessage[],
 ): TimelineItem[] {
   const items: TimelineItem[] = [];
+  const historyHasBootstrapGreeting = historyMessages.some((m) => m.bootstrap === true);
 
   // ── 1. History messages (from DB) ──────────────────────────────────
   for (let i = 0; i < historyMessages.length; i++) {
@@ -116,7 +131,7 @@ export function buildUnifiedTimeline(
     // Filter out legacy junk: a non-chat working source that persisted the
     // "no response needed" sentinel as if it were a real message.
     const isNonChat = msg.working_source && msg.working_source !== 'chat';
-    if (isNonChat && msg.content === '(Agent decided no response needed)') continue;
+    if (isNonChat && msg.content === NO_RESPONSE_MARKER) continue;
 
     // Blank-bubble guard: rows already persisted with whitespace-only
     // content (pre-strip-guard history) render as empty bubbles. Skip
@@ -128,12 +143,12 @@ export function buildUnifiedTimeline(
     // live session — but keep it in mind if a blank producer returns.
     if (isBlankText(msg.content) && !msg.attachments?.length) continue;
 
-    // Hide message-bus background-activity markers from the agent's 1:1 chat.
-    // A team group-chat turn (the agent was @mentioned) lives in the team room,
-    // not here — surfacing it as "Background activity (message_bus)" just
-    // confuses the owner looking at their direct conversation.
-    if (msg.message_type === 'activity' && msg.working_source === 'message_bus') continue;
-
+    // NOTE: message_bus activity markers are intentionally NOT dropped here.
+    // Keeping the owner's 1:1 chat clean of them is now handled upstream — the
+    // conversation tab fetches `include=chat` (backend drops activity rows) and
+    // ChatPanel's `visibleTimeline` filters `messageType === 'activity'` out of
+    // it — so this loop must PASS these rows through for the Activity Log
+    // (inner) tab to render peer/team activity at all.
     items.push({
       id: `h-${i}`,
       role: msg.role,
@@ -163,6 +178,7 @@ export function buildUnifiedTimeline(
 
   // ── 3. Session messages — dedup against history, then add ──────────
   for (const msg of sessionMessages) {
+    if (msg.id === BOOTSTRAP_GREETING_SESSION_ID && historyHasBootstrapGreeting) continue;
     // Primary path: exact (role, event_id) identity.
     if (msg.event_id) {
       if (historyEventRoleKeys.has(`${msg.role}:${msg.event_id}`)) {

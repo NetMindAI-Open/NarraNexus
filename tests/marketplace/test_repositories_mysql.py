@@ -24,19 +24,19 @@ import os
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.repository.skill_catalog_repository import SkillCatalogRepository
-from xyz_agent_context.repository.skill_scan_result_repository import (
+from narranexus.platform.repository.skill_catalog_repository import SkillCatalogRepository
+from narranexus.platform.repository.skill_scan_result_repository import (
     SkillScanResultRepository,
 )
-from xyz_agent_context.repository.team_catalog_repository import TeamCatalogRepository
-from xyz_agent_context.schema.skill_marketplace_schema import (
+from narranexus_plugins.teams.catalog_repository import TeamCatalogRepository
+from narranexus.platform.schema.skill_marketplace_schema import (
     SkillCatalogEntry,
     SkillScanResult,
 )
-from xyz_agent_context.schema.team_marketplace_schema import TeamTemplate
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus_plugins.teams.marketplace_schema import TeamTemplate
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_mysql import MySQLBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 

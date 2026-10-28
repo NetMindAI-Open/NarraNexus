@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/notifications.py
-last_verified: 2026-05-13
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — 三处身份 401 改带 `identity_unresolved`
+
+`HTTPException(401, "Authentication required")` → `AuthError(IDENTITY_UNRESOLVED)`。
+middleware 已经验证过凭证，这里 `request.state.user_id` 还是空的话属于接线
+bug，不该触发全局登出。8/2 日志里的 `/api/notices` 401 就落在这一类的
+可疑范围内。见 [[auth_errors]]。
 
 # notifications.py — user-facing notification endpoints
 

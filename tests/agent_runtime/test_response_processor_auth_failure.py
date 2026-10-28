@@ -15,13 +15,13 @@ genuinely transient errors stay ``recoverable``.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     AUTH_EXPIRED_ERROR_TYPE,
     ResponseProcessor,
     _is_auth_failure,
 )
-from xyz_agent_context.schema import ErrorMessage
+from narranexus.platform.schema import ErrorMessage
 
 
 def _error_event(error_message: str, error_type: str) -> dict:
@@ -58,6 +58,20 @@ def test_is_auth_failure_matches_category_and_phrases():
 def test_is_auth_failure_ignores_transient_errors():
     assert not _is_auth_failure("rate_limit_error", "429 too many requests")
     assert not _is_auth_failure("turn.failed", "model produced no output")
+
+
+def test_bare_401_inside_a_timestamp_or_count_is_not_auth():
+    """The CLI's inline rate-limit text rides error_message verbatim now and
+    often carries an epoch or a token count; the digits 401 inside either must
+    not turn a rate limit into a fatal "re-login" verdict."""
+    assert not _is_auth_failure("rate_limit", "Claude AI usage limit reached|1774015401")
+    assert not _is_auth_failure("unknown", "inputs 40155 tokens exceed the 32769 limit")
+
+
+def test_401_with_an_auth_word_is_still_auth():
+    assert _is_auth_failure("api_error", "HTTP 401 Unauthorized")
+    assert _is_auth_failure("unknown", "Error code: 401 - invalid x-api-key")
+    assert _is_auth_failure("unknown", "401 authentication_error")
     assert not _is_auth_failure("server_error", "internal error")
 
 

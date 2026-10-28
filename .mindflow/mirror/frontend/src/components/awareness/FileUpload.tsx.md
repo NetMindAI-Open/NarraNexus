@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/awareness/FileUpload.tsx
-last_verified: 2026-07-30
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #421 复审 I3）— 后端截断目录树时显示"部分列表"提示
+
+后端 `GET /agents/{id}/files` 在 5000 节点 / 16 层处停止遍历并返回 `truncated: true`
+（见 backend `agents/files.py`）。本面板把它存进 `truncated` 状态，在树下渲染
+`awareness.workspace.partialListing`（10 份 locale 同步；没用已有的 `truncated` 键——那个是
+预览"文件过大被截断"的文案）。只有 `success=true` 且 `truncated===true` 才置位，失败分支和
+异常分支都显式清回 false，避免上一次的提示残留在错误态上；`loading` 时不显示。
+没有这条提示，被截掉的文件在用户眼里就是"文件丢了"（铁律 #16）。测试：
+`__tests__/FileUpload.partialListing.test.tsx`（截断 / 完整 / 失败三态）。
 
 ## 2026-07-30 — 原生 alert 换成应用内通知
 

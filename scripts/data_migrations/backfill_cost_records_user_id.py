@@ -35,7 +35,7 @@ import argparse
 import asyncio
 import sys
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 # Rows that are NULL and whose agent still exists -> fillable from created_by.

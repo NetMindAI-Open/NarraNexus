@@ -29,11 +29,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.routes.agents import attachments as attachments_mod
-from xyz_agent_context.agent_framework.llm.transcription import service as svc_mod
+from narranexus.platform.agent_framework.llm.transcription import service as svc_mod
+
+
+async def _async_return(value):
+    return value
 
 
 @pytest.fixture
-def upload_app(monkeypatch, tmp_path):
+async def upload_app(monkeypatch, tmp_path, db_client):
     """FastAPI app exposing only the attachments router, with the
     storage layer redirected to ``tmp_path`` so we don't need workspace
     bootstrap. MIME sniffing is bypassed: we set the MIME via the
@@ -47,6 +51,14 @@ def upload_app(monkeypatch, tmp_path):
     app = FastAPI()
     app.middleware("http")(auth_middleware)
     app.include_router(attachments_mod.router, prefix="/api/agents")
+
+    # The route now proves the caller owns ``agent_x`` before storing
+    # anything (2026-10-28 ownership gate), so seed that row.
+    import backend.routes._ownership as own_mod
+    monkeypatch.setattr(own_mod, "get_db_client", lambda: _async_return(db_client))
+    await db_client.insert("agents", {
+        "agent_id": "agent_x", "agent_name": "x", "created_by": "user_y",
+    })
 
     def _sniff(raw_bytes, *, filename="", client_type=None):
         return client_type or "application/octet-stream"

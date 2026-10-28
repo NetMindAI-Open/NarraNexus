@@ -8,7 +8,7 @@ last_verified: 2026-05-08
 
 Build-time generator that turns Slack's vendored OpenAPI v2 (Swagger)
 spec into ~250 per-method markdown files under
-``src/xyz_agent_context/module/slack_module/skills/``. Those files are
+``plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/skills/``. Those files are
 what the ``slack_skill`` MCP tool serves — without this generator,
 the agent has no "look up a method's args/scope/example" path.
 

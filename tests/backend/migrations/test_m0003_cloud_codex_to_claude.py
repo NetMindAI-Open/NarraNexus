@@ -11,7 +11,7 @@ import pytest
 
 from backend.migrations import REGISTRY
 from backend.migrations.m0003_cloud_codex_to_claude import MIGRATION
-from xyz_agent_context.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
+from narranexus.platform.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
 
 
 def test_registered():

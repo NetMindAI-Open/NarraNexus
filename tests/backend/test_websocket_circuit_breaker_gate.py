@@ -32,3 +32,12 @@ def test_frame_none_defaults_to_cooling_copy():
     f = _circuit_open_frame(None)
     assert f["error_type"] == "agent_circuit_open"
     assert f["error_message"]
+
+
+def test_frame_probing_falls_back_to_cooling_copy():
+    """A rejected concurrent request during the breaker's half-open probe
+    (should_skip's "probing" reason) is not a hard pause -- it should read
+    like "try again shortly", same as cooling, not the paused copy."""
+    f = _circuit_open_frame("probing")
+    assert "cooling" in f["error_message"].lower() or "try again" in f["error_message"].lower()
+    assert f["cb_reason"] == "probing"

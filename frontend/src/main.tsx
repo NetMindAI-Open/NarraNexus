@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import './i18n'  // side-effect: initialise react-i18next (detection + resources) before first render
 import './lib/echarts-nm-theme'  // side-effect: registers nm-light / nm-dark ECharts themes at startup
+import './platform/builtin'  // side-effect: the shell registers its pages / sidebar / panels / settings sections
+import { bootPlugins } from './platform/bootPlugins'
 import App from './App.tsx'
 import {
     initManyfoldFragmentAuth,
@@ -30,6 +32,10 @@ captureInboundEntry()
 // In a regular browser this returns a no-op uninstaller so nothing changes.
 // See lib/externalLinkInterceptor.ts for the rationale.
 installExternalLinkInterceptor()
+
+// User plugins: declarative metadata now, code on activation. Never blocks
+// the first render; a failure costs one error report. See platform/loader.ts.
+void bootPlugins()
 
 const queryClient = new QueryClient({
   defaultOptions: {

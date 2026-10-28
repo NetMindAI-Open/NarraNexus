@@ -23,10 +23,10 @@ from typing import Any
 import aiohttp
 import pytest
 
-from xyz_agent_context.module.telegram_module import (
+from narranexus_plugins.telegram_module import (
     telegram_sdk_client as sdk_mod,
 )
-from xyz_agent_context.module.telegram_module.telegram_sdk_client import (
+from narranexus_plugins.telegram_module.telegram_sdk_client import (
     TELEGRAM_BOT_DOWNLOAD_CAP_BYTES,
     TelegramSDKClient,
     TelegramSDKError,

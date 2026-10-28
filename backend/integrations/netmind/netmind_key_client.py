@@ -9,7 +9,7 @@ behalf so "use this subscription" can wire it into the agent/helper slots
 without the user pasting anything.
 
 This is a SEPARATE surface from netmind_billing_client:
-- Different host: platform-api.netmind.ai (prod) / mind-web.protago-dev.com (dev).
+- Different host: inference.api.netmind.ai (prod) / inference.api.protago-dev.com (dev).
 - Different auth header: ``token: Bearer <jwt>`` (NOT ``loginToken``). Same JWT
   though — verified on dev 2026-07-02 (the login JWT works on both domains,
   only the header name differs).

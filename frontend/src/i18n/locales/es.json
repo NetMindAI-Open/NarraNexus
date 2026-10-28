@@ -1,4 +1,11 @@
 {
+  "channelActiveToggle": {
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "enable": "Activar",
+    "disable": "Desactivar",
+    "disabledReason": "Desactivado automáticamente: {{reason}}"
+  },
   "language": {
     "name": "Idioma"
   },
@@ -14,15 +21,29 @@
     "logout": "Cerrar sesión",
     "poweredBy": "NetMind AI Research",
     "online": "En línea",
-    "you": "Tú",
     "cloud": "Nube",
     "localMode": "Modo local",
-    "cloudMode": "Modo nube"
+    "cloudMode": "Modo nube",
+    "collapseTitle": "Contraer barra lateral",
+    "expandTitle": "Expandir barra lateral",
+    "export": "Exportar",
+    "exportTitle": "Exportar bundle — agente o equipo",
+    "settingsTitle": "Ajustes — modelos y proveedores",
+    "searchChatsTitle": "Buscar agentes y equipos",
+    "account": "Cuenta",
+    "billing": "Facturación",
+    "subscription": "Suscripción",
+    "theme": "Tema",
+    "language": "Idioma",
+    "themeLight": "Claro",
+    "themeDark": "Oscuro",
+    "themeSystem": "Sistema",
+    "workspace": "Mi mundo",
+    "accountTitle": "Cuenta"
   },
   "chat": {
     "conversation": "Conversación",
-    "innerThoughts": "Pensamientos internos",
-    "interaction": "Interacción",
+    "innerThoughts": "Registro de actividad",
     "composerPlaceholder": "Escribe un mensaje o / para habilidades…",
     "selectAgent": "Selecciona un agente",
     "selectAgentHint": "Elige un agente en la barra lateral para empezar.",
@@ -30,6 +51,10 @@
       "selectAgentFirst": "Selecciona un agente primero…",
       "dropFile": "Suelta el archivo para adjuntarlo…",
       "placeholder": "Escribe un mensaje o / para habilidades…"
+    },
+    "fastMode": {
+      "label": "Rápido",
+      "tooltip": "Modo rápido: cambia este turno al framework de agente rápido con recuperación de memoria ligera y bajo esfuerzo de razonamiento — respuestas más rápidas pero más simples"
     },
     "audio": {
       "stopRecording": "Detener grabación",
@@ -59,7 +84,7 @@
       "downloadMd": "Descargar como .md"
     },
     "timeline": {
-      "thinking": "Pensando",
+      "thought": "Razonado",
       "toolLabel": "[ herramienta ]",
       "outputLabel": "[ salida ]",
       "reply": "Respuesta",
@@ -71,20 +96,13 @@
       "recoveredAfterErrorTip": "Un paso de este turno falló; la respuesta se escribió a partir del trabajo completado y lo que sabemos del error."
     },
     "onboarding": {
-      "eyebrow": "Nueva conversación",
-      "heading": "Una página en blanco.",
-      "framing": "Aún no hay nada aquí — y ese es el punto. Cuanto más trabajen tú y {{name}} juntos, más recordará, conectará y llevará adelante.",
       "defaultAgentName": "tu agente",
-      "narraBrand": "Narra · Memoria",
-      "narraCaption": "recuerda",
-      "nexusBrand": "Nexus · Red",
-      "nexusCaption": "conecta",
-      "teamBrand": "Tu equipo",
-      "teamCaption": "entrega",
-      "tryAsking": "Prueba a preguntar",
       "prompt1": "Resume para mí las actualizaciones más importantes de esta semana",
       "prompt2": "Conecta un canal y vigílalo por si surge algo urgente",
-      "prompt3": "Configura un resumen del lunes por la mañana con lo importante"
+      "prompt3": "Configura un resumen del lunes por la mañana con lo importante",
+      "readyTitle": "{{name}} está listo",
+      "readyBody": "Prueba una de estas sugerencias, o simplemente di lo que necesitas.",
+      "dismiss": "Cerrar"
     },
     "team": {
       "notFound": "Equipo no encontrado.",
@@ -129,7 +147,7 @@
         "mention": "@ a un compañero para dirigirte a él directamente.",
         "broadcastTitle": "Difunde a todos",
         "broadcast": "@all se dirige a todos — cada miembro ejecuta un turno completo, así que úsalo con moderación.",
-        "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene tras 4 saltos."
+        "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene en el límite de la plataforma y la sala lo indica."
       },
       "noProcess": "No hay registro de proceso para este turno",
       "detailLoadFailed": "No se pudo cargar el proceso. Inténtalo de nuevo.",
@@ -140,10 +158,67 @@
         "neverRan": "aún sin ejecuciones",
         "loading": "Cargando proceso…",
         "workingCount": "{{count}} trabajando",
-        "process": "proceso"
+        "process": "proceso",
+        "stop": "Detener",
+        "stopping": "Deteniendo…",
+        "stopped": "Detenido por el propietario",
+        "stopFailed": "No se pudo detener esta ejecución",
+        "stopHint": "Detener esta ejecución",
+        "silentLastTurn": "Último turno: no dijo nada"
       },
       "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
-      "leadTitle": "{{name}} · responde cuando no se menciona a nadie"
+      "leadTitle": "{{name}} · responde cuando no se menciona a nadie",
+      "stoppedNotice": "La tarea de {{name}} fue detenida por el propietario",
+      "patrolNotice": "Revisión del líder",
+      "undeliveredNotice": "{{name}} terminó este turno sin responder",
+      "deliveryFailedNotice": "No se pudo publicar la respuesta de {{name}}",
+      "board": {
+        "title": "Tablero de trabajo",
+        "unclaimed": "sin asignar",
+        "resume": "Reanudar esta tarea",
+        "patrolOff": "Revisión desactivada",
+        "patrolPending": "Aún sin revisar",
+        "patrolledJustNow": "Revisado ahora mismo",
+        "patrolledAgo": "Revisado hace {{ago}}",
+        "status": {
+          "open": "abierto",
+          "in_progress": "en curso",
+          "stalled": "estancado",
+          "paused": "en pausa"
+        },
+        "awaitingReply": "esperando respuesta",
+        "nameSep": ", "
+      },
+      "sendFailed": "No se pudo enviar. Tu texto sigue aquí: inténtalo de nuevo.",
+      "uploadFailed": "No se pudo subir «{{name}}».",
+      "uploadFailedGeneric": "No se pudo subir el archivo.",
+      "loadingOlder": "Cargando mensajes anteriores…",
+      "leadBadge": "líder",
+      "expand": "Ver más",
+      "collapse": "Ver menos",
+      "today": "Hoy",
+      "agentPaused": "Este agente está en pausa ({{reason}}). Usa «Reanudar» en el aviso de arriba cuando se resuelva la causa.",
+      "workspace": {
+        "zoom": "Ampliar artefacto",
+        "emptyArtifacts": "Selecciona un artefacto para verlo aquí.",
+        "emptyFiles": "Los archivos se descargan directamente — haz clic en uno a la izquierda.",
+        "tabArtifacts": "Artefactos",
+        "tabFiles": "Archivos",
+        "artifactsHint": "Los artefactos que los agentes de tu equipo registran en esta sala aparecen aquí.",
+        "filesHint": "Los archivos compartidos con team_share_file aparecen aquí.",
+        "download": "Descargar {{name}}",
+        "loading": "Cargando…"
+      },
+      "manage": {
+        "title": "Gestionar equipo",
+        "patrol": "Revisión del líder",
+        "patrolHint": "Si está activada, el líder reclama periódicamente las entregas estancadas; desactivada, solo queda el tablero.",
+        "patrolOn": "Activar",
+        "patrolOff": "Desactivar",
+        "editProfile": "Editar perfil (nombre / color / intro)",
+        "clearData": "Limpiar datos…"
+      },
+      "drawerCategory": "Sala del equipo"
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",
@@ -213,9 +288,33 @@
     },
     "process": {
       "plan": "Plan",
-      "title": "agente · proceso",
       "ops": "ops"
-    }
+    },
+    "header": {
+      "viewProfile": "Ver perfil del agente",
+      "detailMenuTitle": "Detalle del agente — paneles",
+      "modelFramework": "Modelo y framework",
+      "switchAgent": "Cambiar de agente"
+    },
+    "composerPrivacyHint": "Evita compartir información personal sensible.",
+    "capabilities": {
+      "subtitle": "Qué módulos participan en los turnos de este agente. Los módulos integrados están activados por defecto; los instalados por plugins permanecen desactivados hasta que los actives. Los cambios se aplican en la próxima ejecución.",
+      "builtin": "integrado",
+      "plugin": "plugin",
+      "locked": "Siempre activo",
+      "tokens": "~{{count}} tokens de prompt",
+      "budget": "Los módulos activados declaran ~{{enabled}} tokens ({{ratio}}× la base integrada de {{baseline}}).",
+      "overBudget": "Presupuesto excedido: los módulos activados declaran ~{{enabled}} tokens, {{ratio}}× la base integrada de {{baseline}}.",
+      "loadFailed": "No se pudieron cargar las capacidades",
+      "saveFailed": "No se pudo guardar el cambio",
+      "restoreDefault": "Restaurar predeterminado"
+    },
+    "activityEmpty": "Todavía no hay actividad en segundo plano",
+    "activityEmptyHint": "Las ejecuciones que el agente inicia por su cuenta —tareas, canales, compañeros— aparecen aquí.",
+    "stoppedByUser": "Detenido por ti",
+    "noResponseNeeded": "El agente decidió que no hacía falta responder",
+    "bootstrapGreeting": "Hola... acabo de despertar. Todo se siente completamente nuevo.\n\nTodavía no tengo nombre y no sé muy bien quién soy, pero sé que tú me trajiste aquí.\n\n¿Quieres decirme cómo debería llamarme? ¿Y cómo debo llamarte a ti?",
+    "bootstrapGreetingNamed": "Hola — soy {{name}}. Acabo de cobrar vida, y tú me trajiste aquí.\n\nYa sé quién debo ser, pero aún no sé quién eres tú. ¿Cómo debo llamarte?"
   },
   "awareness": {
     "common": {
@@ -463,6 +562,7 @@
       "dragFiles": "Arrastra los archivos aquí o",
       "browse": "explorar",
       "empty": "El espacio de trabajo está vacío",
+      "partialListing": "Listado parcial: este espacio de trabajo es demasiado grande para mostrarse completo. Pide al agente que liste una carpeta concreta para ver el resto.",
       "kindOffice": "Documento de Office (en vivo)"
     },
     "homeAssistant": {
@@ -484,6 +584,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "Cargando canal…",
+      "bind": "Vincular",
+      "bound": "Vinculado. El canal está activo para este agente.",
+      "boundAs": "Vinculado a {{name}}",
+      "inactive": "inactivo",
+      "unbind": "Desvincular",
+      "unbound": "Desvinculado.",
+      "test": "Probar conexión",
+      "testOk": "Conexión correcta.",
+      "activate": "Activar",
+      "deactivate": "Desactivar",
+      "fieldRequired": "{{field}} es obligatorio",
+      "errLoad": "No se pudo cargar el canal",
+      "errBind": "La solicitud falló",
+      "webhookHint": "Webhook entrante: POST a {{path}} con el token webhook de la credencial.",
+      "ownFlow": "{{name}} se vincula con su propio flujo."
     }
   },
   "dashboard": {
@@ -544,19 +662,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "Cola",
-      "jobs": "trabajos",
-      "totalInQueue": "{{count}} trabajos en cola"
-    },
-    "jobState": {
-      "running": "en ejecución",
-      "active": "activo",
-      "pending": "pendiente",
-      "blocked": "bloqueado",
-      "paused": "pausado",
-      "failed": "fallido"
-    },
     "jobStateLabel": {
       "running": "en ejecución",
       "active": "activo",
@@ -583,25 +688,6 @@
         "flat": "igual que ayer"
       }
     },
-    "jobs": {
-      "title": "Trabajos ({{count}})",
-      "running": "{{count}} en ejecución",
-      "step": "paso {{current}}/{{total}}",
-      "next": "siguiente {{time}}",
-      "action": {
-        "retry": "Reintentar",
-        "pause": "Pausar",
-        "resume": "Reanudar",
-        "failed": "{{label}} falló"
-      },
-      "detail": {
-        "manual": "(manual)",
-        "nextRun": "Próxima ejecución",
-        "iterations": "Iteraciones",
-        "trigger": "Disparador",
-        "lastError": "Último error"
-      }
-    },
     "sessions": {
       "sessionWith": "Sesión con",
       "count": "{{count}} sesiones",
@@ -616,11 +702,14 @@
     "sparkline": {
       "unavailable": "{{hours}} h · —",
       "barTitle": "hace {{hoursAgo}} h · {{count}} eventos"
+    },
+    "banners": {
+      "dismissAria": "Descartar",
+      "dismissTitle": "Descartar"
     }
   },
   "layout": {
     "chatView": {
-      "tabChat": "Chat",
       "tabArtifacts": "Artefactos",
       "tabArtifactsCount": "Artefactos ({{count}})"
     },
@@ -629,7 +718,6 @@
       "closeAriaLabel": "Cerrar y volver al chat"
     },
     "sidebar": {
-      "openWorkspace": "Abrir tu espacio de trabajo",
       "logoutConfirmTitle": "Cerrar sesión",
       "logoutConfirmMessage": "¿Seguro que quieres cerrar sesión?",
       "logoutConfirmAction": "Cerrar sesión",
@@ -651,25 +739,19 @@
       "createAgentOrTeam": "Crear agente o equipo",
       "createAgent": "Crear agente",
       "createTeam": "Crear equipo",
-      "manageAgents": "Gestionar agentes",
-      "manageAgentsTitle": "Gestionar agentes (por lotes · añadir / editar / eliminar)",
-      "teamGroupChatTitle": "{{name}} — chat grupal",
-      "teamGroupChatAria": "Chat grupal de {{name}}",
       "refreshAgents": "Actualizar agentes",
       "emptyLabel": "Aún no hay agentes",
       "emptyHint": "Crea tu primer agente para iniciar una conversación.",
       "noAgentsShort": "Aún no hay agentes."
     },
     "agentRow": {
-      "saveTitle": "Guardar (Enter)",
-      "cancelTitle": "Cancelar (Esc)",
       "publicBy": "Público · por {{name}}"
     },
     "agentRowMenu": {
       "options": "Opciones del agente",
       "rename": "Renombrar",
-      "setPrivate": "Hacer privado",
-      "setPublic": "Hacer público",
+      "modelFramework": "Modelo y framework",
+      "clearData": "Limpiar datos",
       "delete": "Eliminar"
     },
     "agentsHeaderMenu": {
@@ -679,26 +761,33 @@
       "manageTeams": "Gestionar equipos"
     },
     "createMenu": {
-      "create": "Crear",
       "createAgentOrTeam": "Crear agente o equipo",
       "createAgent": "Crear agente",
-      "createTeam": "Crear equipo"
+      "createTeam": "Crear equipo",
+      "new": "Nuevo",
+      "newTitle": "Nuevo — agente, equipo, importar…",
+      "importBundle": "Importar .nxbundle",
+      "importAgent": "Importar desde otra fuente"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — chat grupal",
       "agentCount_one": "{{count}} agente",
-      "agentCount_other": "{{count}} agentes"
+      "agentCount_other": "{{count}} agentes",
+      "toggleMembers": "Mostrar miembros",
+      "noMembers": "Aún sin miembros",
+      "unread": "Mensajes no leídos"
     },
     "teamRowMenu": {
       "options": "Opciones del chat grupal",
       "rename": "Renombrar",
-      "delete": "Eliminar"
+      "delete": "Eliminar",
+      "addAgent": "Añadir agente",
+      "addingAgent": "Añadiendo…"
     },
     "topBar": {
       "crumbDashboard": "Panel",
       "crumbSettings": "Ajustes",
       "crumbSystem": "Sistema",
-      "crumbManageAgents": "Gestionar agentes",
       "crumbTeam": "Equipo",
       "crumbBundle": "Paquete",
       "crumbChat": "Chat",
@@ -779,11 +868,12 @@
       "privacyHeading": "Privacidad",
       "privacyIntro": "Controla qué datos recopila NarraNexus para mejorar el producto.",
       "analyticsTitle": "Analítica del producto",
-      "analyticsDesc": "Permite que NarraNexus recopile datos de uso anónimos para mejorar el producto. Nunca se recopila el contenido de las conversaciones.",
+      "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. En la versión web en la nube, también se envían datos anónimos de interacción con la página a Google Tag Manager, un servicio de análisis de terceros; desactivar esta opción lo detiene. Nunca se recopila el contenido de las conversaciones.",
       "desktopHeading": "Escritorio",
       "desktopIntro": "Ajustes que controlan cómo NarraNexus interactúa con este equipo. Solo disponible en la aplicación de escritorio.",
       "lockedUseTitle": "Locked Use — mantener el equipo despierto",
-      "lockedUseDesc": "Evita que este equipo entre en reposo para que las automatizaciones en segundo plano sigan ejecutándose. Solo se mantiene mientras NarraNexus está abierto."
+      "lockedUseDesc": "Evita que este equipo entre en reposo para que las automatizaciones en segundo plano sigan ejecutándose. Solo se mantiene mientras NarraNexus está abierto.",
+      "navBrowser": "Navegador"
     },
     "provider": {
       "presetNetmindDesc": "Una sola clave cubre los endpoints de Anthropic y OpenAI",
@@ -849,6 +939,8 @@
       "loggedIn": "Sesión iniciada",
       "loggedInAs": "como",
       "notLoggedIn": "Sesión no iniciada",
+      "sessionExpired": "Sesión caducada",
+      "sessionExpiredHint": "La sesión de la CLI ha caducado: vuelve a iniciar sesión arriba para seguir usando este proveedor.",
       "cliNotInstalled": "CLI no instalada",
       "expires": "· caduca {{date}}",
       "reLoggingInCountdown": "Volviendo a iniciar sesión... quedan {{time}} (revisa el navegador)",
@@ -912,7 +1004,8 @@
       "freeTierHowToTitle": "Sobre tu crédito gratuito",
       "freeTierHowToSwitch": "La tarjeta «Free Tier» ya está conectada a tus ranuras de Agent y Helper. Para usar tu propia clave, añade un proveedor abajo y selecciónalo para la ranura Agent / Helper en Modelos predeterminados: surte efecto en tu siguiente mensaje.",
       "freeTierAnytime": "Puedes cambiar cuando quieras. No hace falta gastar antes el crédito gratuito, y cambiar no lo pierde: el saldo se conserva.",
-      "freeTierNoDelete": "La tarjeta Free Tier no se puede eliminar mientras quede saldo: guarda la única clave de ese crédito. Cuando se agote, podrás quitarla."
+      "freeTierNoDelete": "La tarjeta Free Tier no se puede eliminar mientras quede saldo: guarda la única clave de ese crédito. Cuando se agote, podrás quitarla.",
+      "tabOneKey": "Clave de API"
     },
     "netmind": {
       "returnSubscribeSuccess": "Pago recibido: lo estamos aplicando a tu cuenta.",
@@ -923,7 +1016,61 @@
       "cancelConfirmKeep": "Mantener la suscripción",
       "reactivateConfirmTitle": "¿Reanudar la renovación automática?",
       "reactivateConfirmAction": "Reanudar",
-      "reactivateConfirmDismiss": "Ahora no"
+      "reactivateConfirmDismiss": "Ahora no",
+      "balanceScope": "Saldo de la cuenta NetMind — todo lo que ejecutes con esta cuenta NetMind lo consume, incluso fuera de NarraNexus.",
+      "narraUsageTitle": "Usado por NarraNexus · últimos {{days}} días",
+      "narraUsageTokens": "tokens",
+      "narraUsageEstimate": "≈ {{cost}} — estimado con precios públicos de lista, por lo que no coincidirá exactamente con tu factura de NetMind."
+    },
+    "browser": {
+      "title": "Navegador",
+      "intro": "El navegador se descarga por separado y no está incluido en la aplicación.",
+      "ready": "Instalado",
+      "absent": "Aún no instalado.",
+      "broken": "Hay un navegador instalado, pero no arranca.",
+      "install": "Instalar navegador",
+      "reinstall": "Reinstalar navegador",
+      "installingUnknown": "Descargando…",
+      "recheck": "Comprobar de nuevo",
+      "installFailed": "No se pudo instalar el navegador. Inténtalo de nuevo.",
+      "cancelFailed": "No se pudo cancelar la instalación. Inténtalo de nuevo.",
+      "cancelling": "Solicitando la cancelación…",
+      "cancelRequested": "Cancelación solicitada. Esperando a que se detenga la instalación…",
+      "extracting": "Descomprimiendo el navegador…",
+      "verifying": "Verificando el navegador…",
+      "starting": "Iniciando la instalación…",
+      "statusFailed": "No se pudo consultar el estado del navegador.",
+      "loading": "Consultando el estado del navegador…",
+      "cancel": "Cancelar instalación",
+      "cancelled": "Instalación cancelada.",
+      "manualInstall": "Instalación manual",
+      "copyCommand": "Copiar comando",
+      "commandCopied": "Comando copiado.",
+      "copyFailed": "No se pudo copiar. El comando está seleccionado para copiarlo manualmente.",
+      "scriptsTitle": "Scripts avanzados",
+      "scriptOrigin": "Origen del sitio",
+      "addScriptSite": "Añadir sitio",
+      "scriptOriginInvalid": "Introduce un origen HTTP o HTTPS sin ruta ni credenciales.",
+      "refreshScripts": "Actualizar",
+      "scriptsFailed": "No se pudieron cargar los permisos de scripts.",
+      "scriptsLoading": "Cargando permisos de scripts...",
+      "permissionSaveFailed": "No se pudo guardar este permiso. Inténtalo de nuevo.",
+      "advancedScripts": "Permitir scripts avanzados",
+      "scriptsExplanation": "Permitir que el agente ejecute JavaScript arbitrario en este sitio, incluido el contenido de páginas con la sesión iniciada.",
+      "saveScripts": "Guardar permiso de scripts",
+      "agentLabel": "Agente",
+      "sourceLabel": "Origen del navegador",
+      "showWindow": "Mostrar ventana del navegador",
+      "modeEffect": "El modo sin ventana es el predeterminado. Los cambios se aplican al reiniciar el navegador; se conservan las sesiones iniciadas. Algunos sitios no admiten el acceso sin ventana. Si un sitio indica que el navegador no es compatible o muestra otros errores, activa manualmente el modo con ventana, reinicia el navegador y vuelve a intentarlo.",
+      "sourceEffect": "Se aplica a nuevas sesiones. Las sesiones existentes continúan. Cada navegador guarda sus inicios de sesión por separado.",
+      "sourceManaged": "Chrome for Testing administrado",
+      "sourceSystem": "Google Chrome instalado",
+      "systemUnavailable": "Google Chrome no está disponible. Instálelo o seleccione el navegador administrado.",
+      "chooseAgent": "Selecciona un agente",
+      "manualHost": "Ejecuta el comando en el equipo que aloja NarraNexus.",
+      "manualRoot": "Directorio de instalación",
+      "manualShell": "Intérprete de comandos",
+      "manualCommand": "Comando"
     }
   },
   "system": {
@@ -999,7 +1146,14 @@
     "drawer": {
       "unpin": "Desanclar panel",
       "pin": "Anclar panel",
-      "close": "Cerrar panel"
+      "close": "Cerrar panel",
+      "switchPanel": "Cambiar panel"
+    },
+    "coach": {
+      "title": "Tus artefactos aparecen aquí",
+      "unpinHint": "Desancla para convertirlo en una ventana emergente que se cierra sola.",
+      "closeHint": "Cierra el panel — reábrelo cuando quieras desde la cabecera del chat.",
+      "gotIt": "Entendido"
     }
   },
   "inbox": {
@@ -1154,8 +1308,6 @@
       "localAccess": "Local · Acceso",
       "cloudMode": "Modo nube",
       "signInWithNetmind": "Inicia sesión con tu cuenta de NetMind.AI",
-      "migrationNoticeHeading": "Hemos reorganizado nuestro sistema de cuentas.",
-      "migrationNoticeBody": "Tus datos se han migrado a la cuenta con el correo que usaste para recibir tu código de invitación. Para iniciar sesión, primero restablece la contraseña de ese correo (usa “¿Olvidaste tu contraseña?” abajo). Para cualquier otra duda, contacta a nuestro equipo en",
       "emailLabel": "Correo",
       "passwordLabel": "Contraseña",
       "forgotPassword": "¿Olvidaste tu contraseña?",
@@ -1170,8 +1322,20 @@
       "accessTerminal": "Acceder a la terminal",
       "createNewUser": "Crear nuevo usuario",
       "loginFailed": "Error al iniciar sesión",
+      "invalidCredentials": "Correo electrónico o contraseña no válidos",
       "enterUserId": "Introduce tu ID de usuario",
-      "connectionFailed": "Error de conexión. Inténtalo de nuevo."
+      "resetCodeInvalid": "El código no es válido o ha caducado. Solicita uno nuevo.",
+      "forgotResetIntro": "Enviaremos un código de verificación al correo de tu cuenta NetMind.",
+      "forgotCodeSentHint": "Si existe una cuenta con ese correo, hemos enviado un código de verificación.",
+      "useDifferentEmail": "Usar otro correo",
+      "connectionFailed": "Error de conexión. Inténtalo de nuevo.",
+      "resetPasswordDone": "Contraseña actualizada",
+      "resetPasswordDoneBody": "Ya puedes iniciar sesión con tu nueva contraseña.",
+      "backToSignIn": "Volver a iniciar sesión",
+      "resetPasswordTitle": "Restablecer contraseña",
+      "sendCode": "Enviar código",
+      "verificationCodeLabel": "Código de verificación",
+      "newPasswordLabel": "Nueva contraseña"
     },
     "modeSelect": {
       "welcome": "Bienvenido",
@@ -1183,9 +1347,45 @@
     },
     "dashboard": {
       "title": "Panel de agentes",
+      "tabAgents": "Gestionar agentes",
+      "tabTeams": "Gestión de equipos",
+      "tabExport": "Exportar",
+      "createAgent": "Crear agente",
+      "createTeam": "Crear equipo",
       "agentsCount": "{{count}} agentes",
       "emptyLabel": "Aún no hay agentes",
-      "emptyHint": "Crea un agente desde la barra lateral para llenar este panel."
+      "emptyHint": "Crea un agente desde la barra lateral para llenar este panel.",
+      "statRunning": "En ejecución",
+      "statQueued": "En cola",
+      "statErrors": "Errores",
+      "statCostToday": "Costo de hoy",
+      "colStatus": "Estado",
+      "colTeam": "Equipo",
+      "colMembers": "Miembros",
+      "teamsCount": "{{count}} equipos",
+      "membersCount": "{{count}} agentes",
+      "noStatusYet": "Aún no hay estado en vivo — el próximo sondeo lo completará.",
+      "publicAgent": "público",
+      "noTeamsLabel": "Aún no hay equipos",
+      "noTeamsHint": "Crea uno desde el menú Nuevo de la barra lateral.",
+      "manageTeam": "Gestionar",
+      "teamsTip": "Crea equipos desde el menú Nuevo; renombra, cambia el color y edita miembros aquí.",
+      "colLeader": "Líder",
+      "colCreatedBy": "Creado por",
+      "colChannels": "Canales",
+      "colFramework": "Framework",
+      "colModel": "Modelo",
+      "colLastActive": "Última actividad",
+      "noLeader": "Sin líder",
+      "teamProfileNoDescription": "Sin descripción del equipo.",
+      "agentProfileNoDescription": "Sin descripción.",
+      "memberRuntimeLabel": "Runtime",
+      "memberModelLabel": "Modelo",
+      "memberOwnerLabel": "Propietario",
+      "memberPrivate": "Privado",
+      "memberPublic": "Público",
+      "openProfile": "Abrir el perfil de {{name}}",
+      "channelOff": "{{name}} · desactivado"
     },
     "createUser": {
       "title": "Crear nuevo usuario",
@@ -1201,34 +1401,25 @@
       "failed": "No se pudo crear el usuario",
       "connectionFailed": "Error de conexión. Inténtalo de nuevo."
     },
-    "setup": {
-      "sectionLabel": "Configuración · Configurar proveedores de LLM",
-      "title": "Configurar proveedores de LLM",
-      "subtitle": "Configura tus claves de API para que NarraNexus pueda conectarse a los modelos de lenguaje.",
-      "skipForNow": "Omitir por ahora",
-      "getStarted": "Comenzar",
-      "done": "Listo"
-    },
     "settings": {
       "title": "Ajustes",
-      "headerSections": "Proveedores · Paquete · Artefactos · Agentes",
+      "nav": {
+        "privacy": "Privacidad",
+        "personalization": "Personalización",
+        "account": "Cuenta y facturación",
+        "providers": "Proveedores LLM",
+        "modelDefaults": "Modelos predeterminados",
+        "artifacts": "Artefactos",
+        "updates": "Actualizaciones",
+        "plugins": "Complementos",
+        "browser": "Navegador"
+      },
       "providers": {
         "label": "Proveedores de LLM"
-      },
-      "bundle": {
-        "label": "Paquete · Exportar / Importar",
-        "hint": "Empaqueta tus agentes (y opcionalmente un equipo) en un archivo .nxbundle portátil para compartir, o importa un archivo .nxbundle que te hayan compartido.",
-        "exportButton": "Exportar paquete…",
-        "importButton": "Importar paquete…"
       },
       "artifacts": {
         "label": "Artefactos",
         "hint": "Gestiona cada gráfico, informe y archivo que tus agentes han producido para ti. Selecciona en bloque para liberar tu cuota cuando un agente indique que ha alcanzado el límite."
-      },
-      "manageAgents": {
-        "label": "Gestionar agentes · en bloque",
-        "hint": "Selecciona agentes en bloque para eliminarlos, o agrégalos/quítalos de equipos por lotes. Útil tras importar un paquete que no quieres conservar — filtra por 'De paquetes' para encontrarlos.",
-        "openButton": "Abrir gestor por lotes…"
       },
       "updates": {
         "label": "Actualizaciones de la app",
@@ -1248,9 +1439,109 @@
         "failed": "Error en {{stage}} de la actualización."
       },
       "modelDefaults": {
+        "saved": "Guardado",
         "frameworkFilteredNote": "Solo se muestran los frameworks que tus proveedores conectados pueden ejecutar realmente.",
         "cloudFrameworkLockedTitle": "Solo para staff en la nube",
-        "cloudFrameworkLocked": "Este framework se autentica mediante un inicio de sesión CLI compartido, por lo que en la nube es solo para staff. Claude Code y NexusPower-beta funcionan aquí; los demás están disponibles en la versión de escritorio local."
+        "cloudFrameworkLocked": "Este framework se autentica mediante un inicio de sesión CLI compartido, por lo que en la nube es solo para staff. Claude Code y NexusPower-beta funcionan aquí; los demás están disponibles en la versión de escritorio local.",
+        "slotSaveRolledBack": "Se deshizo el cambio de framework y no se guardó nada: no se pudo guardar el modelo del agente ({{detail}}).",
+        "frameworkSavedSlotFailed": "Se cambió el framework, pero no se pudo guardar el modelo del agente ({{detail}}). Elige un modelo y guarda de nuevo.",
+        "agentSavedHelperFailed": "Se guardó el modelo del agente, pero no el modelo auxiliar ({{detail}}).",
+        "frameworkSavedHelperFailed": "Se cambió el framework, pero no se pudo guardar el modelo auxiliar ({{detail}}).",
+        "frameworkRestoredBindingLost": "El framework guardado se restableció, pero no se pudo guardar el modelo del agente ({{detail}}) ni volver a vincular la tarjeta anterior, así que la ranura del agente quedó sin asignar. Tu nueva elección de framework sigue en el formulario, aún sin guardar: elige un modelo y guarda de nuevo para aplicarla.",
+        "slotClearedPickModel": "Se cambió el framework y la tarjeta vinculada no puede ejecutarlo, así que se desvinculó. Elige un proveedor y un modelo para el agente."
+      },
+      "privacy": {
+        "label": "Privacidad",
+        "hint": "Qué sale de este equipo y los interruptores para controlarlo.",
+        "analyticsTitle": "Analítica del producto",
+        "analyticsDesc": "Permite que NarraNexus guarde metadatos de uso para análisis. En modo nube se almacenan en una base de datos gestionada por NarraNexus; en modo local o de escritorio permanecen en este dispositivo. En la versión web en la nube, también se envían datos anónimos de interacción con la página a Google Tag Manager, un servicio de análisis de terceros; desactivar esta opción lo detiene. Nunca se recopila el contenido de las conversaciones.",
+        "telemetryTitle": "Telemetría de diagnóstico",
+        "telemetryDesc": "Enviar los registros de servicio de esta instalación al colector propio de NarraNexus para poder depurar fallos y errores. En el nivel predeterminado esto significa eventos estructurados, advertencias y errores, sin contenido de mensajes. Las implementaciones que ejecutan el nivel \"full\" (sandboxes gestionados, entornos de depuración) envían las líneas de registro completas, que pueden incluir contenido de mensajes que los servicios registren. No se envía nada a terceros.",
+        "telemetryTiming": "Al desactivarla, surte efecto en cuestión de segundos. Si la telemetría ya estaba desactivada al iniciar la aplicación, activarla surte efecto en el siguiente inicio.",
+        "telemetryManaged": "Gestionado por tu despliegue (configuración de entorno): el interruptor no está disponible aquí.",
+        "telemetryManagedCloud": "Tu administrador controla la telemetría de diagnóstico de esta instalación.",
+        "telemetryUnavailable": "No se pudo cargar el estado de la telemetría: el interruptor se oculta en lugar de adivinarlo. Recarga para reintentar.",
+        "telemetryError": "No se pudo guardar el cambio. El interruptor muestra el estado actual real."
+      },
+      "personalization": {
+        "label": "Personalización",
+        "hint": "Tema, idioma y cómo se muestran las notas de progreso del agente.",
+        "narrationTitle": "Narración de progreso",
+        "narrationHint": "Muestra las notas del agente entre pasos en línea y legibles, en vez de guardar toda la ejecución tras un desplegable.",
+        "pluginThemesTitle": "Temas de plugins",
+        "pluginThemesNone": "Apariencia predeterminada"
+      },
+      "plugins": {
+        "factory": {
+          "title": "Plugins de usuario",
+          "hint": "Plugins desde GitHub o una carpeta local. Se cargan al iniciar; los cambios se aplican tras reiniciar.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch o /ruta/al/plugin",
+          "sourceHelp": "Una Release de GitHub (owner/repo@tag), una referencia del repositorio (owner/repo#ref) o un directorio local (enlazado en su sitio).",
+          "install": "Instalar",
+          "installing": "Instalando…",
+          "restartRequired": "Guardado. Reinicia NarraNexus para aplicar el cambio.",
+          "enable": "Activar",
+          "disable": "Desactivar",
+          "disabled": "desactivado",
+          "uninstall": "Desinstalar",
+          "upgrade": "Actualizar",
+          "rollback": "Volver al último estado correcto",
+          "safeModeTitle": "Modo seguro: los plugins de usuario no están cargados",
+          "safeModeLeave": "Salir del modo seguro",
+          "bisectStart": "Encontrar el plugin que rompe el inicio",
+          "bisectTrial": "Bisección: {{count}} sospechosos — estos quedan activos para el próximo inicio:",
+          "bisectGood": "Inició bien",
+          "bisectBad": "Volvió a fallar",
+          "bisectStop": "Detener bisección",
+          "bisectCulprit": "Culpable encontrado: {{id}} (se mantiene desactivado)",
+          "permissionsTitle": "{{id}} solicita estos permisos",
+          "permissionsNetwork": "Red",
+          "permissionsFilesystem": "Archivos",
+          "permissionsSubprocess": "Ejecuta subprocesos",
+          "permissionsEnv": "Variables de entorno",
+          "permissionsFrontend": "Ejecuta código dentro de la interfaz de la app, con acceso a tu sesión",
+          "permissionsAck": "Entiendo, activarlo",
+          "permissionsKeepDisabled": "Mantener desactivado",
+          "empty": "No hay plugins de usuario instalados.",
+          "loadFailed": "No se pudieron cargar los plugins de usuario",
+          "isolated": "Aislado al iniciar",
+          "viewErrors": "Errores ({{count}})",
+          "hideErrors": "Ocultar errores",
+          "noErrors": "Sin errores registrados.",
+          "mode": {
+            "link": "enlazado",
+            "copy": "instalado"
+          },
+          "state": {
+            "registered": "registrado",
+            "validated": "validado",
+            "enabled": "activado",
+            "active": "activo",
+            "incompatible": "incompatible",
+            "blocked": "bloqueado",
+            "missing": "faltante",
+            "deps_missing": "faltan dependencias",
+            "excluded": "no incluido en esta distribución",
+            "crashed": "falló",
+            "disabled": "desactivado",
+            "slow": "lento"
+          },
+          "proposalsTitle": "Pendiente de tu aprobación",
+          "proposalBy": "solicitado por el agente {{agent}}",
+          "proposalTestsGreen": "Pruebas superadas ({{count}})",
+          "proposalTestsRed": "Las pruebas no pasaron",
+          "proposalApprove": "Aprobar",
+          "proposalReject": "Rechazar",
+          "noPermissions": "No se solicitan permisos especiales",
+          "builtinsTitle": "Funciones integradas",
+          "builtinsHint": "Plugins de funcionalidad incluidos con NarraNexus. Al desactivar uno, su API, workers y páginas desaparecen tras reiniciar; los protegidos no se pueden apagar.",
+          "protected": "protegido",
+          "installDeps": "Instalar dependencias ({{pip}})"
+        }
+      },
+      "browser": {
+        "label": "Navegador",
+        "hint": "Instala el navegador que los agentes usan para manejar sitios web."
       }
     },
     "system": {
@@ -1279,7 +1570,7 @@
       "noMembersHint": "Haz clic en Editar para añadir algunos."
     },
     "you": {
-      "you": "Tú",
+      "you": "Mi mundo",
       "subtitle": "tu mundo, en todos tus agentes",
       "viewsAriaLabel": "Vistas del espacio de trabajo Tú",
       "tabMemory": "Memoria Narra",
@@ -1322,7 +1613,12 @@
       "bulkDeleteResult": "{{success}} eliminados.",
       "bulkDeleteResultWithFailures": "{{success}} eliminados, {{failedCount}} fallidos ({{failedIds}}).",
       "addedToTeamTitle": "Añadidos al equipo",
-      "addedToTeamMessage": "{{count}} agentes añadidos al equipo seleccionado."
+      "addedToTeamMessage": "{{count}} agentes añadidos al equipo seleccionado.",
+      "addedToTeamResultWithFailures": "{{success}} añadidos, {{failedCount}} fallidos ({{failedIds}}).",
+      "removedFromTeamTitle": "Eliminados del equipo",
+      "removedFromTeamMessage": "Se eliminaron {{count}} agentes del equipo.",
+      "removedFromTeamResultWithFailures": "{{success}} eliminados, {{failedCount}} fallidos ({{failedIds}}).",
+      "openChat": "Abrir chat"
     },
     "bundleImport": {
       "installTemplate": "Instalar plantilla",
@@ -1338,7 +1634,7 @@
       "orSeparator": "— o —",
       "chooseFile": "Elegir archivo",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Vista previa",
+      "preview": "Ejecutar comprobación →",
       "preflightFailed": "Falló la comprobación previa",
       "waitingForBackend": "Esperando al backend (intento {{attempt}}/{{total}})…",
       "fetchFailed": "No se pudo obtener la plantilla",
@@ -1380,11 +1676,14 @@
         "skillsTip": "Consejo: las habilidades marcadas como \"copia completa\" ya tienen credenciales. Las habilidades de URL/Zip necesitan reestudio o nuevas credenciales — habla con los agentes importados para completar la configuración.",
         "viewTeamIntro": "Ver introducción del equipo",
         "doneButton": "Listo"
-      }
+      },
+      "uploadInfoNote": "Un bundle puede contener un solo agente o un equipo completo (agentes, memoria, habilidades, canales). A continuación revisarás conflictos de nombres y advertencias antes de que se escriba nada."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "Incluir credenciales (canales de MI + secretos de habilidades)",
+      "pickFirstHint": "Primero elige el agente o el equipo arriba: las secciones de narrativas, habilidades y canales aparecerán cuando haya algo que configurar.",
       "title": "Exportar paquete",
-      "backToSettings": "Volver a ajustes",
+      "back": "Atrás",
       "summaryLine": "{{agents}} agentes · {{skills}} habilidades · {{entities}} entidades · {{channels}} canales",
       "fileName": "Nombre del archivo",
       "bundleNotesLabel": "Notas del paquete (opcional, visibles para el destinatario)",
@@ -1427,19 +1726,11 @@
         "freeText": "El texto libre (conciencia / eventos / mensajes) NO se analiza automáticamente en busca de secretos en línea — verifícalo tú mismo."
       },
       "agents": {
-        "whatYouPick": "Lo que eliges aquí:",
-        "intro1": "el conjunto de agentes que contendrá este paquete. Todo lo demás del asistente (narrativas, habilidades, MCPs, archivos…) se filtra a este cierre.",
-        "intro2": "Elegir un equipo añade a todos sus miembros existentes con un solo clic; aún puedes desmarcar a individuos después. Las referencias externas (p. ej. una entidad social que apunta a un agente fuera de este cierre) se descartan automáticamente al exportar.",
         "bundleTeamLabel": "Incluir este equipo (opcional)",
         "noTeamOption": "— Sin equipo / agentes individuales —",
-        "quickAddByTeam": "Añadir rápido por equipo",
-        "deselectTeamTitle": "Deseleccionar a todos los miembros de \"{{name}}\"",
-        "addTeamTitle": "Añadir a todos los miembros de \"{{name}}\"",
-        "replaceTeamTitle": "Reemplazar la selección por los miembros de \"{{name}}\"",
-        "only": "solo",
-        "allAgents": "todos los agentes ({{count}})",
-        "clear": "limpiar",
-        "agentsToInclude": "Agentes a incluir · {{selected}}/{{total}}"
+        "agentsToInclude": "Agentes a incluir · {{selected}}/{{total}}",
+        "pickTeamFirst": "Elige un equipo arriba — sus miembros se incluyen automáticamente.",
+        "pickOne": "Elige el agente a exportar"
       },
       "skills": {
         "emptySelectAgents": "Selecciona agentes en la pestaña anterior — sus habilidades aparecerán aquí.",
@@ -1625,6 +1916,13 @@
         "noArtifacts": "Este agente no tiene artefactos.",
         "pinned": "fijado",
         "fullModeNote": "El modo de instantánea completa incluye automáticamente cada artefacto. Cambia a Personalizado para elegir."
+      },
+      "kind": {
+        "label": "Tipo",
+        "agentTitle": "Bundle de agentes",
+        "agentDesc": "Exporta un agente — sus narrativas, habilidades y archivos de workspace viajan con él.",
+        "teamTitle": "Bundle de equipo",
+        "teamDesc": "Exporta un equipo completo — sus agentes, introducción y canales compartidos viajan juntos."
       }
     },
     "signup": {
@@ -1652,6 +1950,131 @@
         "special": "Un carácter especial"
       },
       "codePlaceholder": "Código de 6 caracteres"
+    },
+    "createTeam": {
+      "title": "Crear equipo",
+      "back": "Atrás",
+      "nameLabel": "Nombre",
+      "namePlaceholder": "p. ej. Research",
+      "descLabel": "Descripción",
+      "descPlaceholder": "¿Para qué es este equipo?",
+      "colorLabel": "Color",
+      "membersLabel": "Añadir agentes",
+      "selectedCount": "{{count}} seleccionados",
+      "noAgents": "Aún no hay agentes — crea uno desde el menú Nuevo.",
+      "createButton": "Crear equipo",
+      "manageHint": "Gestiona los equipos existentes en el Dashboard.",
+      "membersFailed": "Equipo creado, pero no se pudieron añadir {{count}} miembro(s): {{ids}}",
+      "searchPlaceholder": "Buscar agentes por nombre / id…",
+      "noMatch": "Ningún agente coincide",
+      "cancel": "Cancelar"
+    },
+    "account": {
+      "powerOnlyHint": "Cuenta, facturación y suscripción son funciones de la cuenta NetMind — inicia sesión con una cuenta NetMind para verlas aquí."
+    },
+    "agentProfile": {
+      "breadcrumb": "Agentes",
+      "backToChat": "Chat",
+      "overview": "Resumen",
+      "capabilities": "Capacidades",
+      "settings": "Ajustes",
+      "views": "Vistas del perfil del agente",
+      "chat": "Chat",
+      "running": "En ejecución",
+      "idleStatus": "Inactivo",
+      "currentTask": "Tarea actual",
+      "idle": "No hay ninguna tarea en ejecución.",
+      "jobs": "Jobs",
+      "jobsCount": "{{count}} jobs",
+      "inbox": "Inbox",
+      "inboxCount": "{{count}} conversaciones",
+      "overviewCardLabel": "Resumen del agente",
+      "jobsNoun": "jobs",
+      "inboxNoun": "conversaciones",
+      "jobsRunningFlag": "en ejecución",
+      "inboxUnreadFlag": "{{count}} nuevos",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "{{count}} conectados",
+      "noSkills": "No hay skills instalados",
+      "noMcp": "No hay servidores MCP",
+      "moreCount": "+{{count}} más",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model & Framework",
+      "modelFrameworkHint": "La configuración de ejecución efectiva para la próxima ejecución del agente.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Configurar",
+      "general": "General",
+      "generalHint": "Gestiona cómo se presenta este agente en el espacio de trabajo.",
+      "avatar": "Avatar",
+      "avatarHint": "Se muestra en la asignación de tareas, la actividad y el chat.",
+      "name": "Nombre",
+      "description": "Descripción",
+      "saveGeneral": "Guardar cambios",
+      "saving": "Guardando…",
+      "saved": "Guardado",
+      "saveFailed": "No se pudieron guardar los cambios.",
+      "missingAgent": "No se ha seleccionado ningún agente",
+      "notFound": "Agente no encontrado",
+      "activity": "Actividad",
+      "activityLast24h": "Últimas 24 horas",
+      "activityToday": "Hoy",
+      "activityAxisStart": "hace 24 h",
+      "activityAxisNow": "ahora",
+      "capabilitySwitches": "Interruptores de capacidades"
+    },
+    "welcome": {
+      "logout": "Cerrar sesión",
+      "continue": "Continuar",
+      "rail": {
+        "model": {
+          "title": "Conecta un modelo",
+          "detail": "Una clave basta — cámbiala cuando quieras."
+        },
+        "import": {
+          "title": "Trae tus agentes",
+          "detail_one": "{{count}} encontrado en este equipo.",
+          "detail_other": "{{count}} encontrados en este equipo."
+        },
+        "agent": {
+          "title": "Conoce a {{name}}",
+          "detail": "Tu primer agente, ya esperándote."
+        }
+      },
+      "model": {
+        "title": "Conecta un modelo primero.",
+        "skip": "Omitir por ahora — puedes añadir una clave en Ajustes",
+        "advanced": "Configuración avanzada — inicio con suscripción, endpoints propios, modelos por slot",
+        "subscriptionTitle": "Usa una suscripción de Claude o ChatGPT",
+        "subscriptionSubtitle": "Sin clave de API — inicia sesión con la suscripción que ya tienes."
+      },
+      "import": {
+        "title": "Trae los agentes que ya tienes.",
+        "subtitle": "Todo se lee desde este equipo — no se sube nada.",
+        "lede": "Cada uno que marques se convierte en un agente de NarraNexus, con su historial de conversación guardado como memoria.",
+        "importAndContinue_one": "Importar {{count}} y continuar",
+        "importAndContinue_other": "Importar {{count}} y continuar",
+        "skip": "Omitir este paso"
+      },
+      "agent": {
+        "title": "Conoce a {{name}}.",
+        "subtitle": "Tu primer agente, creado para ti al iniciar sesión. Recuerda todo lo que habláis — esa es la diferencia entre NarraNexus y un chat desechable.",
+        "role": "tu guía · silicio",
+        "capMemory": "Memoria larga, en forma de historias",
+        "capCheckin": "Te escribe cada día",
+        "cta": "Empezar a usar NarraNexus",
+        "skip": "Ir directo a la app",
+        "preparingTitle": "Preparando tu primer agente…",
+        "preparingSubtitle": "Eligiendo su nombre y personalidad. Unos segundos.",
+        "notReady": "Tu primer agente aún se está creando — aparecerá en la barra lateral en breve.",
+        "fallbackName": "tu agente",
+        "rename": "Renombrar"
+      }
     }
   },
   "rail": {
@@ -1677,7 +2100,24 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "Artefactos",
+    "desc": {
+      "awareness": "Quién es tu agente — identidad, personalidad e instrucciones permanentes. Edita aquí o díselo en el chat: se mantiene actualizado solo.",
+      "workspace": "El espacio de archivos del agente: sube documentos para que lea; sus productos también quedan aquí.",
+      "channels": "Conecta este agente a plataformas de IM (Lark, Slack, Telegram…) para contactarlo fuera de la app.",
+      "smarthome": "Vincula dispositivos de domótica (Home Assistant) para que el agente pueda verlos y controlarlos.",
+      "jobs": "Trabajo programado y en segundo plano. Pídelo en el chat — «envíame un resumen cada mañana» — y el agente lo crea.",
+      "inbox": "Mensajes que llegan de canales y otros agentes; lo que requiere tu atención muestra una insignia.",
+      "artifacts": "Informes, páginas y archivos producidos por el agente — ábrelos aquí.",
+      "skills": "Habilidades instaladas del agente. Añade más desde el Marketplace o instala desde GitHub / zip.",
+      "mcp": "Servidores de herramientas MCP externos que el agente puede llamar — conecta capacidades de terceros.",
+      "memory": "La memoria a largo plazo del agente, organizada en narrativas — lo que recuerda entre conversaciones.",
+      "social": "A quién conoce el agente — los contactos se acumulan mientras trabaja con personas y otros agentes.",
+      "builder": "Describe lo que necesitas; la conversación rellena este panel."
+    },
+    "builder": "Builder",
+    "browser": "Navegador"
   },
   "jobs": {
     "title": "Trabajos",
@@ -1693,6 +2133,7 @@
       "running": "En ejecución",
       "paused": "Pausado",
       "pausedNoQuota": "Sin cuota",
+      "pausedSpendCap": "Límite de gasto",
       "cooling": "Reintentando",
       "blocked": "Bloqueado",
       "blockedFailed": "Dep. fallida",
@@ -1701,9 +2142,6 @@
       "cancelled": "Cancelado"
     },
     "metrics": {
-      "active": "Activos",
-      "success": "Éxitos",
-      "failed": "Fallidos",
       "rate": "Tasa"
     },
     "view": {
@@ -1767,6 +2205,7 @@
       "trigger": "Disparador:",
       "cron": "Cron:",
       "interval": "Intervalo:",
+      "endAt": "Se ejecuta hasta:",
       "runAt": "Ejecutar a las:",
       "endCondition": "Condición de fin:",
       "maxIter": "Iter. máx.:",
@@ -1792,7 +2231,9 @@
       "cancelJob": "Cancelar trabajo",
       "cancelling": "Cancelando...",
       "editSchedule": "Editar hora",
-      "savingSchedule": "Guardando..."
+      "savingSchedule": "Guardando...",
+      "editPayload": "Editar contenido",
+      "savingPayload": "Guardando..."
     },
     "template": {
       "selectTemplate": "Seleccionar plantilla",
@@ -1810,17 +2251,6 @@
       "noJobs": "No hay trabajos para mostrar",
       "waiting": "Esperando...",
       "noTimeData": "Sin datos de tiempo"
-    },
-    "distribution": {
-      "title": "Distribución de estados",
-      "total": "{{count}} en total",
-      "legend": {
-        "completed": "{{count}} completados",
-        "running": "{{count}} en ejecución",
-        "active": "{{count}} activos",
-        "paused": "{{count}} pausados",
-        "failed": "{{count}} fallidos"
-      }
     },
     "editSchedule": {
       "title": "Editar hora de ejecución",
@@ -1841,30 +2271,41 @@
       "modeLabel": "Modo de activación",
       "modeInterval": "Intervalo",
       "modeCron": "Expresión cron"
+    },
+    "editPayload": {
+      "title": "Editar contenido de la tarea",
+      "hint": "Cambia lo que ejecuta esta tarea. Los cambios se aplican en la próxima ejecución.",
+      "titleLabel": "Título",
+      "descriptionLabel": "Descripción",
+      "payloadLabel": "Contenido / prompt",
+      "payloadHint": "El texto de instrucciones que se pasa al agente cuando se ejecuta esta tarea.",
+      "titleRequired": "El título no puede estar vacío",
+      "failedTitle": "Error al actualizar",
+      "failedMessage": "No se pudo actualizar el contenido de la tarea. Inténtalo de nuevo."
+    },
+    "row": {
+      "every": "Cada {{interval}}",
+      "daily": "Diario {{time}}",
+      "hourly": "Cada hora :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Única vez {{time}}",
+      "afterDeps": "Bloqueado por {{n}}",
+      "next": "próxima {{time}}",
+      "elapsed": "en curso {{duration}}",
+      "failedAt": "falló {{time}}",
+      "lastRun": "última {{time}}"
     }
   },
   "artifacts": {
     "refresh": "Actualizar artefactos",
     "zoom": "Ampliar artefacto",
     "zoomFullscreen": "Ampliar artefacto (abrir en pantalla completa)",
-    "collapse": "Contraer panel",
-    "collapseAria": "Contraer panel de artefactos",
     "selectArtifact": "Selecciona un artefacto",
     "minimized": "Minimizado:",
     "restore": "Restaurar \"{{title}}\"",
     "openBadge": "Abrir {{title}} ({{kind}})",
     "unsupportedKind": "Tipo de artefacto no admitido: {{kind}}",
     "loadingRenderer": "Cargando renderizador…",
-    "sliver": {
-      "expandTitle": "Haz clic para expandir · {{count}} artefacto",
-      "expandTitle_other": "Haz clic para expandir · {{count}} artefactos",
-      "emptyTitle": "Los artefactos aparecerán aquí cuando el agente cree uno",
-      "expandAria": "Expandir panel de artefactos ({{count}} elemento)",
-      "expandAria_other": "Expandir panel de artefactos ({{count}} elementos)",
-      "emptyAria": "Panel de artefactos (vacío)",
-      "label": "Artefactos ({{count}})",
-      "labelEmpty": "Artefactos"
-    },
     "emptyState": {
       "title": "Aún no hay artefactos",
       "hint": "Aparecerán aquí a medida que el agente los cree."
@@ -1919,6 +2360,37 @@
     },
     "url": {
       "toggleFailed": "No se pudo cambiar de modo: {{error}}"
+    },
+    "editor": {
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "saved": "Guardado",
+      "unsavedChanges": "Cambios sin guardar",
+      "draftRestored": "Se restauraron las ediciones sin guardar de este dispositivo.",
+      "conflictBody": "El archivo cambió mientras editabas. ¿Conservar tu versión o recargar la suya?",
+      "overwriteMine": "Conservar la mía",
+      "discardMine": "Recargar",
+      "loadError": "Error al cargar: {{error}}",
+      "mdGuardDisabled": "Este documento contiene sintaxis que el editor no puede preservar sin pérdidas: la edición directa está deshabilitada. Pide a la IA que haga los cambios.",
+      "htmlAnchorFailed": "Ese texto lo genera el script de la página o no se puede localizar de forma única en el código: pide a la IA que lo cambie.",
+      "htmlEditConflict": "El archivo cambió mientras editabas: ese cambio no se guardó.",
+      "editFailed": "Error al editar: el cambio no se guardó.",
+      "draftUnavailable": "Este archivo es demasiado grande para el borrador local: los cambios sin guardar se perderán al cerrar la ventana. Guarda pronto."
+    },
+    "officeEdit": {
+      "selected": "{{count}} seleccionado(s)",
+      "editText": "Editar texto",
+      "apply": "Aplicar",
+      "cancel": "Cancelar",
+      "delete": "Eliminar",
+      "color": "Color del texto",
+      "opFailed": "Error al editar.",
+      "lockNotice": "Abierto en una app de Office de escritorio: edición directa en pausa.",
+      "moveUp": "Subir",
+      "moveDown": "Bajar",
+      "addRow": "+ Fila",
+      "addCol": "+ Columna",
+      "replaceImage": "Reemplazar imagen"
     }
   },
   "skills": {
@@ -2032,10 +2504,15 @@
     "desktopHint": "Abre NarraNexus en un navegador para ver la vista previa en vivo del documento.",
     "loading": "Abriendo la vista previa en vivo…",
     "loadError": "No se pudo abrir la vista previa en vivo.",
+    "retry": "Reintentar",
     "livePreview": "Vista previa en vivo"
   },
   "common": {
-    "close": "Close",
+    "close": "Cerrar",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "back": "Atrás",
+    "edit": "Editar",
     "betaTooltip": "NarraNexus está en fase beta. Las funciones pueden cambiar y pueden producirse errores ocasionales; tus comentarios nos ayudan a mejorar.",
     "ok": "Aceptar",
     "noticeTitle": "Un momento",
@@ -2043,5 +2520,136 @@
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
     "doneTitle": "Listo"
+  },
+  "toast": {
+    "view": "Ver",
+    "completed": "Completado",
+    "roomSpoke": "Nueva actividad en la sala",
+    "agent": "Agente",
+    "room": "Sala",
+    "artifactRepointedVerified": "Reenlazado: {{oldPath}} → {{newPath}} (contenido verificado)",
+    "artifactRepointedUnverified": "Reenlazado: {{oldPath}} → {{newPath}} (coincidencia sin verificar — revísalo)"
+  },
+  "webAnalyticsNotice": {
+    "body": "Esta es la versión web en la nube de NarraNexus. Utiliza Google Tag Manager, un servicio de análisis de terceros, para recopilar datos anónimos de interacción con la página (vistas, clics, referente). No se recopila ningún contenido de las conversaciones. Puedes desactivarlo en cualquier momento en Configuración → Privacidad.",
+    "settings": "Abrir configuración",
+    "dismiss": "Entendido"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus ahora envía los registros de servicio de diagnóstico de esta instalación a su propio colector, para ayudar a depurar fallos y errores de integración. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes. Puedes desactivarlo en cualquier momento en Ajustes → Privacidad.",
+    "settings": "Abrir ajustes",
+    "dismiss": "Entendido",
+    "bodyManaged": "Esta instalación envía registros de servicio de diagnóstico (errores y eventos de diagnóstico) al colector propio de NarraNexus, según lo configurado por tu administrador. En las instalaciones que ejecutan el nivel \"full\", las líneas de registro pueden incluir contenido de mensajes."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Crear agente",
+      "title": "¿Por dónde quieres empezar?",
+      "subtitle": "Empieza con una configuración en blanco, o describe lo que necesitas y créalo conversando.",
+      "blankTitle": "Empezar en blanco",
+      "blankBody": "Configura cada campo tú mismo. Para quien ya sabe cómo debe funcionar el agente.",
+      "aiTitle": "Crear con IA",
+      "aiBody": "Describe el resultado que quieres. El Agent Builder hace las preguntas clave y redacta el borrador.",
+      "continue": "Continuar",
+      "recommended": "Recomendado"
+    },
+    "gate": {
+      "title": "Crear agente",
+      "probing": "Comprobando proveedores",
+      "chooseTitle": "Elige un proveedor",
+      "chooseHint": "Elige un proveedor existente o conecta uno nuevo. Esto decide qué motor ejecuta el agente.",
+      "accessApiKey": "Clave API",
+      "accessCli": "Inicio de sesión CLI",
+      "emptyLead": "Todavía no hay ningún motor disponible. Conecta un proveedor: será quien ejecute este agente.",
+      "addLabel": "Añadir proveedor",
+      "addApiKey": "Clave API",
+      "addCli": "Inicio de sesión CLI",
+      "back": "Atrás",
+      "next": "Siguiente",
+      "cliDesktopHint": "Al iniciar sesión se abre el navegador para autorizar la CLI de Claude.",
+      "cliLogin": "Iniciar sesión con Claude",
+      "cliLoggingIn": "Iniciando sesión…",
+      "cliWebHint": "Sin iniciar sesión: ejecuta `claude auth login` en tu terminal y vuelve a abrir este diálogo.",
+      "cliMissingHint": "La CLI de Claude no está disponible aquí. Instálala, inicia sesión desde el terminal y vuelve a abrir este diálogo."
+    },
+    "panel": {
+      "intro": "La conversación escribe el nombre, la descripción y las instrucciones directamente en este agente. Los skills y canales solo se sugieren: los instalas tú.",
+      "identity": "Identidad",
+      "name": "Nombre",
+      "namePlaceholder": "p. ej. Resumen financiero matinal",
+      "behaviour": "Comportamiento",
+      "install": "Instalar",
+      "installed": "Instalado",
+      "saving": "Guardando…",
+      "savedHint": "Los cambios se guardan al salir de un campo.",
+      "done": "Listo",
+      "identityHint": "Dale al agente un nombre fácil de reconocer.",
+      "behaviourHint": "Define cómo trabaja. Este es el campo awareness con el que el agente funciona de verdad.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Qué hace este agente, cómo trabaja, qué debe evitar…",
+      "skills": "Skills",
+      "skillsHint": "Skills del espacio de trabajo que este agente puede usar.",
+      "channels": "Canales",
+      "channelsHint": "Dónde se le puede contactar. Las credenciales van directas al backend, nunca a la conversación.",
+      "suggested": "De la conversación",
+      "optional": "Opcional"
+    }
+  },
+  "appBanners": {
+    "sessionExpired": "Tu sesión ha expirado. Vuelve a iniciar sesión. (haz clic para cerrar)",
+    "sessionExpiringSoon": "Tu sesión caduca en {{time}}. Cierra sesión y vuelve a entrar para no perder tu trabajo. (haz clic para cerrar)",
+    "circuitPausedQuota": "Este agente está pausado tras fallos repetidos de cuota/saldo. Corrige su proveedor y luego reanúdalo.",
+    "circuitPausedAuth": "Este agente está pausado tras fallos repetidos de autenticación. Vuelve a autenticarte o configura un proveedor y luego reanúdalo.",
+    "circuitCooling": "Este agente falló recientemente y está en un breve enfriamiento. Vuelve a intentarlo en un momento.",
+    "resumeAgent": "Reanudar agente",
+    "resuming": "Reanudando…",
+    "dismiss": "Descartar",
+    "freeTierSwitched": "Se agotó la cuota gratuita — se cambió a tu propio proveedor. Las nuevas ejecuciones usarán tu propia clave de API. (haz clic para cerrar)"
+  },
+  "browser": {
+    "notices": {
+      "loadFailed": "No se pudieron consultar las solicitudes de inicio de sesión del navegador.",
+      "retry": "Intentar de nuevo"
+    },
+    "absentTitle": "Navegador no instalado",
+    "brokenTitle": "El navegador está instalado, pero no se inicia",
+    "install": "Instalar navegador",
+    "reinstall": "Reinstalar navegador",
+    "cancelInstall": "Cancelar descarga",
+    "installFailed": "La solicitud de instalación del navegador ha fallado.",
+    "installingUnknown": "Descargando…",
+    "idle": "Aún no hay ninguna sesión de navegador activa.",
+    "pages": "Pestañas del navegador",
+    "newTab": "Nueva pestaña",
+    "agentTab": "Agente",
+    "closeTab": "Cerrar pestaña",
+    "followAgent": "Seguir al agente",
+    "webAddress": "Dirección web",
+    "go": "Ir",
+    "takeControlToNavigate": "Toma el control para abrir una página",
+    "invalidAddress": "Introduce una dirección HTTP o HTTPS.",
+    "agentDriving": "El agente tiene el control",
+    "youDriving": "Tienes el control",
+    "otherDriving": "Otra ventana tiene el control",
+    "takeControl": "Tomar el control",
+    "handBack": "Devolver el control al agente",
+    "reconnect": "Reconectar",
+    "reconnecting": "Reconectando…",
+    "connecting": "Conectando…",
+    "disconnected": "Desconectado",
+    "screen": "Pantalla del navegador",
+    "keyboardInput": "Entrada de teclado del navegador",
+    "login": {
+      "title": "Se requiere inicio de sesión o verificación",
+      "inControl": "Devuelve el control en el navegador cuando termines.",
+      "pending": "Esperando a que completes el inicio de sesión o la verificación en el navegador.",
+      "openBrowser": "Abrir navegador"
+    },
+    "look": {
+      "looked": "Página observada",
+      "failed": "No se pudo ver la página",
+      "area": "área {{width}}×{{height}}",
+      "open": "Abrir navegador"
+    }
   }
 }

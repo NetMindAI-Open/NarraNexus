@@ -13,9 +13,9 @@ from datetime import datetime, timedelta, timezone as dt_tz
 
 import pytest
 
-from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.schema.job_schema import JobStatus
-from xyz_agent_context.module.job_module.job_trigger import JobTrigger
+from narranexus.platform.repository import JobRepository
+from narranexus.platform.schema.job_schema import JobStatus
+from narranexus_plugins.job_module.job_trigger import JobTrigger
 
 SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
 

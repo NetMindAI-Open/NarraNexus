@@ -26,8 +26,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema.instance_schema import ModuleInstanceRecord
 
 
 def _ts(minutes_ago: int) -> str:
@@ -85,13 +85,13 @@ async def _run(chat_module, inst_nar_pairs, fake_memories):
         return [nid] if nid else []
 
     with patch(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         new=AsyncMock(return_value=MagicMock()),
     ), patch(
-        "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",
+        "narranexus.platform.repository.InstanceRepository.get_chat_instances_by_user",
         new=AsyncMock(return_value=fake_instances),
     ), patch(
-        "xyz_agent_context.repository.instance_link_repository."
+        "narranexus.platform.repository.instance_link_repository."
         "InstanceNarrativeLinkRepository.get_narratives_for_instance",
         new=AsyncMock(side_effect=_get_nars),
     ):

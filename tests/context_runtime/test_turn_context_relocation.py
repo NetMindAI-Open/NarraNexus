@@ -4,7 +4,7 @@
 @date: 2026-07-25
 @description: R4a turn-context relocation — per-turn volatile content
 (temporal block, narrative updated_at/current_summary, recent background
-activity, module get_turn_context blocks) moves out of the system prompt
+activity, module contribute_turn_context blocks) moves out of the system prompt
 into a "[Turn context]" block prepended to the CURRENT user message, so
 the system prompt stays byte-stable across turns (provider prefix caches).
 
@@ -15,9 +15,9 @@ Locks the R4a contract:
   appended to the system prompt, current user message == input_content);
 - kill-switch ON   → volatile sections appear ONLY in the LLM-facing
   current message, in a fixed order, and ``ctx_data.input_content`` (the
-  string ChatModule.hook_persist_turn persists and the frontend renders)
+  string ChatModule.persist_turn persists and the frontend renders)
   is NEVER touched;
-- module get_turn_context blocks: deduplicated by module_class, stable
+- module contribute_turn_context blocks: deduplicated by module_class, stable
   priority-ascending order, per-module fail-open;
 - ctx_sha256 instrumentation: the [SYSPROMPT-BREAKDOWN] line hashes
   ContextRuntime's final system prompt string — stable across turns when
@@ -34,21 +34,21 @@ from types import SimpleNamespace
 import pytest
 from loguru import logger
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.context_runtime.prompts import (
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.context_runtime.prompts import (
     TURN_CONTEXT_HEADER,
     USER_MESSAGE_SEPARATOR,
 )
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeActor,
     NarrativeActorType,
     NarrativeInfo,
     NarrativeType,
 )
-from xyz_agent_context.schema import ContextData
-from xyz_agent_context.schema.module_schema import ModuleInstructions
-from xyz_agent_context.settings import settings
+from narranexus.platform.schema import ContextData
+from narranexus.platform.schema.module_schema import ModuleInstructions
+from narranexus.platform.settings import settings
 
 
 AGENT_ID = "agent_tcr"
@@ -97,7 +97,7 @@ def _ctx_data(**extra) -> ContextData:
 async def _runtime(db_client, monkeypatch) -> ContextRuntime:
     """Minimal ContextRuntime over the test DB, with the shared factory
     (used by PromptBuilder actor resolution) redirected to the same DB."""
-    import xyz_agent_context.utils.db.db_factory as dbf
+    import narranexus.platform.utils.db.db_factory as dbf
 
     async def _fake_db():
         return db_client
@@ -119,17 +119,22 @@ async def _runtime(db_client, monkeypatch) -> ContextRuntime:
     return runtime
 
 
-async def _build(runtime: ContextRuntime, narrative: Narrative, ctx: ContextData):
+async def _build(
+    runtime: ContextRuntime,
+    narrative: Narrative,
+    ctx: ContextData,
+    module_instructions=None,
+):
     """Run the two assembly stages exactly as ContextRuntime.run() does."""
     system_prompt = await runtime.build_complete_system_prompt(
         narrative_list=[narrative],
         selected_events=[],
-        module_instructions_list=[
+        module_instructions_list=module_instructions or [
             ModuleInstructions(name="ChatModule", instruction="stay helpful", priority=1)
         ],
         ctx_data=ctx,
     )
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt=system_prompt,
         active_instances=[],
@@ -160,7 +165,7 @@ async def test_flag_off_restores_legacy_section_placement(db_client, monkeypatch
 
     # Temporal block + FULL narrative template render live in the system prompt.
     assert "## User Temporal Context" in system_prompt
-    from xyz_agent_context.narrative._narrative_impl.prompt_builder import PromptBuilder
+    from narranexus.platform.narrative._narrative_impl.prompt_builder import PromptBuilder
     legacy_narrative_render = await PromptBuilder.build_main_prompt(narrative)
     assert legacy_narrative_render.strip() in system_prompt
     assert f"- Updated At: {narrative.updated_at}" in system_prompt
@@ -213,7 +218,7 @@ async def test_flag_on_relocates_volatile_sections_into_current_message(db_clien
 
     # Relocated, never dropped (铁律 #16): timezone + narrative volatile
     # values + background activity all reach the model this turn.
-    from xyz_agent_context.narrative._narrative_impl.prompt_builder import (
+    from narranexus.platform.narrative._narrative_impl.prompt_builder import (
         _canonical_timestamp,
     )
     assert "Asia/Shanghai" in user_msg
@@ -250,7 +255,7 @@ async def test_flag_on_history_rows_unchanged(db_client, monkeypatch):
 
 
 # =========================================================================
-# Module get_turn_context plumbing
+# Module contribute_turn_context plumbing
 # =========================================================================
 
 class _FakeModule:
@@ -260,7 +265,7 @@ class _FakeModule:
         self.fail = fail
         self.calls = 0
 
-    async def get_turn_context(self, ctx_data) -> str:
+    async def contribute_turn_context(self, ctx_data) -> str:
         self.calls += 1
         if self.fail:
             raise RuntimeError("volatile source exploded")
@@ -304,11 +309,11 @@ async def test_module_blocks_priority_order_dedupe_and_fail_open():
 
 @pytest.mark.asyncio
 async def test_base_module_get_turn_context_defaults_to_empty():
-    from xyz_agent_context.module.base import XYZBaseModule
+    from narranexus.platform.module_system.base import XYZBaseModule
 
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
     # Unbound call: the default implementation must not depend on self state.
-    assert await XYZBaseModule.get_turn_context(object(), ctx) == ""
+    assert await XYZBaseModule.contribute_turn_context(object(), ctx) == ""
 
 
 # =========================================================================
@@ -331,16 +336,44 @@ def _extract_hash(lines: list[str]) -> str:
     raise AssertionError("no [SYSPROMPT-BREAKDOWN] line captured")
 
 
-async def _hash_for_time(runtime, narrative, monkeypatch, fake_now: datetime) -> str:
-    import xyz_agent_context.utils.timezone as tz_mod
+async def _hash_for_time(
+    runtime, narrative, monkeypatch, fake_now: datetime, module_instructions=None
+) -> str:
+    import narranexus.platform.utils.timezone as tz_mod
 
     monkeypatch.setattr(tz_mod, "utc_now", lambda: fake_now)
     lines, sink_id = _capture_hashes()
     try:
-        await _build(runtime, narrative, _ctx_data())
+        await _build(runtime, narrative, _ctx_data(), module_instructions)
     finally:
         logger.remove(sink_id)
     return _extract_hash(lines)
+
+
+def _time_embedding_instructions(fake_now: datetime):
+    """Stand-in for what a Module emits under flag OFF.
+
+    BasicInfoModule renders its "Real World Information" section — the
+    per-turn current time — straight into `contribute_instructions()` when the
+    relocation flag is off. That copy, not the User Temporal Context block,
+    is the thing that varies second to second in the legacy layout.
+    """
+    from narranexus.platform.utils.timezone import format_now_for_agent
+    import narranexus.platform.utils.timezone as tz_mod
+
+    original = tz_mod.utc_now
+    tz_mod.utc_now = lambda: fake_now
+    try:
+        rendered = format_now_for_agent("UTC")
+    finally:
+        tz_mod.utc_now = original
+    return [
+        ModuleInstructions(
+            name="BasicInfoModule",
+            instruction=f"##### Real World Information\n- Current date and time: {rendered}",
+            priority=2,
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -361,6 +394,39 @@ async def test_ctx_sha256_stable_across_time_when_flag_on(db_client, monkeypatch
 
 @pytest.mark.asyncio
 async def test_ctx_sha256_varies_across_time_when_flag_off(db_client, monkeypatch):
+    """Legacy layout still breaks the prefix — but the breaker moved.
+
+    Until 2026-08-18 the User Temporal Context block rendered its own
+    second-resolution "Current local time", so it was the variance source
+    under flag OFF. That duplicate "now" is gone (there is exactly one
+    ground-truth renderer now), and what remains time-varying in the legacy
+    layout is the Module-instruction copy of Real World Information, which
+    flag OFF leaves inline in the system prompt.
+    """
+    monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", False)
+    runtime = await _runtime(db_client, monkeypatch)
+    narrative = _narrative()
+
+    t1 = datetime(2026, 7, 25, 3, 0, 0, tzinfo=dt_timezone.utc)
+    t2 = datetime(2026, 7, 25, 3, 7, 42, tzinfo=dt_timezone.utc)
+
+    h1 = await _hash_for_time(
+        runtime, narrative, monkeypatch, t1, _time_embedding_instructions(t1)
+    )
+    h2 = await _hash_for_time(
+        runtime, narrative, monkeypatch, t2, _time_embedding_instructions(t2)
+    )
+    assert h1 != h2
+
+
+@pytest.mark.asyncio
+async def test_temporal_block_alone_no_longer_breaks_the_prefix(db_client, monkeypatch):
+    """The de-duplication, stated as a cache property.
+
+    With no time-embedding Module instruction, flag OFF now yields a
+    byte-stable system prompt across turns: the temporal block names the
+    timezone and delegates "now" instead of restating it.
+    """
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", False)
     runtime = await _runtime(db_client, monkeypatch)
     narrative = _narrative()
@@ -371,8 +437,7 @@ async def test_ctx_sha256_varies_across_time_when_flag_off(db_client, monkeypatc
     h2 = await _hash_for_time(
         runtime, narrative, monkeypatch, datetime(2026, 7, 25, 3, 7, 42, tzinfo=dt_timezone.utc)
     )
-    # Legacy layout: the second-resolution temporal block breaks the prefix.
-    assert h1 != h2
+    assert h1 == h2
 
 
 # =========================================================================
@@ -399,7 +464,7 @@ async def test_empty_turn_context_yields_no_header(db_client, monkeypatch):
     async def _boom(_user_id):
         raise RuntimeError("temporal lookup failed")
 
-    monkeypatch.setattr(runtime, "_build_user_temporal_block", _boom)
+    monkeypatch.setattr(runtime, "build_user_temporal_block", _boom)
 
     # No narrative, no temporal context, no module blocks, no recent actions.
     block = await runtime._build_turn_context_block(

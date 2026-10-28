@@ -16,9 +16,9 @@ interface JobDetailPanelProps {
 const statusConfig: Record<JobNodeStatus, { icon: typeof Clock; color: string; labelKey: string }> = {
   pending: { icon: Clock, color: 'text-gray-500', labelKey: 'jobs.status.pending' },
   active: { icon: AlertCircle, color: 'text-blue-500', labelKey: 'jobs.status.active' },
-  running: { icon: PlayCircle, color: 'text-[var(--color-yellow-500)]', labelKey: 'jobs.status.running' },
-  completed: { icon: CheckCircle, color: 'text-[var(--color-green-500)]', labelKey: 'jobs.status.completed' },
-  failed: { icon: XCircle, color: 'text-[var(--color-red-500)]', labelKey: 'jobs.status.failed' },
+  running: { icon: PlayCircle, color: 'text-[var(--color-warning)]', labelKey: 'jobs.status.running' },
+  completed: { icon: CheckCircle, color: 'text-[var(--color-success)]', labelKey: 'jobs.status.completed' },
+  failed: { icon: XCircle, color: 'text-[var(--color-error)]', labelKey: 'jobs.status.failed' },
   cancelled: { icon: XCircle, color: 'text-gray-400', labelKey: 'jobs.status.cancelled' },
 };
 

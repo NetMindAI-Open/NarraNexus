@@ -25,9 +25,9 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.skill_module import skill_module as sm_mod
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
-from xyz_agent_context.settings import settings
+from narranexus_plugins.skill_module import skill_module as sm_mod
+from narranexus_plugins.skill_module.skill_module import SkillModule
+from narranexus.platform.settings import settings
 
 
 @pytest.fixture()
@@ -94,7 +94,7 @@ def test_list_skills_materializes_for_fresh_agent(tmp_path, monkeypatch, fake_bu
     """The API/UI path (list_skills) must surface built-ins even before the
     agent has ever run — list_skills materializes on its own."""
     sm = _make_module(tmp_path, monkeypatch)
-    # No prior _materialize / hook_data_gathering call — simulate a fresh agent.
+    # No prior _materialize / gather call — simulate a fresh agent.
     skills = sm.list_skills(include_disabled=True)
     demo = next(s for s in skills if s.name == "demo-skill")
     assert demo.builtin is True

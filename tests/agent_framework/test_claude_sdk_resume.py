@@ -32,9 +32,9 @@ import time
 
 import pytest
 
-import xyz_agent_context.agent_framework.adapters.claude.sdk as sdk_mod
-from xyz_agent_context.agent_framework.adapters.claude.sdk import ClaudeAgentSDK
-from xyz_agent_context.agent_framework.api_config import (
+import narranexus_plugins.frameworks_claude_code.sdk as sdk_mod
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
+from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     CodexConfig,
     OpenAIConfig,
@@ -168,7 +168,7 @@ def _stub_transport(monkeypatch):
     # "no kwarg → cold start" cases below would silently become resume cases and
     # stop testing what they name. Its own coverage lives in
     # test_claude_synthetic_transcript.py.
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_synthetic_transcript_enabled", False)
     yield

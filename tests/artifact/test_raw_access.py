@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.artifact import (
+from narranexus.platform.artifact import (
     ArtifactContentGone,
     ArtifactNotFound,
     ArtifactService,
 )
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -31,7 +31,7 @@ WS_REL = agent_workspace_relpath("agent_x", "user_y")
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     workspace = base / WS_REL
@@ -70,6 +70,76 @@ async def test_resolve_entry_serves_kind_as_media_type(env):
     assert resolved.is_entry is True
     assert resolved.media_type == "text/html"
     assert resolved.kind == "text/html"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("deck.pptx",
+         "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        ("report.docx",
+         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        ("budget.xlsx",
+         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ],
+)
+async def test_office_live_entry_serves_real_mime_not_the_render_kind(
+    env, filename, expected
+):
+    """Shenzhen-r2 .bin bug, backend half: 'application/vnd.officecli-live'
+    is an internal render marker, not a transport MIME — serving it as
+    Content-Type makes a directly-opened URL download as unknown binary.
+    The entry's real type is derivable from its extension."""
+    entry = env["workspace"] / "office" / filename
+    entry.parent.mkdir(exist_ok=True)
+    entry.write_bytes(b"PK\x03\x04officefile")
+    registered = await env["service"].register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="application/vnd.officecli-live", entry_path=str(entry),
+        title=filename, description=None, target_artifact_id=None,
+    )
+    resolved = await env["service"].resolve_raw_file(
+        agent_id="agent_x", artifact_id=registered.artifact_id,
+    )
+    assert resolved.media_type == expected
+    assert resolved.kind == "application/vnd.officecli-live"
+
+
+@pytest.mark.asyncio
+async def test_url_artifact_entry_serves_json_not_the_render_kind(env):
+    """review #349 M3: 'application/x-url' is a render marker too (the entry
+    is a page.url.json manifest) — the backend set must match the frontend's
+    judgment or the 'which kinds are markers' knowledge forks."""
+    entry = env["workspace"] / "tabs" / "page.url.json"
+    entry.parent.mkdir(exist_ok=True)
+    entry.write_text('{"url": "https://example.com"}', encoding="utf-8")
+    registered = await env["service"].register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="application/x-url", entry_path=str(entry),
+        title="tab", description=None, target_artifact_id=None,
+    )
+    resolved = await env["service"].resolve_raw_file(
+        agent_id="agent_x", artifact_id=registered.artifact_id,
+    )
+    assert resolved.media_type == "application/json"
+    assert resolved.kind == "application/x-url"  # CSP branch reads kind, untouched
+
+
+@pytest.mark.asyncio
+async def test_office_live_entry_without_extension_falls_back_to_octet_stream(env):
+    entry = env["workspace"] / "office2" / "deck"
+    entry.parent.mkdir(exist_ok=True)
+    entry.write_bytes(b"PK\x03\x04officefile")
+    registered = await env["service"].register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="application/vnd.officecli-live", entry_path=str(entry),
+        title="deck", description=None, target_artifact_id=None,
+    )
+    resolved = await env["service"].resolve_raw_file(
+        agent_id="agent_x", artifact_id=registered.artifact_id,
+    )
+    assert resolved.media_type == "application/octet-stream"
 
 
 @pytest.mark.asyncio

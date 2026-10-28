@@ -1,0 +1,746 @@
+"""
+@file_name: routes.py
+@author: NetMind.AI
+@date: 2026-02-03
+@description: REST API routes for skills management
+
+Provides endpoints for:
+- GET /api/skills - List skills
+- POST /api/skills/install - Install a skill (zip upload or GitHub)
+- DELETE /api/skills/{skill_name} - Remove a skill
+- PUT /api/skills/{skill_name}/disable - Disable a skill
+- PUT /api/skills/{skill_name}/enable - Enable a skill
+- GET /api/skills/{skill_name} - Get skill details
+- POST /api/skills/{skill_name}/study - Trigger skill study
+- GET /api/skills/{skill_name}/study - Get skill study status
+"""
+
+import asyncio
+import re
+import shutil
+import tempfile
+import traceback
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, Query, Request, UploadFile, File, Form, HTTPException
+from loguru import logger
+
+from narranexus.sdk.web import filter_public_mcp_servers, host_settings, require_workspace_agent_owner
+from narranexus.platform.utils.workspace_paths import safe_id_segment
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus_plugins.skill_module import SkillModule
+from narranexus.platform.schema.skill_schema import (
+    SkillInfo,
+    SkillListResponse,
+    SkillOperationResponse,
+    SkillStudyResponse,
+    SkillEnvConfigResponse,
+)
+from narranexus.platform.utils.file_safety import enforce_max_bytes, sanitize_filename
+
+
+router = APIRouter()
+
+
+async def _extract_requirements_via_llm(
+    skill_module: "SkillModule",
+    skill_name: str,
+    skill_path: str,
+) -> None:
+    """Use a lightweight LLM call to extract env var / binary requirements from SKILL.md.
+
+    This is more reliable than regex patterns or expecting the study agent to follow
+    a specific output format. A small model reads the SKILL.md and returns structured JSON.
+    """
+    from openai import AsyncOpenAI
+    from narranexus.platform.agent_framework.api_config import openai_config
+
+    skill_md_path = Path(skill_path) / "SKILL.md"
+    if not skill_md_path.exists():
+        return
+
+    try:
+        skill_content = skill_md_path.read_text(encoding="utf-8")
+    except Exception:
+        return
+
+    if not openai_config.api_key:
+        logger.warning("No OPENAI_API_KEY configured, skipping LLM requirements extraction")
+        return
+
+    prompt = (
+        "Analyze the following SKILL.md file and extract ALL environment variables and "
+        "binary/CLI tool dependencies that this skill requires to function.\n\n"
+        "Look for:\n"
+        "- YAML frontmatter metadata (e.g., requires.env, requires.bins)\n"
+        "- Env var mentions in text (e.g., 'Set GOG_ACCOUNT=...', 'export API_KEY=...', "
+        "'Needs TAVILY_API_KEY')\n"
+        "- Binary tool requirements (e.g., 'requires gog binary', 'needs node installed')\n\n"
+        "Respond with ONLY a JSON object in this exact format, nothing else:\n"
+        '{"env": ["VAR_NAME_1", "VAR_NAME_2"], "bins": ["binary1", "binary2"]}\n\n'
+        'If none found, use empty arrays: {"env": [], "bins": []}\n\n'
+        f"--- SKILL.md ---\n{skill_content}\n--- END ---"
+    )
+
+    try:
+        client_kwargs: dict = {"api_key": openai_config.api_key}
+        if openai_config.base_url:
+            client_kwargs["base_url"] = openai_config.base_url
+        client = AsyncOpenAI(**client_kwargs)
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        # Parse response
+        result_text = response.choices[0].message.content.strip()
+        # Extract JSON from response (handle markdown code blocks)
+        json_match = re.search(r"\{.*\}", result_text, re.DOTALL)
+        if not json_match:
+            logger.warning(f"LLM requirements extraction returned non-JSON: {result_text[:100]}")
+            return
+
+        import json
+
+        parsed = json.loads(json_match.group())
+        extracted_env = parsed.get("env", [])
+        extracted_bins = parsed.get("bins", [])
+
+        # Validate: must be lists of strings
+        extracted_env = [v for v in extracted_env if isinstance(v, str) and v]
+        extracted_bins = [v for v in extracted_bins if isinstance(v, str) and v]
+
+        if extracted_env or extracted_bins:
+            skill_module.update_requirements(skill_name, extracted_env, extracted_bins)
+            logger.info(f"LLM extracted requirements for '{skill_name}': env={extracted_env}, bins={extracted_bins}")
+        else:
+            logger.info(f"LLM found no requirements for '{skill_name}'")
+
+    except Exception as e:
+        logger.warning(f"LLM requirements extraction failed for '{skill_name}': {e}")
+
+
+
+def _require_skill_name(skill_name: str) -> None:
+    """``skill_name`` becomes ``skills_dir / skill_name``: reject anything that is
+    not a single safe path segment (404, like an unknown skill)."""
+    try:
+        safe_id_segment(skill_name, label="skill name")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+
+def _get_skill_module(agent_id: str, user_id: str) -> SkillModule:
+    """Create a SkillModule instance"""
+    return SkillModule(agent_id=agent_id, user_id=user_id, database_client=None)
+
+
+async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id: str) -> None:
+    """Truthful config status for platform-resolved env vars.
+
+    _parse_skill_md is filesystem-only and optimistically counts
+    PLATFORM_RESOLVED_ENV vars as configured. Here (async, DB in reach) we
+    check whether the user actually has the backing provider (e.g. a NetMind
+    row for NETMIND_API_KEY) and downgrade env_configured when not.
+
+    ``skill_module`` is intentionally UNUSED: this pass must NOT re-read stored
+    meta (that missed .disabled/ dirs and false-flagged disabled skills). It
+    downgrades ONLY the ``env_platform_assumed`` subset — the vars that count
+    as configured purely on the platform assumption and are not self-stored, so
+    a user who manually entered the key in the Skill tab is never downgraded.
+    """
+    from narranexus_plugins.skill_module.skill_module import (
+        platform_env_available,
+    )
+
+    affected = [s for s in skills if s.env_platform_assumed]
+    if not affected:
+        return
+    try:
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        available = await platform_env_available(await get_db_client(), user_id)
+    except Exception as e:
+        logger.warning(f"platform env status enrich skipped: {e}")
+        return
+    # ONLY downgrade the platform-ASSUMED half: _parse_skill_md already computed
+    # the self-stored half honestly (decrypt-aware, from the skill's own dir),
+    # and env_platform_assumed excludes any self-stored platform var, so this
+    # touches exactly the vars whose "configured" rested on the assumption.
+    for skill in affected:
+        if skill.env_configured is False:
+            continue
+        if any(v not in available for v in (skill.env_platform_assumed or [])):
+            skill.env_configured = False
+
+
+# =========================================================================
+# Background study tasks
+# =========================================================================
+
+
+async def _run_skill_study(
+    agent_id: str,
+    user_id: str,
+    skill_name: str,
+    skill_path: str,
+) -> None:
+    """
+    Background logic for Agent to study a Skill
+
+    Build study message -> Run AgentRuntime -> Collect final_output -> Save to .skill_meta.json
+    """
+    # Lazy import to avoid circular dependencies
+    from narranexus.platform.agent_runtime import AgentRuntime
+    from narranexus.platform.schema import WorkingSource
+    from narranexus.platform.repository import MCPRepository
+
+    input_content = (
+        f"Please study the skill '{skill_name}' located at skills/{skill_name}/.\n\n"
+        f"## Important Rules\n"
+        f"- All files you create MUST be stored in `skills/{skill_name}/` (your workspace), "
+        f"NOT in `~/`, `~/.config/`, or any path outside your workspace\n"
+        f"- When the SKILL.md suggests paths like `~/.foo/`, remap them to `skills/{skill_name}/`\n"
+        f"- **Credentials** — do BOTH: (1) save to local file if SKILL.md requires it "
+        f"(inside `skills/{skill_name}/`), AND (2) call `skill_save_config` so the system "
+        f"can track and inject them at runtime\n\n"
+        f"## Step 1: Read & Understand\n"
+        f"Read skills/{skill_name}/SKILL.md thoroughly. Understand what this skill does, "
+        f"what APIs it provides, and how it works.\n\n"
+        f"## Step 2: Registration & Activation (if applicable)\n"
+        f"If this skill involves a platform or external service requiring registration:\n"
+        f"1. Complete the registration process\n"
+        f"2. **Save any credentials** (API keys, tokens) using `skill_save_config('{skill_name}', key, value)` — "
+        f"this stores them securely and makes them appear in the frontend config panel\n"
+        f"3. Check what env vars are needed: use `skill_list_required_env('{skill_name}')`\n"
+        f"4. **If a step requires human action** (e.g., Twitter/X verification, OAuth browser login, "
+        f"email confirmation), you MUST use the owner-facing tool on your desk to tell "
+        f"the user exactly "
+        f"what they need to do — include URLs, codes, and clear instructions. "
+        f"Do NOT skip human-required steps silently.\n\n"
+        f"## Step 3: Set Up Scheduled Jobs (if applicable)\n"
+        f"Check if the skill directory contains a HEARTBEAT.md or similar periodic-task guide. "
+        f"If it does, the skill requires recurring background work.\n\n"
+        f"**For skills that have periodic tasks:**\n"
+        f"Use your `job_create` tool to set up scheduled jobs. For example:\n"
+        f"- A heartbeat check-in → `scheduled` job with a suitable interval\n"
+        f"- Polling for new events → `scheduled` job\n"
+        f"- Any recurring workflow → `scheduled` or `ongoing` job\n\n"
+        f"**Note:** Pure capability skills (coding helper, translation tool) do NOT need scheduled jobs.\n\n"
+        f"## Step 4: Save Study Summary\n"
+        f"**You MUST call `skill_save_study_summary('{skill_name}', summary)`** with a well-formatted "
+        f"Markdown summary covering:\n"
+        f"- What this skill does (core capabilities)\n"
+        f"- Any accounts/registrations you completed\n"
+        f"- Any credentials you saved (just the key names, not values)\n"
+        f"- Any scheduled jobs you created (with their schedules and purposes)\n"
+        f"- Any pending actions that require human intervention (e.g., Twitter verification)\n\n"
+        f"This summary is displayed to the user in the Skills panel, so make it clear and useful."
+    )
+
+    skill_module = _get_skill_module(agent_id, user_id)
+
+    try:
+        # Load user-configured MCP servers (same logic as websocket.py)
+        mcp_servers = {}
+        try:
+            db_client = await get_db_client()
+            mcp_repo = MCPRepository(db_client)
+            mcps = await mcp_repo.get_mcps_by_agent_user(agent_id=agent_id, user_id=user_id, is_enabled=True)
+            for mcp in mcps:
+                spec = {"url": mcp.url}
+                if mcp.headers:
+                    spec["headers"] = mcp.headers
+                mcp_servers[mcp.name] = spec
+            # SSRF egress guard (cloud only) — see backend/routes/_mcp_egress.py.
+            mcp_servers = await filter_public_mcp_servers(mcp_servers)
+        except Exception as e:
+            logger.warning(f"Failed to load MCP servers for skill study: {e}")
+
+        # Run AgentRuntime — agent is expected to call skill_save_study_summary MCP tool
+        async with AgentRuntime() as runtime:
+            async for _message in runtime.run(
+                agent_id=agent_id,
+                user_id=user_id,
+                input_content=input_content,
+                working_source=WorkingSource.SKILL_STUDY,
+                pass_mcp_servers=mcp_servers,
+            ):
+                pass  # Just consume the stream; agent writes summary via MCP tool
+
+        # Extract env/bin requirements via lightweight LLM call (reads SKILL.md directly)
+        await _extract_requirements_via_llm(skill_module, skill_name, skill_path)
+
+        # Verify agent saved the summary via MCP tool; fallback if it didn't
+        meta = skill_module._read_skill_meta(skill_name)
+        if meta.get("study_status") == "completed" and meta.get("study_result"):
+            logger.info(f"Skill study completed for '{skill_name}' (summary saved via MCP tool)")
+        else:
+            skill_module.set_study_status(
+                skill_name, "completed", result="Study completed, but the agent did not provide a structured summary."
+            )
+            logger.warning(f"Skill study for '{skill_name}': agent did not call skill_save_study_summary")
+
+    except Exception as e:
+        logger.exception(f"Skill study failed for '{skill_name}': {e}")
+        logger.exception(traceback.format_exc())
+        skill_module.set_study_status(skill_name, "failed", error=str(e))
+
+
+# =========================================================================
+# API Endpoints
+# =========================================================================
+
+
+@router.get("", response_model=SkillListResponse)
+async def list_skills(
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+    include_disabled: bool = Query(False, description="Whether to include disabled Skills"),
+):
+    """Get skill list. Identity from auth_middleware (X-User-Id / JWT)."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    logger.info(f"GET /api/skills - agent_id={agent_id}, user_id={user_id}")
+
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        skills = skill_module.list_skills(include_disabled=include_disabled)
+        await _enrich_platform_env_status(skill_module, skills, user_id)
+
+        return SkillListResponse(skills=skills, total=len(skills))
+
+    except Exception as e:
+        logger.exception(f"Failed to list skills: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+@router.post("/install", response_model=SkillOperationResponse)
+async def install_skill(
+    request: Request,
+    agent_id: str = Form(..., description="Agent ID"),
+    source: str = Form(..., description="Install source: github or zip"),
+    url: Optional[str] = Form(None, description="GitHub URL (required when source=github)"),
+    branch: str = Form("main", description="Git branch (effective when source=github)"),
+    file: Optional[UploadFile] = File(None, description="Zip file (required when source=zip)"),
+):
+    """
+    Install a Skill. Identity from auth_middleware (X-User-Id / JWT) —
+    the previous `user_id: str = Form(...)` parameter let any client
+    install skills under any account by changing the form body.
+
+    Supports two installation methods:
+    1. Install from GitHub: source=github, url=repository URL
+    2. Upload zip file: source=zip, file=zip file
+    """
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    logger.info(f"POST /api/skills/install - agent_id={agent_id}, user_id={user_id}, source={source}")
+
+    def _reject(reason: str) -> HTTPException:
+        # Log every 4xx rejection with the human-readable reason so prod
+        # debugging never again requires asking the user to open DevTools.
+        logger.warning(
+            f"skill install rejected: agent_id={agent_id} user_id={user_id} source={source} reason={reason!r}"
+        )
+        return HTTPException(status_code=400, detail=reason)
+
+    if source not in ["github", "zip"]:
+        raise _reject("source must be 'github' or 'zip'")
+
+    if source == "github" and not url:
+        raise _reject("url is required when source=github")
+
+    if source == "zip" and not file:
+        raise _reject("file is required when source=zip")
+
+    try:
+        # All install entrances converge on the InstallPipeline (scan gate,
+        # conflict/config migration, .skill_meta hash fields, audit trail,
+        # auto-archive). Response shape is unchanged.
+        from narranexus.platform.marketplace import InstallPipeline
+
+        skill_module = _get_skill_module(agent_id, user_id)
+        pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
+
+        if source == "github":
+            results = await pipeline.install_from_github(url=url, branch=branch)
+        else:
+            # Save uploaded file to temporary directory
+            temp_dir = Path(tempfile.mkdtemp())
+            try:
+                safe_filename = sanitize_filename(
+                    file.filename or "",
+                    label="zip filename",
+                    allowed_extensions={".zip"},
+                )
+                content = await file.read()
+                enforce_max_bytes(
+                    len(content),
+                    host_settings().max_upload_bytes,
+                    label="Skill package",
+                )
+                zip_path = temp_dir / safe_filename
+                with open(zip_path, "wb") as f:
+                    f.write(content)
+
+                results = [await pipeline.install_from_zip(zip_path)]
+            finally:
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir)
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise _reject(str(e))
+    except Exception as e:
+        logger.exception(f"Failed to install skill: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+    # The verdict lives OUTSIDE the try above on purpose: a 4xx raised inside
+    # it would be caught by the `except Exception` and re-labelled 500.
+    # A GitHub repo may ship several skills (skills/<name>/SKILL.md).
+    # Successes and failures are reported separately, one line each; the
+    # single-skill `skill` field carries the first success. Only a request
+    # with NO success is a 400 — a rejected sibling must never hide the
+    # skills that did land (they are on disk and audited).
+    succeeded = [r for r in results if r.ok]
+    failed = [r for r in results if not r.ok]
+    lines = []
+    warning_count = 0
+    for result in succeeded:
+        name = result.skill.name if result.skill else "unknown"
+        if result.status == "already_installed":
+            lines.append(f"Skill '{name}' is already installed at this version")
+        else:
+            lines.append(f"Skill '{name}' installed successfully")
+        warning_count += len(result.warnings)
+    for result in failed:
+        lines.append(f"Skill '{result.skill_name or 'unknown'}' was NOT installed: {result.error}")
+    if not succeeded:
+        raise _reject("\n".join(lines))
+    message = "\n".join(lines)
+    if warning_count:
+        message += f"\n({warning_count} security warning(s) — see scan report)"
+
+    return SkillOperationResponse(success=True, message=message, skill=succeeded[0].skill)
+
+
+@router.delete("/{skill_name}", response_model=SkillOperationResponse)
+async def remove_skill(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+):
+    """Remove a Skill. Identity from auth_middleware."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
+
+    try:
+        from narranexus.platform.marketplace import InstallPipeline
+
+        skill_module = _get_skill_module(agent_id, user_id)
+        pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
+        success = await pipeline.uninstall(skill_name)
+
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        return SkillOperationResponse(success=True, message=f"Skill '{skill_name}' removed successfully")
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # Built-in skills reject removal — surface an actionable 400.
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to remove skill: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+@router.put("/{skill_name}/disable", response_model=SkillOperationResponse)
+async def disable_skill(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+):
+    """Disable a Skill. Identity from auth_middleware."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    logger.info(f"PUT /api/skills/{skill_name}/disable - agent_id={agent_id}, user_id={user_id}")
+
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        success = skill_module.disable_skill(skill_name=skill_name)
+
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found or already disabled")
+
+        return SkillOperationResponse(success=True, message=f"Skill '{skill_name}' disabled successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to disable skill: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+@router.put("/{skill_name}/enable", response_model=SkillOperationResponse)
+async def enable_skill(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+):
+    """Enable a Skill. Identity from auth_middleware."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    logger.info(f"PUT /api/skills/{skill_name}/enable - agent_id={agent_id}, user_id={user_id}")
+
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        success = skill_module.enable_skill(skill_name=skill_name)
+
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in disabled list")
+
+        return SkillOperationResponse(success=True, message=f"Skill '{skill_name}' enabled successfully")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to enable skill: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+# =========================================================================
+# Study-related Endpoints (must be placed before /{skill_name} to avoid path conflicts)
+# Note: FastAPI matches by registration order, but more specific paths are used here
+# /{skill_name}/study is more specific than /{skill_name}, so no conflict occurs
+# =========================================================================
+
+
+@router.post("/{skill_name}/study", response_model=SkillStudyResponse)
+async def study_skill(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+):
+    """
+    Trigger Agent to study a Skill. Identity from auth_middleware.
+
+    1. Verify the Skill exists
+    2. Set study_status = "studying"
+    3. Start background task to run AgentRuntime
+    4. Background task automatically updates study_status and study_result upon completion
+    """
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    logger.info(f"POST /api/skills/{skill_name}/study - agent_id={agent_id}, user_id={user_id}")
+
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        skill = skill_module.get_skill(skill_name)
+
+        if not skill:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        # Check if already studying
+        study_info = skill_module.get_study_status(skill_name)
+        if study_info["study_status"] == "studying":
+            return SkillStudyResponse(success=False, message="Already studying", study_status="studying")
+
+        # Set status to studying
+        skill_module.set_study_status(skill_name, "studying")
+
+        # Start background task
+        asyncio.create_task(
+            _run_skill_study(
+                agent_id=agent_id,
+                user_id=user_id,
+                skill_name=skill_name,
+                skill_path=skill.path,
+            )
+        )
+
+        return SkillStudyResponse(success=True, message="Study started", study_status="studying")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to start skill study: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+@router.get("/{skill_name}/study", response_model=SkillStudyResponse)
+async def get_study_status(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+):
+    """Get Skill study status (for frontend polling). Identity from auth_middleware."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        study_info = skill_module.get_study_status(skill_name)
+
+        return SkillStudyResponse(
+            success=True,
+            study_status=study_info.get("study_status", "idle"),
+            study_result=study_info.get("study_result"),
+        )
+
+    except Exception as e:
+        logger.exception(f"Failed to get study status: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+# =========================================================================
+# Environment Configuration Endpoints
+# =========================================================================
+
+
+@router.get("/{skill_name}/env", response_model=SkillEnvConfigResponse)
+async def get_skill_env(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+):
+    """Get skill's required env vars and their configuration status. Identity from auth_middleware."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        skill = skill_module.get_skill(skill_name)
+        if not skill:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        # Use requires_env from SkillInfo (merged from frontmatter + .skill_meta.json)
+        requires_env = skill.requires_env or []
+        env_config = skill_module.get_skill_env_config(skill_name)
+
+        # Platform-resolved vars (e.g. NETMIND_API_KEY) count as configured
+        # when the user's provider config can back them at run time.
+        from narranexus_plugins.skill_module.skill_module import (
+            PLATFORM_RESOLVED_ENV,
+            configured_env_var_names,
+            platform_env_available,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        available = set()
+        if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
+            available = await platform_env_available(await get_db_client(), user_id)
+        configured = configured_env_var_names(env_config)
+        env_configured = {
+            v: (v in configured) or v in available for v in requires_env
+        }
+
+        return SkillEnvConfigResponse(
+            success=True,
+            requires_env=requires_env,
+            env_configured=env_configured,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get skill env config: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+@router.put("/{skill_name}/env", response_model=SkillEnvConfigResponse)
+async def set_skill_env(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+    body: dict = None,
+):
+    """Set env var values for a skill. Identity from auth_middleware."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        skill = skill_module.get_skill(skill_name)
+        if not skill:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        env_config = body.get("env_config", {}) if body else {}
+        if not env_config:
+            raise HTTPException(status_code=400, detail="env_config is required")
+
+        skill_module.set_skill_env_config(skill_name, env_config)
+
+        # Return updated status — re-read skill to get merged requires_env
+        skill = skill_module.get_skill(skill_name)
+        updated_config = skill_module.get_skill_env_config(skill_name)
+        requires_env = skill.requires_env or [] if skill else []
+
+        from narranexus_plugins.skill_module.skill_module import (
+            PLATFORM_RESOLVED_ENV,
+            configured_env_var_names,
+            platform_env_available,
+        )
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        available = set()
+        if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
+            available = await platform_env_available(await get_db_client(), user_id)
+        configured = configured_env_var_names(updated_config)
+        env_configured = {
+            v: (v in configured) or v in available for v in requires_env
+        }
+
+        return SkillEnvConfigResponse(
+            success=True,
+            requires_env=requires_env,
+            env_configured=env_configured,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to set skill env config: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+@router.get("/{skill_name}", response_model=SkillOperationResponse)
+async def get_skill(
+    skill_name: str,
+    request: Request,
+    agent_id: str = Query(..., description="Agent ID"),
+):
+    """Get Skill details. Identity from auth_middleware."""
+    user_id = await require_workspace_agent_owner(request, agent_id)
+    _require_skill_name(skill_name)
+    logger.info(f"GET /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
+
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        skill = skill_module.get_skill(skill_name)
+
+        if not skill:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        # Same platform-assumed downgrade the list endpoint applies, so detail
+        # never gives a more optimistic env_configured than the list (enrich is
+        # a no-op unless the skill has an unmet platform assumption).
+        await _enrich_platform_env_status(skill_module, [skill], user_id)
+
+        return SkillOperationResponse(success=True, skill=skill)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get skill: {e}")
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
+
+
+# ---- plugin contribution (batch 3c.5): this router belongs to builtin.skills and is
+# mounted by backend.plugins_host from backend.routes (no longer included by
+# backend/main.py), so its paths 404 together with the plugin when disabled.
+from narranexus.contracts.route import RouterSpec  # noqa: E402
+from narranexus.kernel.plugins.registry import Contribution  # noqa: E402
+
+ROUTES = (Contribution("skills", lambda: RouterSpec(router, "/api/skills", tags=('Skills',))),)

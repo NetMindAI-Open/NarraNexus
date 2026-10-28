@@ -1,0 +1,520 @@
+"""
+@file_name: __init__.py
+@author: NetMind.AI
+@date: 2025-11-15
+@description: Schema package exports
+
+Centralized management of all data models for convenient reference by other modules
+
+Usage:
+    from narranexus.platform.schema import (
+        ModuleConfig,
+        ContextData,
+        Event,
+        Narrative,
+        ...
+    )
+"""
+
+# ===== Module Schema =====
+from .module_schema import (
+    ModuleConfig,
+    MCPServerConfig,
+    ModuleInstructions,
+)
+
+# ===== Instance Schema (ModuleInstance standalone) =====
+from .instance_schema import (
+    InstanceStatus,
+    LinkType,
+    ModuleInstanceRecord,
+    ModuleInstance,
+    InstanceNarrativeLink,
+)
+
+# ===== Context Schema =====
+from .context_schema import (
+    ContextData,
+    ContextRuntimeOutput,
+)
+
+# ===== Runtime Message Schema =====
+from .runtime_message import (
+    # Enums
+    MessageType,
+    ProgressStatus,
+    # Messages
+    ProgressMessage,
+    AgentPlan,
+    AgentReplyDelta,
+    AgentTextDelta,
+    AgentThinking,
+    AgentToolCall,
+    ErrorMessage,
+    # Constants
+    AUTH_EXPIRED_ERROR_TYPE,
+    SELF_SERVICEABLE_ERROR_TYPE,
+    EXECUTOR_INFRA_ERROR_TYPE,
+    OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE,
+    PHASE_BUILD_CONTEXT_STEP,
+    PHASE_BUILD_CONTEXT_TITLE,
+    PHASE_RUN_AGENT_STEP,
+    PHASE_RUN_AGENT_TITLE,
+)
+
+# ===== Job Schema =====
+from .job_schema import (
+    JobType,
+    JobStatus,
+    JobUpdateFields,
+    JobModel,
+    TriggerConfig,
+)
+
+# ===== Agent Circuit-Breaker Schema (real-time dialogue layer) =====
+from .agent_circuit_breaker_schema import (
+    CbStatus,
+    PausedReason,
+    ErrorCategory,
+    PAUSING_CATEGORIES,
+    AgentCircuitBreaker,
+)
+
+# ===== Channel Ingress Breaker Schema (message-ingress circuit breaker) =====
+from .channel_ingress_breaker_schema import (
+    ChannelIngressBreaker,
+    session_key,
+)
+
+# ===== CLI Session Schema (resumable coding-agent CLI handles) =====
+
+# ===== Inbox Schema (belongs to ChatModule) =====
+from .inbox_schema import (
+    InboxMessageType,
+    MessageSource,
+    InboxMessage,
+)
+
+# ===== Hook Schema =====
+from .hook_schema import (
+    WorkingSource,  # Execution source enum
+    BUS_ERRAND_TURN_SOURCE,  # Bus turn-source stamp: errand continuation
+    BUS_PLAIN_TEXT_TURN_EXTRA_KEY,  # extra_data marker: reply IS the plain text (patrol)
+    is_plain_text_turn,  # shared predicate for the marker above
+    BUS_TEAM_ROOM_EXTRA_KEY,  # extra_data marker: team-room turn (reply verb = message_team)
+    HookExecutionContext,
+    HookIOData,
+    HookExecutionTrace,
+    HookAfterExecutionParams,
+)
+
+# ===== Channel Tag Schema =====
+from .channel_tag import ChannelTag
+
+# ===== Attachment Schema (user uploads in chat) =====
+from .attachment_schema import (
+    Attachment,
+    AttachmentCategory,
+    SUPPORTED_IMAGE_MIME_TYPES,
+    FILE_ID_PREFIX,
+    FILE_ID_REGEX,
+    derive_category_from_mime,
+)
+
+# ===== Decision Schema (Approach 2: Intelligent Decision) =====
+from .decision_schema import (
+    ExecutionPath,
+    DirectTriggerConfig,
+    ModuleLoadResult,
+    PathExecutionResult,
+)
+
+# ===== Entity Schema (Data Entity Models) =====
+from .entity_schema import (
+    # Enums
+    UserStatus,
+    # Shared account-state gate set (auth middleware / WS gate / login gate)
+    NON_TRANSACTING_USER_STATUSES,
+    # Agent description "unset" judgement (legacy placeholder recognition)
+    LEGACY_AGENT_DESCRIPTION_PLACEHOLDER,
+    is_agent_description_unset,
+    # Shared write-edge cap for agent name/description.
+    AGENT_TEXT_MAX_LENGTH,
+    # One definition of "this write would change nothing", shared by every
+    # writer of the agents row (HTTP route + awareness tool).
+    normalize_agent_text,
+    normalize_agent_row_text,
+    agent_field_matches,
+    AGENT_TEXT_FIELDS,
+    StrippedText,
+    # Entities
+    SocialNetworkEntity,
+    User,
+    Agent,
+    MCPUrl,
+)
+
+# ===== API Schema (API Request/Response Models) =====
+from .api_schema import (
+    # Auth
+    LoginRequest,
+    NetmindLoginRequest,
+    NetmindLoginResponse,
+    LoginResponse,
+    ActiveRunInfo,
+    BoundChannel,
+    AgentInfo,
+    AgentListResponse,
+    CreateAgentRequest,
+    CreateAgentResponse,
+    UpdateAgentRequest,
+    UpdateAgentResponse,
+    DeleteAgentResponse,
+    CreateUserRequest,
+    CreateUserResponse,
+    UpdateTimezoneRequest,
+    UpdateTimezoneResponse,
+    # Onboarding
+    OnboardingProgress,
+    OnboardingResponse,
+    UpdateOnboardingRequest,
+    # Awareness
+    AwarenessResponse,
+    AwarenessUpdateRequest,
+    # Social Network
+    SocialNetworkEntityInfo,
+    SocialNetworkResponse,
+    SocialNetworkListResponse,
+    SocialNetworkSearchResponse,
+    # Chat History
+    EventInfo,
+    NarrativeInfo,
+    ChatHistoryResponse,
+    ClearHistoryResponse,
+    # Simple Chat History
+    SimpleChatMessage,
+    SimpleChatHistoryResponse,
+    # Event Log Detail
+    EventLogToolCall,
+    EventLogTimelineEntry,
+    EventLogMeta,
+    EventLogResponse,
+    # Files
+    FileInfo,
+    FileListResponse,
+    FileUploadResponse,
+    FileDeleteResponse,
+    # MCP
+    MCPInfo,
+    MCPListResponse,
+    MCPCreateRequest,
+    MCPUpdateRequest,
+    MCPResponse,
+    MCPValidateResponse,
+    MCPValidateAllResponse,
+    # Jobs
+    JobResponse,
+    JobListResponse,
+    JobDetailResponse,
+    # Cost
+    CostModelBreakdown,
+    CostDailyEntry,
+    CostSummary,
+    CostRecord,
+    CostResponse,
+)
+
+# ===== Skill Schema =====
+from .skill_schema import (
+    SkillInfo,
+    SkillListResponse,
+    SkillOperationResponse,
+    SkillStudyResponse,
+)
+
+# ===== A2A Protocol Schema =====
+from .a2a_schema import (
+    # Enums
+    TaskState,
+    MessageRole,
+    # Message Parts
+    TextPart,
+    FilePart,
+    DataPart,
+    Part,
+    # Core Objects
+    Message as A2AMessage,
+    TaskStatus,
+    A2AArtifact,
+    Task,
+    # Agent Card
+    ProviderInfo,
+    AgentCapabilities,
+    AgentSkill,
+    AgentCard,
+    # JSON-RPC
+    JSONRPCRequest,
+    JSONRPCError,
+    JSONRPCResponse,
+    # Method Params
+    TaskSendConfiguration,
+    TaskSendParams,
+    TaskGetParams,
+    TaskCancelParams,
+    # SSE Events
+    TaskStatusUpdateEvent,
+    TaskArtifactUpdateEvent,
+    # Error Codes
+    A2AErrorCodes,
+)
+
+# ===== Invite Code Schema =====
+from .invite_code_schema import InviteCode
+
+# ===== Artifact Schema (agent-emitted artifacts: charts, reports, html apps, csv, images, pdf) =====
+from .artifact_schema import (
+    Artifact,
+    ArtifactKind,
+    CreateArtifactToolResult,
+    EmbedMode,
+    EmbedVerdict,
+    HealCandidate,
+    HealResult,
+    URL_ARTIFACT_KIND,
+    URL_TAB_CONTENT_FILENAME,
+    UrlArtifactDoc,
+)
+
+# ===== Agent Migration Schema (import agent → NarraNexus) =====
+from .migration_schema import (
+    SCHEMA_VERSION as MIGRATION_SCHEMA_VERSION,
+    StandardizedAgentImport,
+    MigrationSource,
+    MigrationAgent,
+    MigrationSkill,
+    MigrationMemory,
+    MigrationMcpServer,
+    MigrationCustom,
+    MigrationTurn,
+    MigrationSession,
+    FrameworkDetection,
+    AWARENESS_IMPORT_CHAR_LIMIT,
+)
+
+# ===== Export All =====
+__all__ = [
+    # Agent Migration
+    "MIGRATION_SCHEMA_VERSION",
+    "StandardizedAgentImport",
+    "MigrationSource",
+    "MigrationAgent",
+    "MigrationSkill",
+    "MigrationMemory",
+    "MigrationMcpServer",
+    "MigrationCustom",
+    "MigrationTurn",
+    "MigrationSession",
+    "FrameworkDetection",
+    "AWARENESS_IMPORT_CHAR_LIMIT",
+    # Module Schema
+    "ModuleConfig",
+    "MCPServerConfig",
+    "ModuleInstructions",
+
+    # Instance Schema (ModuleInstance standalone)
+    "InstanceStatus",
+    "LinkType",
+    "ModuleInstanceRecord",
+    "ModuleInstance",
+    "InstanceNarrativeLink",
+
+    # Context Schema
+    "ContextData",
+    "ContextRuntimeOutput",
+
+    # Runtime Message Schema
+    "MessageType",
+    "ProgressStatus",
+    "ProgressMessage",
+    "AgentPlan",
+    "AgentReplyDelta",
+    "AgentTextDelta",
+    "AgentThinking",
+    "AgentToolCall",
+
+    # A2A Protocol Schema
+    "TaskState",
+    "MessageRole",
+    "TextPart",
+    "FilePart",
+    "DataPart",
+    "Part",
+    "A2AMessage",
+    "TaskStatus",
+    "A2AArtifact",
+    "Task",
+    "ProviderInfo",
+    "AgentCapabilities",
+    "AgentSkill",
+    "AgentCard",
+    "JSONRPCRequest",
+    "JSONRPCError",
+    "JSONRPCResponse",
+    "TaskSendConfiguration",
+    "TaskSendParams",
+    "TaskGetParams",
+    "TaskCancelParams",
+    "TaskStatusUpdateEvent",
+    "TaskArtifactUpdateEvent",
+    "A2AErrorCodes",
+    
+    # Job Schema
+    "JobType",
+    "JobStatus",
+    "JobUpdateFields",
+    "JobModel",
+    "TriggerConfig",
+
+    # Agent Circuit-Breaker Schema
+    "CbStatus",
+    "PausedReason",
+    "ErrorCategory",
+    "PAUSING_CATEGORIES",
+    "AgentCircuitBreaker",
+
+    # Channel Ingress Breaker Schema
+    "ChannelIngressBreaker",
+    "session_key",
+
+    # CLI Session Schema
+
+    # Inbox Schema (belongs to ChatModule)
+    "InboxMessageType",
+    "MessageSource",
+    "InboxMessage",
+
+    # Hook Schema
+    "WorkingSource",
+    "BUS_ERRAND_TURN_SOURCE",
+    "BUS_PLAIN_TEXT_TURN_EXTRA_KEY",
+    "is_plain_text_turn",
+    "BUS_TEAM_ROOM_EXTRA_KEY",
+    "HookExecutionContext",
+    "HookIOData",
+    "HookExecutionTrace",
+    "HookAfterExecutionParams",
+
+    # Channel Tag Schema
+    "ChannelTag",
+
+    # Attachment Schema
+    "Attachment",
+    "AttachmentCategory",
+    "SUPPORTED_IMAGE_MIME_TYPES",
+    "FILE_ID_PREFIX",
+    "FILE_ID_REGEX",
+    "derive_category_from_mime",
+
+    # Decision Schema (Approach 2: Intelligent Decision)
+    "ExecutionPath",
+    "DirectTriggerConfig",
+    "ModuleLoadResult",
+    "PathExecutionResult",
+
+    # Entity Schema (Data Entity Models)
+    "UserStatus",
+    "NON_TRANSACTING_USER_STATUSES",
+    "LEGACY_AGENT_DESCRIPTION_PLACEHOLDER",
+    "is_agent_description_unset",
+    "AGENT_TEXT_MAX_LENGTH",
+    "normalize_agent_text",
+    "normalize_agent_row_text",
+    "agent_field_matches",
+    "AGENT_TEXT_FIELDS",
+    "StrippedText",
+    "SocialNetworkEntity",
+    "User",
+    "Agent",
+    "MCPUrl",
+
+    # API Schema (API Request/Response Models)
+    # Auth
+    "LoginRequest",
+    "NetmindLoginRequest",
+    "NetmindLoginResponse",
+    "LoginResponse",
+    "ActiveRunInfo",
+    "BoundChannel",
+    "AgentInfo",
+    "AgentListResponse",
+    "CreateAgentRequest",
+    "CreateAgentResponse",
+    "UpdateAgentRequest",
+    "UpdateAgentResponse",
+    "DeleteAgentResponse",
+    "CreateUserRequest",
+    "CreateUserResponse",
+    "UpdateTimezoneRequest",
+    "UpdateTimezoneResponse",
+    "OnboardingProgress",
+    "OnboardingResponse",
+    "UpdateOnboardingRequest",
+    # Awareness
+    "AwarenessResponse",
+    "AwarenessUpdateRequest",
+    # Social Network
+    "SocialNetworkEntityInfo",
+    "SocialNetworkResponse",
+    "SocialNetworkListResponse",
+    "SocialNetworkSearchResponse",
+    # Chat History
+    "EventInfo",
+    "NarrativeInfo",
+    "ChatHistoryResponse",
+    "ClearHistoryResponse",
+    # Simple Chat History
+    "SimpleChatMessage",
+    "SimpleChatHistoryResponse",
+    # Event Log Detail
+    "EventLogToolCall",
+    "EventLogTimelineEntry",
+    "EventLogMeta",
+    "EventLogResponse",
+    # Files
+    "FileInfo",
+    "FileListResponse",
+    "FileUploadResponse",
+    "FileDeleteResponse",
+    # MCP
+    "MCPInfo",
+    "MCPListResponse",
+    "MCPCreateRequest",
+    "MCPUpdateRequest",
+    "MCPResponse",
+    "MCPValidateResponse",
+    "MCPValidateAllResponse",
+    # Jobs (API)
+    "JobResponse",
+    "JobListResponse",
+    "JobDetailResponse",
+    # Skill Schema
+    "SkillInfo",
+    "SkillListResponse",
+    "SkillOperationResponse",
+    "SkillStudyResponse",
+
+    # Invite Code Schema
+    "InviteCode",
+
+    # Artifact Schema
+    "Artifact",
+    "ArtifactKind",
+    "CreateArtifactToolResult",
+    "EmbedMode",
+    "EmbedVerdict",
+    "HealCandidate",
+    "HealResult",
+    "URL_ARTIFACT_KIND",
+    "URL_TAB_CONTENT_FILENAME",
+    "UrlArtifactDoc",
+]

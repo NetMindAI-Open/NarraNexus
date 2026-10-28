@@ -1,6 +1,6 @@
 [package]
 name = "narranexus"
-version = "1.15.0"
+version = "1.21.11"
 edition = "2021"
 
 [lib]
@@ -57,3 +57,6 @@ base64 = "0.22"
 # (host / port / path) before reqwest fetches them, blocking the command
 # from being abused as a generic SSRF.
 url = "2"
+
+[dev-dependencies]
+tempfile = "3"

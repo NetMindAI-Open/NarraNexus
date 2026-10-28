@@ -12,15 +12,15 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
-from xyz_agent_context.marketplace._skill_marketplace_impl.registry import (
+import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+from narranexus.platform.marketplace._skill_marketplace_impl.registry import (
     LocalMarketplaceSource,
     PublishRejectedError,
     RegistryService,
 )
-from xyz_agent_context.repository.skill_installation_repository import (
+from narranexus.platform.repository.skill_installation_repository import (
     SkillInstallationRepository,
 )
 
@@ -30,7 +30,7 @@ USER_ID = "usr_test"
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_SECRETS_KEY", raising=False)
@@ -40,7 +40,7 @@ def workspace(tmp_path, monkeypatch):
     async def _noop_backup(**kwargs):
         return None
 
-    import xyz_agent_context.bundle.skill_backup as skill_backup
+    import narranexus.platform.bundle.skill_backup as skill_backup
 
     monkeypatch.setattr(skill_backup, "backup_after_api_install", _noop_backup)
     return tmp_path
@@ -127,7 +127,7 @@ async def test_marketplace_install_end_to_end(db_client, workspace, tmp_path):
     )
     assert result.status == "installed"
 
-    from xyz_agent_context.module.skill_module import SkillModule
+    from narranexus_plugins.skill_module import SkillModule
 
     module = SkillModule(agent_id=AGENT_ID, user_id=USER_ID)
     meta = module.read_skill_meta("demo-skill")
@@ -180,7 +180,7 @@ async def test_marketplace_install_resolves_dependencies(db_client, workspace, t
     )
     assert result.status == "installed"
 
-    from xyz_agent_context.module.skill_module import SkillModule
+    from narranexus_plugins.skill_module import SkillModule
 
     names = {s.name for s in SkillModule(agent_id=AGENT_ID, user_id=USER_ID).list_skills()}
     assert {"base-skill", "dependent-skill"} <= names
@@ -207,7 +207,7 @@ async def test_marketplace_install_uses_catalog_id_for_dir(db_client, workspace,
     )
     assert result.status == "installed"
 
-    from xyz_agent_context.module.skill_module import SkillModule
+    from narranexus_plugins.skill_module import SkillModule
 
     # On-disk directory and meta both keyed on the catalog id, not "Fancy Name".
     module = SkillModule(agent_id=AGENT_ID, user_id=USER_ID)
@@ -217,7 +217,7 @@ async def test_marketplace_install_uses_catalog_id_for_dir(db_client, workspace,
 
     # End-to-end observable: the marketplace marks it INSTALLED (this is what
     # broke before — search keyed on catalog id but installed keyed on name).
-    import xyz_agent_context.marketplace.skill_marketplace_service as svc_mod
+    import narranexus.platform.marketplace.skill_marketplace_service as svc_mod
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(svc_mod, "get_deployment_mode", lambda: "cloud")

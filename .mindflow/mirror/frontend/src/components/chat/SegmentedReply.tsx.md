@@ -1,8 +1,56 @@
 ---
 code_file: frontend/src/components/chat/SegmentedReply.tsx
-last_verified: 2026-07-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 剥掉流式回复里的 `<agent_draft>`
+
+`segment.reply.content` 两个分支（流式 pre-wrap + 落定 Markdown）都过
+`stripAgentDraft`。**流式那条是关键**：草稿块的开标签比闭标签早到很多帧，这里
+正是原始 JSON 会在读者眼前滚过去的地方，`stripAgentDraft` 连未闭合形态一起杀。
+
+## 2026-08-31（二）— `defaultOpen` 删除
+
+透传给 [[TurnTimeline]] 的 `defaultOpen` 随全链路一起删掉：推理档永远折叠。
+理由见 TurnTimeline 的同日条目。同名测试里那两条只为这个 prop 存在的用例，
+改写为一条「折叠 + 一次点击可达」。
+
+## 2026-08-31 — 文件头那条 live/settled 分工作废
+
+头注释原写「live（showProcess=false）：过程在 ProcessPanel」。这在上一个 commit
+就已经不成立（[[ChatPanel]] 直播态传 `showProcess`），`ProcessPanel` 本身今天
+也删了。改写为实情：`showProcess` 是**prop 不是模式**，聊天两个方向都传；
+保留 off 分支是给「只要答案」的调用方（预览 / 摘要）用的契约，聊天自己不用。
+
+同名测试的标题与理由一并订正——它断言的是 prop 契约，不是某个面板的存在。
+
+## 2026-08-30（二）— 抽屉退役：过程就是文稿本身
+
+settled 态从「两种形态由偏好选」收敛成**一种**：`segment.process` 直接以
+文档形式渲染（叙述常显 → 工具行 → 折叠的推理），reply 作为正文铺在下面。
+`Reasoning & tools (N)` 那个整体抽屉、以及 `promoted` / `expanded` /
+`useNarrationTier` 在本组件里的用法一并删除。
+
+**为什么把上一轮刚立的东西拆掉**：上一轮让抽屉由偏好保留、并对"没有叙述的
+轮次"保留抽屉，理由是不给 claude/codex 用户换形态。Owner 视觉验收否了整个
+方向——留着抽屉就是**同一个产品里两种文稿形态**，而抽屉本身正是把叙述藏起来
+的那个东西。现在偏好只管色调（它的名字一直就只承诺这个），不管版面。
+
+reply 挂 `markdown-reply`；流式分支的字号/行高与落定后的 markdown 对齐
+（`0.95rem` / `1.75`），**避免落定瞬间整段回流**。
+
+## 2026-08-30 — 过程从抽屉里提到消息流内（布局提级）
+
+settled 态多了一种形态，由 [[useNarrationTier]] 偏好选择：
+
+- **提级（缺省）**：`segment.process` 直接渲染，**没有外层抽屉**。叙述句按
+  正文量级可读、工具卡行内、推理块各自折叠（分档由 [[TurnTimeline]] 逐块决定）。
+  提级的全部意义就是**不点任何东西就能读完这一轮**。
+- **偏好关**：原样回到那一个 `Reasoning & tools (N)` 折叠入口。
+
+「今天可见的内容一条不许丢」：两种形态下事件集合完全相同，差别只有默认展开
+到哪一层——推理正文在提级形态下也只是收在各自的「已思考 ▸」里，一点即得。
 
 ## 2026-07-30 (r2) — 流式段 plain text + defaultOpen
 

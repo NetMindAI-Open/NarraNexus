@@ -1,0 +1,14 @@
+{
+  "api": {
+    "worker": 0
+  },
+  "hosts": [
+    "backend",
+    "workers"
+  ],
+  "provides": {
+    "backend.workers": [
+      "nxplugins.__PLUGIN_PKG__:WORKERS"
+    ]
+  }
+}

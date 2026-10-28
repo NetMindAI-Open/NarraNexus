@@ -32,9 +32,9 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } f
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { ChannelActiveToggle } from './ChannelActiveToggle';
-import type { TelegramCredentialData } from '@/types';
+import type { TelegramBindResponse, TelegramCredentialData, TelegramTestResponse } from '@/types';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
+import type { ChannelConfigProps } from '@/platform/registries';
 
 export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { t } = useTranslation();
@@ -63,7 +63,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.getTelegramCredential(agentId);
+      const res = await api.channelCredential<TelegramCredentialData>('telegram', agentId);
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(res.data || null);
@@ -103,11 +103,10 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setActionLoading(true);
     setError('');
     try {
-      const res = await api.bindTelegramBot(
-        agentId,
-        botToken.trim(),
-        ownerUsername.trim(),
-      );
+      const res = await api.channelBind<TelegramBindResponse>('telegram', agentId, {
+        bot_token: botToken.trim(),
+        owner_username: ownerUsername.trim(),
+      });
       if (res.success) {
         setBotToken('');
         setOwnerUsername('');
@@ -128,7 +127,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setTestLoading(true);
     setError('');
     try {
-      const res = await api.testTelegramConnection(agentId);
+      const res = await api.channelTest<TelegramTestResponse>('telegram', agentId);
       if (!res.success) {
         setError(res.error || t('awareness.telegram.errTest'));
       } else {
@@ -160,7 +159,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     setUnbindLoading(true);
     setError('');
     try {
-      const res = await api.unbindTelegramBot(agentId);
+      const res = await api.channelUnbind('telegram', agentId);
       if (res.success) {
         await fetchCredential();
         onBindStateChange?.();
@@ -179,7 +178,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // the bot's single connection slot.
   const handleToggleActive = async (next: boolean) => {
     if (!agentId) return;
-    const res = await api.setTelegramActive(agentId, next);
+    const res = await api.channelSetActive('telegram', agentId, next);
     if (!mountedRef.current) return;
     if (res.success) {
       await fetchCredential();
@@ -200,7 +199,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         <button
           onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="p-1 rounded hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -208,7 +207,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -225,7 +224,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             <div className="border border-[var(--border-default)] rounded">
               <button
                 onClick={() => setSetupOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-[var(--nm-paper-warm)] transition-colors"
                 aria-expanded={setupOpen}
               >
                 <span className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
@@ -332,7 +331,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   ({credential.bot_user_id})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
@@ -342,7 +341,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 <span className="text-[var(--text-secondary)]">({credential.owner_user_id})</span>
               </div>
             ) : credential.owner_username ? (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 <Trans
                   i18nKey="awareness.telegram.ownerPending"
                   values={{
@@ -356,7 +355,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-[var(--color-yellow-500)]" role="note">
+              <div className="text-xs text-[var(--color-warning)]" role="note">
                 {t('awareness.telegram.noOwner')}
               </div>
             )}
@@ -371,7 +370,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 {testLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 ) : testPassed ? (
-                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-green-500)]" />
+                  <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-success)]" />
                 ) : null}
                 {testPassed ? t('awareness.common.connected') : t('awareness.common.test')}
               </Button>
@@ -394,7 +393,11 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         )}
 
         {credential && (
-          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
+          <ChannelActiveToggle
+            active={!!credential.enabled}
+            reason={credential.disabled_reason}
+            onToggle={handleToggleActive}
+          />
         )}
       </CardContent>
     </Card>

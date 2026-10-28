@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.module.telegram_module.telegram_module import (
+from narranexus_plugins.telegram_module.telegram_module import (
     _extract_telegram_reply,
 )
 
@@ -48,12 +48,12 @@ def test_extracts_text_when_args_arrived_as_json_string():
     assert out == "stringified"
 
 
-# ── send_message_to_user_directly path ─────────────────────────────────
+# ── notify_owner path ─────────────────────────────────
 
 
-def test_extracts_content_from_send_message_to_user_directly():
+def test_extracts_content_from_notify_owner():
     out = _extract_telegram_reply(
-        "mcp__chat_module__send_message_to_user_directly",
+        "mcp__chat_module__notify_owner",
         {"content": "echo to UI"},
     )
     assert out == "echo to UI"
@@ -129,24 +129,27 @@ def test_empty_tool_name_returns_none():
 # ── registration is the critical "is the extractor wired in?" check ────
 
 
-def test_telegram_handler_is_registered_in_message_source_registry():
-    """Importing telegram_module MUST register a handler keyed by
-    'telegram'. Mirror of the slack registration test — see that test
-    for the full failure-mode rationale (registry-clearing fixture in
-    a sibling test file + Python module caching)."""
-    import importlib
-    from xyz_agent_context.channel.message_source_handler import (
-        MessageSourceRegistry,
-    )
-    from xyz_agent_context.module.telegram_module import telegram_module
+def test_telegram_handler_comes_from_the_channel_descriptor():
+    """The Telegram message source is a fact of the DESCRIPTOR, resolved through the
+    registry — not a module-level ``MessageSourceRegistry.register`` that only
+    existed if something had imported telegram_module.
 
-    if "telegram" not in MessageSourceRegistry._handlers:  # type: ignore[attr-defined]
-        importlib.reload(telegram_module)
+    Until 2026-09-07 this test had to ``importlib.reload`` the module to
+    re-trigger that import-time call, which is the whole shape of the bug: the
+    handler's existence depended on import order, so in a process where nothing
+    had imported the module a delivered Telegram reply resolved the DEFAULT handler
+    and was recorded as NO-REPLY. Now the descriptor is in ``ingress.channels``
+    from boot and the view projects the handler from it.
+    """
+    from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
+    from narranexus_plugins.telegram_module.descriptor import DESCRIPTOR
 
     handler = MessageSourceRegistry.get("telegram")
     assert handler.name == "telegram", (
         f"Expected handler.name='telegram', got {handler.name!r}. "
-        f"If this is 'default' it means telegram_module's module-level "
-        f"MessageSourceRegistry.register() call did not run."
+        f"If this is 'default', telegram's ChannelDescriptor is not in ingress.channels "
+        f"(did this process boot the plugin platform?) or declares no reply_tools."
     )
     assert "tg_cli" in handler.user_reply_tool_names
+    assert handler.user_reply_tool_names == DESCRIPTOR.reply_tools
+    assert handler.row_prefix_template == DESCRIPTOR.row_prefix_template

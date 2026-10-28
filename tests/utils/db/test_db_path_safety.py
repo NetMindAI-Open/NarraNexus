@@ -15,8 +15,8 @@ import os
 
 import pytest
 
-from xyz_agent_context.utils.db.db_factory import parse_sqlite_url
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.db_factory import parse_sqlite_url
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
 
 
 def test_parse_collapses_double_slash():

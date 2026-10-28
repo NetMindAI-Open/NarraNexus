@@ -45,28 +45,18 @@ from typing import Callable, Dict, List, Optional
 import httpx
 
 # ── Nintendo-style three-group gamertag word lists ──────────────────────────
-# 24 × 24 × 24 = 13,824 base combinations; a numeric suffix on collision
-# extends that to ~1.38M. Tokens are single words, [A-Za-z] only.
-
-GROUP_TEMPERAMENT = (
-    "Brave", "Swift", "Clever", "Mighty", "Silent", "Fierce", "Bold", "Sly",
-    "Stoic", "Nimble", "Savage", "Lucid", "Radiant", "Relentless", "Vivid",
-    "Crafty", "Daring", "Steady", "Witty", "Zealous", "Cunning", "Gallant",
-    "Keen", "Valiant",
+# The lists + generators live in backend/naming.py (shared with the
+# onboarding guide-agent provisioning); re-exported here so existing Arena
+# consumers (tests, spikes) keep their historical import path.
+from backend.naming import (  # noqa: F401 — re-exports
+    BASE_NAME_COMBINATIONS,
+    GROUP_CREATURE,
+    GROUP_FORCE,
+    GROUP_TEMPERAMENT,
+    NameExhausted,
+    generate_name as _shared_generate_name,
+    generate_unique_name as _shared_generate_unique_name,
 )
-GROUP_FORCE = (
-    "Thunder", "Shadow", "Frost", "Blaze", "Storm", "Ember", "Echo", "Nova",
-    "Quantum", "Tempest", "Cinder", "Glacier", "Mirage", "Comet", "Aurora",
-    "Vortex", "Onyx", "Solar", "Lunar", "Plasma", "Granite", "Zephyr",
-    "Titan", "Phantom",
-)
-GROUP_CREATURE = (
-    "Falcon", "Tiger", "Dragon", "Wolf", "Phoenix", "Raven", "Panther",
-    "Cobra", "Lynx", "Orca", "Griffin", "Viper", "Jaguar", "Heron", "Mantis",
-    "Stag", "Kraken", "Bison", "Osprey", "Sable", "Fox", "Hawk", "Ronin",
-    "Sphinx",
-)
-BASE_NAME_COMBINATIONS = len(GROUP_TEMPERAMENT) * len(GROUP_FORCE) * len(GROUP_CREATURE)
 
 DEFAULT_API_BASE = "https://api.arena42.ai"
 DEFAULT_SKILL_MD_URL = "https://arena42.ai/skill.md"
@@ -121,7 +111,7 @@ def skill_md_override_header(gamertag: str) -> str:
     )
 
 
-class ArenaNameExhausted(RuntimeError):
+class ArenaNameExhausted(NameExhausted):
     """Raised when no free Arena name could be found after all attempts."""
 
 
@@ -225,11 +215,7 @@ class ArenaOnboarder:
 
     def generate_name(self) -> str:
         """One random three-group gamertag, e.g. 'Brave_Thunder_Falcon'."""
-        return "_".join((
-            self._rng.choice(GROUP_TEMPERAMENT),
-            self._rng.choice(GROUP_FORCE),
-            self._rng.choice(GROUP_CREATURE),
-        ))
+        return _shared_generate_name(self._rng)
 
     def generate_unique_name(
         self,
@@ -249,21 +235,16 @@ class ArenaOnboarder:
         pass an oracle whose 201 path captures the credentials (see `register`)
         so the very call that proves uniqueness is the one that registers.
         """
-        last = self.generate_name()
-        for _ in range(reroll_attempts):
-            if not is_taken(last):
-                return last
-            last = self.generate_name()
-
-        for _ in range(suffix_attempts):
-            candidate = f"{last}_{self._rng.randint(1, 99):02d}"
-            if not is_taken(candidate):
-                return candidate
-
-        raise ArenaNameExhausted(
-            f"No free Arena name after {reroll_attempts} re-rolls + "
-            f"{suffix_attempts} suffixed attempts (last base: {last!r})"
-        )
+        try:
+            return _shared_generate_unique_name(
+                is_taken,
+                rng=self._rng,
+                reroll_attempts=reroll_attempts,
+                suffix_attempts=suffix_attempts,
+            )
+        except NameExhausted as exc:
+            # Preserve the Arena-flavored exception type existing callers catch.
+            raise ArenaNameExhausted(str(exc)) from exc
 
     # ── Arena API ───────────────────────────────────────────────────────────
 

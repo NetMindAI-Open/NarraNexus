@@ -24,7 +24,10 @@ function resolve(theme: Theme): 'light' | 'dark' {
 interface ThemeState {
   theme: Theme;
   effectiveTheme: 'light' | 'dark';
+  /** Id of the plugin theme (`ui.themes` registry) layered over the base theme, or null. */
+  pluginTheme: string | null;
   setTheme: (theme: Theme) => void;
+  setPluginTheme: (id: string | null) => void;
   toggleTheme: () => void;
 }
 
@@ -33,8 +36,10 @@ export const useThemeStore = create<ThemeState>()(
     (set, get) => ({
       theme: 'system',
       effectiveTheme: getSystemTheme(),
+      pluginTheme: null,
 
       setTheme: (theme) => set({ theme, effectiveTheme: resolve(theme) }),
+      setPluginTheme: (id) => set({ pluginTheme: id }),
 
       toggleTheme: () => {
         const { theme } = get();
@@ -44,7 +49,7 @@ export const useThemeStore = create<ThemeState>()(
     }),
     {
       name: 'narra-nexus-theme',
-      partialize: (state) => ({ theme: state.theme }),
+      partialize: (state) => ({ theme: state.theme, pluginTheme: state.pluginTheme }),
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.effectiveTheme = resolve(state.theme);

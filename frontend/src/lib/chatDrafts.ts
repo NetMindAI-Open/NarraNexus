@@ -45,3 +45,51 @@ export function setChatDraft(agentId: string, value: string): void {
   }
   writeAll(map);
 }
+
+// ── team rooms ─────────────────────────────────────────────────────────────
+//
+// The room composer had no draft at all: switching rooms or navigating away
+// threw away whatever was half-typed. In a space you are meant to hand work to
+// and LEAVE, that is the wrong half of the product to lose.
+//
+// Its own storage key rather than a prefixed key inside the agent map. Two
+// reasons, and the second is the one that decided it: a shared map would make a
+// team id and an agent id collide if they can ever be equal (which cannot be
+// established from the code either way), and reusing the map with a new key
+// FORMAT would orphan every draft a user currently has half-typed — a
+// migration's worth of friction to save one localStorage key.
+
+const TEAM_KEY = 'narra-nexus-team-drafts';
+
+function readAllTeams(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(TEAM_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Read the saved draft for a team room ('' when none). */
+export function getTeamDraft(teamId: string): string {
+  if (!teamId) return '';
+  return readAllTeams()[teamId] ?? '';
+}
+
+/** Save (or clear, when empty) the draft for a team room. */
+export function setTeamDraft(teamId: string, value: string): void {
+  if (!teamId) return;
+  const map = readAllTeams();
+  if (value) {
+    map[teamId] = value;
+  } else {
+    delete map[teamId];
+  }
+  try {
+    localStorage.setItem(TEAM_KEY, JSON.stringify(map));
+  } catch {
+    /* quota exceeded / storage disabled — drafts are best-effort */
+  }
+}

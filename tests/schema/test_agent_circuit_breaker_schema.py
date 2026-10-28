@@ -7,14 +7,14 @@
 
 from datetime import datetime, timezone
 
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     AgentCircuitBreaker,
     CbStatus,
     ErrorCategory,
     PAUSING_CATEGORIES,
     PausedReason,
 )
-from xyz_agent_context.utils.db.schema_registry import TABLES
+from narranexus.platform.utils.db.schema_registry import TABLES
 
 
 def test_enums_values():

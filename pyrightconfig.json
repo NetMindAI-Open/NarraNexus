@@ -1,30 +1,52 @@
 {
-    // Typecheck gate, starter scope (PR #202 review Minor-2).
-    //
-    // The prod incident class this exists to catch is attribute-name typos:
-    // LarkTrigger built its credential manager from `self.db` while the
-    // attribute is `_db`, and the broken circuit breaker went unnoticed for
-    // weeks because nothing in CI can see attribute names (ruff runs E/F
-    // only). Full basic mode has 184 pre-existing errors in module/ alone —
-    // a permanently-red gate is a gate turned off — so only the two
-    // diagnostics that catch the incident class are enabled. Widen the file
-    // scope and diagnostics as the legacy noise below is paid down.
-    "include": ["src/xyz_agent_context/module"],
+    // Typecheck gate, starter scope (PR #202 review Minor-2): the kernel, the
+    // contracts, the module system + turn pipeline, the alias package and the
+    // builtin plugin packages. The other platform domains carry ~180 legacy
+    // dynamic-attribute errors (tracked for paydown) and stay out until paid.
+    // Batch 6a moved the tree; batch 6b put the builtin modules under plugins/.
+
+    "include": [
+        "src/narranexus/kernel",
+        "packages/narranexus-contracts/src/narranexus",
+        "src/narranexus/cli",
+        "src/narranexus/hosts",
+        "packages/narranexus-sdk/src/narranexus",
+        "src/narranexus/platform/turn",
+        "src/narranexus/platform/module_system",
+        "src/xyz_agent_context",
+        "plugins"
+    ],
+    "extraPaths": ["packages/narranexus-contracts/src", "packages/narranexus-sdk/src", 
+        "plugins/builtin.awareness/src",
+        "plugins/builtin.basic_info/src",
+        "plugins/builtin.channels.discord/src",
+        "plugins/builtin.channels.lark/src",
+        "plugins/builtin.channels.narramessenger/src",
+        "plugins/builtin.channels.slack/src",
+        "plugins/builtin.channels.telegram/src",
+        "plugins/builtin.channels.wechat/src",
+        "plugins/builtin.chat/src", "plugins/builtin.prompts/src", "plugins/builtin.auth.local/src", "plugins/builtin.auth.netmind/src", "plugins/builtin.teams/src", "plugins/builtin.ui/src", "plugins/builtin.frameworks.claude_code/src", "plugins/builtin.frameworks.codex_cli/src", "plugins/builtin.frameworks.nexus_power/src", "plugins/builtin.turn/src", "plugins/builtin.llm_clients/src", "plugins/builtin.memory_kinds/src", "plugins/builtin.providers/src",
+        "plugins/builtin.common_tools/src",
+        "plugins/builtin.general_memory/src",
+        "plugins/builtin.browser/src",
+        "plugins/builtin.home_assistant/src",
+        "plugins/builtin.job/src",
+        "plugins/builtin.message_bus/src",
+        "plugins/builtin.nexus_plugins_module/src",
+        "plugins/builtin.skills/src",
+        "plugins/builtin.social_network/src"
+    ],
     "exclude": [
-        // Legacy dynamic-attribute noise, tracked for paydown — mostly
-        // ContextData dynamic fields and MCP content-union access.
-        "src/xyz_agent_context/module/awareness_module/awareness_module.py",
-        "src/xyz_agent_context/module/job_module/_job_lifecycle.py",
-        "src/xyz_agent_context/module/job_module/job_module.py",
-        "src/xyz_agent_context/module/run_channel_triggers.py",
-        "src/xyz_agent_context/module/slack_module/slack_sdk_client.py",
-        "src/xyz_agent_context/module/social_network_module/social_network_module.py",
-        "src/xyz_agent_context/module/social_network_module/test_persona.py",
-        // Remove after PR #202 merges — its fix removes the very self.db
-        // typo this gate flags (the gate catches the incident bug live).
-        "src/xyz_agent_context/module/lark_module/lark_trigger.py"
+        "plugins/builtin.awareness/src/narranexus_plugins/awareness_module/awareness_module.py",
+        "plugins/builtin.job/src/narranexus_plugins/job_module/_job_lifecycle.py",
+        "plugins/builtin.job/src/narranexus_plugins/job_module/job_module.py",
+        "src/narranexus/platform/module_system/run_channel_triggers.py",
+        "plugins/builtin.channels.slack/src/narranexus_plugins/slack_module/slack_sdk_client.py",
+        "plugins/builtin.social_network/src/narranexus_plugins/social_network_module/social_network_module.py",
+        "**/tests/**"
     ],
     "typeCheckingMode": "off",
     "reportAttributeAccessIssue": "error",
-    "reportUndefinedVariable": "error"
+    "reportUndefinedVariable": "error",
+    "reportMissingImports": "error"
 }

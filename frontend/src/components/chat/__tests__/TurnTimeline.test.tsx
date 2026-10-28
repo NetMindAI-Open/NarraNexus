@@ -11,7 +11,7 @@
  * contract. This file pins the process blocks themselves.
  */
 import { describe, expect, test } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TurnTimeline } from '../TurnTimeline';
 import type { TurnEvent } from '@/types';
 
@@ -43,13 +43,20 @@ describe('TurnTimeline', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  test('renders thinking block with label + preview', () => {
+  test('reasoning renders collapsed, its text one click away', () => {
+    // Since 2026-08-30 the turn itself is open and provider reasoning is what
+    // recedes — it collapses per block instead of the whole turn hiding
+    // behind one drawer. Collapsed is not lost: the affordance is present and
+    // the prose is one click away (iron rule #16 is about reachability).
     render(
       <TurnTimeline
         events={[ev('t1', 1, 'thinking', { content: 'I should check chat history' })]}
       />
     );
-    expect(screen.getByText(/Thinking/i)).not.toBeNull();
+    expect(screen.getByText(/Thought/i)).not.toBeNull();
+    expect(screen.queryByText(/I should check chat history/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
     expect(screen.getByText(/I should check chat history/)).not.toBeNull();
   });
 
@@ -77,6 +84,12 @@ describe('TurnTimeline', () => {
       ev('e4', 4, 'thinking', { content: 'follow up reasoning' }),
     ];
     const { container } = render(<TurnTimeline events={events} />);
+    // Reasoning blocks are collapsed; each still renders its own affordance,
+    // so block ORDER is still what this case is about.
+    const toggles = screen.getAllByRole('button', { expanded: false });
+    expect(toggles).toHaveLength(2);
+    toggles.forEach((b) => fireEvent.click(b));
+
     expect(screen.getByText(/first thought/)).not.toBeNull();
     expect(screen.getByText(/search_memory/)).not.toBeNull();
     expect(screen.getByText(/follow up reasoning/)).not.toBeNull();

@@ -1,19 +1,25 @@
 /**
  * @file_name: wsAuthError.ts
- * @description: Detect WebSocket auth-error frames so the global
- * `narranexus:auth-expired` event fires symmetrically with the REST path.
+ * @description: Detect WebSocket auth-error frames and hand them to the
+ * same session guard the REST path uses, so both channels reach the same
+ * verdict about whether the session is actually dead.
  *
  * Background: backend/routes/websocket.py sends seven distinct AuthError
- * frames (L426-499) when JWT validation fails — all carry
- * `error_type: 'AuthError'` and one of the canonical messages
- * 'Token expired' / 'Invalid token' / 'Authentication required'.
- * Pre-fix, wsManager just rendered these as red chat bubbles; user
- * had no way to know their session expired and no path to re-login.
+ * frames when auth fails — all carry `error_type: 'AuthError'`, one of the
+ * canonical messages ('Token expired' / 'Invalid token' /
+ * 'Authentication required'), and since 2026-08-06 an `error_code`.
+ * Before any of this existed, wsManager just rendered them as red chat
+ * bubbles; the user had no way to know their session expired and no path
+ * to re-login. The fix for THAT then over-corrected into logging the user
+ * out on any AuthError frame at all — including frames that describe a
+ * frontend state bug rather than a dead session.
  *
  * Helper extracted from wsManager so both `run()` and `reconnect()`
  * onmessage handlers can share it AND so the logic is unit-testable
  * without spinning up a real WebSocket.
  */
+
+import { confirmSessionDeath } from '@/lib/sessionGuard';
 
 export interface MaybeAuthErrorFrame {
   type?: unknown;
@@ -46,13 +52,25 @@ export function isAuthErrorMessage(message: unknown): boolean {
 }
 
 /**
- * Fire the app-wide `narranexus:auth-expired` event. App.tsx listens
- * for it and calls configStore.logout(); a banner explains why.
+ * Route a WS auth-rejection through the same confirmation the REST path
+ * uses: probe `GET /api/auth/session`, and only tear the session down if
+ * the probe agrees it is dead.
  *
- * Idempotent at the listener level — App's handler bails when
- * `isLoggedIn` is already false.
+ * Why not dispatch `narranexus:auth-expired` straight from here (as this
+ * function used to): not every AuthError frame is about the session. The
+ * local-mode frames ("user_id mismatch between URL and payload") describe
+ * a frontend state bug, and a run-scoped rejection says nothing about
+ * whether the JWT is still good. Letting the probe adjudicate means a
+ * misclassified frame costs a failed run, not the user's whole session.
  */
-export function dispatchAuthExpired(): void {
+export function reportWsAuthFailure(message: unknown): void {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
+  const code =
+    message && typeof message === 'object'
+      ? (message as { error_code?: unknown }).error_code
+      : undefined;
+  void confirmSessionDeath({
+    endpoint: 'ws',
+    code: typeof code === 'string' ? code : null,
+  });
 }

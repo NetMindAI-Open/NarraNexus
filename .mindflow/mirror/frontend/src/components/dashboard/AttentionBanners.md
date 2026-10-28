@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/dashboard/AttentionBanners.tsx
-last_verified: 2026-04-13
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — dismiss control's i18n keys never existed (GitHub #107/#110)
+
+`t('dashboard.banners.dismissAria')` / `dismissTitle` were already being
+called here, but `dashboard.banners` did not exist in ANY locale file —
+not even en.json — so i18next's missing-key behavior rendered the raw
+dotted key string as the button's accessible name and title in every
+language. This was not a translation gap, it was a plain missing key:
+the fix adds `dashboard.banners.{dismissAria,dismissTitle}` to all 10
+locales (both = "Dismiss" / the local word for it; there's only one
+button, so aria and title carry the same text). Test:
+`__tests__/AttentionBanners.test.tsx` asserts the rendered accessible
+name is the real word, not the key.
 
 # AttentionBanners.tsx — Intent
 

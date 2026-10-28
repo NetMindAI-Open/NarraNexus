@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-contracts"
+version = "1.15.0"
+description = "NarraNexus plugin contracts: manifest kinds, ports, hook specs, host events and the distribution declaration — the only import a plugin needs at type level."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus"]

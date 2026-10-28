@@ -1,8 +1,163 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-07-28
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — hosts the agent row ⋯ menu (OWNER-REQUIRED, reinstated after #383)
+
+AgentList passes `rowActions` to the flat AGENTS [[AgentGroupSection]]:
+Rename → `useAgentActions().renameAgent` (current `api.updateAgent`, list
+refresh, clash / identity-memory report), Delete → `useAgentActions().deleteAgent`
+(confirm dialog through this component's existing `useConfirm` host, current
+`api.deleteAgent`, list refresh, cached session dropped, active agent
+re-pointed when it was the deleted one) and then `navigate('/app/dashboard')`
+ONLY when the deleted agent was the active one — the same landing as the
+profile page; deleting some other agent leaves the current view alone.
+Model & framework opens an `AgentLlmConfigPanel` for that row (`configAgentId`
+state), `onSaved` refreshes the agent list (which also refreshes the composer
+model chip, see [[../chat/ComposerModelBadge]]). Clear data and the description
+editor stay on the profile page only. Owner-required entry — keep it.
+
+## 2026-09-03 — 零 agent 空态 CTA 改为进创建分叉页
+
+`handleCreateAgent` 从 `await createAgent()` 改为导航到
+[[ChooseCreateMethodPage.tsx]]。这个空态服务的正是首次使用者 —— 分叉页存在的
+理由就是他。
+
+`handleCreateAgentInTeam` **没有**改道：团队内创建已经有明确目的地（团队群聊）
+和明确意图，不需要再问一次「你想从哪里开始」。
+
+## 2026-09-03 — 团队「清理数据」对话框与状态移出
+
+`clearTeamTarget`/`clearTeamBusy`/`doClearTeamData`/`ClearTeamDataDialog` 及
+`onClearData` 透传全部删除;`requestWorkspaceRefresh` 不再从 store 解构。
+逻辑整体搬到 [[../chat/team/TeamManagePanel.tsx]](调用)+ [[../chat/team/TeamChatPanel.tsx]]
+的 `handleCleared`(刷新)。agent 行的清理不受影响。
+
+## 2026-08-27 — agent 行的所有 mutation 搬走,本文件只剩编排
+
+Owner 要求去掉侧边栏 chat 行的 ⋮。连锁结果:`handleStartEdit` /
+`handleEditAgent` / `doEditAgent` / `handleSaveEdit` / `handleCancelEdit` /
+`handleDeleteAgent` / `handleClearData` / `doClearData` /
+`handleTogglePublic` 全部没有调用点,一并删除;`ClearAgentDataDialog` 的
+宿主移交 [[../../pages/AgentProfilePage.tsx]],`EditAgentDialog` 整个组件
+连同测试删除(它唯一的入口就是那个 kebab,而名称 + 描述编辑在 profile 页
+Settings tab 已有完整归宿)。`SHOW_AGENT_PUBLIC_TOGGLE` 这个 flag 也跟着
+删掉——它唯一的作用是控制 kebab 里那个 Globe/Lock 项;后端接口没动,真要
+重开 public 功能是在 profile 页重新接一次,不是翻这个 flag。
+
+**08-19 那条"改名的两个成功但你得知道"没有被丢掉**:
+`warnAboutUpdateSideEffects` 搬到了 profile 页(改名后 `res.name_clash_with`
+/ `identity_record_updated === false` 仍然会弹),i18n key 从
+`layout.editAgentDialog.rename*` 重命名为 `layout.agentRename.*`,10 个语言
+文件同步。删掉入口时把它带走的静默回归,是这次唯一必须防的东西。
+
+TEAMS 行的 [[TeamRowMenu.tsx]] ⋮ **保留**:team 没有 profile 页,那几个
+操作没有别处可去。
+
+## 2026-08-19 — 改名的两个"成功但你得知道"报给用户了
+
+后端在改名时会算出两件**不是失败**的事,所以它们永远不会进错误分支——而三个改名
+调用点原来只读 `res.success`,于是**界面成了唯一让这两件事静默发生的入口**(后端
+注释当时已经写着"不再静默",前端却没接,独立审查第七轮抓的):
+
+- `name_clash_with` —— 同 owner 下已经有别的 agent 叫这个名字。**不拦**(把名字从
+  一个 agent 转给另一个是 owner 会故意做的),但两个 agent 同应一个名字正是深圳
+  P1 的起点。
+- `identity_record_updated === false` —— 名字**已经存进去了**,但 agent 的身份
+  记忆没能更新,它可能继续自述旧名。这就是事故本体的状态。
+
+`warnAboutUpdateSideEffects(res)` 一个函数、三处调用(is_public 切换、编辑弹窗、
+行内改名)。**故意抽成一处**:三份拷贝就是第四个调用点漏掉提示的方式——这次改动
+本身就在这个坑里栽了两回(函数写了没接、接了一处漏另一处)。
+
+放在 `refreshAgents()` 之后:列表先变成服务端真相,再弹提示,否则用户在读提示时
+背景里的名字还是旧的。
+
+i18n 只加了 en / zh —— `layout.editAgentDialog` 这一节在其余 8 个语言文件里本来
+就不存在,走回退,与 `toastDiskWarn` 同一惯例。
+
+## 2026-08-18 — merge ruling: team 行未读圆点不接线（下方 08-14 条 UI 半边失效）
+
+Owner ruled v4 行尾结构（成员数 → ⋮）胜出，dev 的未读圆点 + 「谁说了什么」
+第二行**不接线**：本文件不再向 [[TeamChatRow]] 传 `unread/preview/authorName`，
+`teamUnread` 判定函数随之移除。dev 的 `teamUnreadBadge.test.tsx` 随 UI 一起
+删除——圆点回归时从 dev 恢复它。
+
+保留的半边：`markTeamRead` 水位线 effect 原样保留（打开房间即记已读，离开后
+仍是清的），[[useAutoRefresh]] 里的 `teamHasUnread` toast 判定也仍然在用。
+所以 08-14 条里 UI 渲染的描述已失效，水位线/useAutoRefresh 的描述仍准确。
+
+## 2026-08-17 — 改名成功后回读列表，别让手打的补丁成为持久化的那份
+
+`doEditAgent` / `handleSaveEdit` 原来只做乐观更新：`setAgents(rawAgents.map(...))`
+把响应里的 `name` 拍进本地数组就完事。两个问题：
+
+1. 写的是 `name: res.agent?.name`——`res.agent` 虽然在 `if` 里判过真，但字段本身
+   可能缺，于是整行的名字被写成 `undefined`。现在是 `?? a.name`，缺字段就保留原值，
+   不把行标题清空。
+2. 更要紧的：`configStore.agents` 是 persist 到 localStorage 的且没有
+   `partialize`（见 [[configStore.ts]]），所以**手打的那份补丁就是下次页面加载
+   显示的那份**。它与服务端真值之间任何差异（后端做了 trim / 长度截断 / 归一化）
+   都会以「改名后来又变回去了」的形态出现。所以成功之后 `await refreshAgents()`
+   ——即工单要求的「失效 agent 列表/详情缓存」。乐观更新保留，给即时反馈；
+   回读负责对账。
+
+`name` 与 `description` 取响应的方式**故意不同，别去「统一」它们**：
+`description` 直接取服务端值（`?? ''`）——响应总是带这个 key，清空后回的是
+`''`（已实测；只有从没设过的行才回 `null`），这里回退到本地值等于把用户刚删掉
+的文字放回持久化 store。`name` 保留本地兜底，因为它是行标题，写成 `undefined`
+会让整行退回显示裸 `agent_id`。两支各留一句注释就是为了防止下一个人合并它们。
+
+`handleTogglePublic` 是 `api.updateAgent` 的第三个调用点，一并对齐（成功后
+`refreshAgents()`、失败弹 alert）。它今天走不到——`SHOW_AGENT_PUBLIC_TOGGLE`
+是 false——但那个 flag 的注释自己写着「翻回来只要一行」，翻回来的那一刻本条修掉
+的两个缺陷会在这个入口原样复活，所以现在就对齐比留给未来便宜。
+
+第三件：inline 改名（`handleSaveEdit`）失败时原来只 `console.error`，用户那一侧
+**什么都没有**——输入框收起、行标题弹回旧名，和「平台把我的编辑丢了」无法区分，
+于是继续重试。现在与 `doEditAgent` 一致走 `alert(...)`（同一个
+`layout.editAgentDialog.saveFailedTitle`），catch 分支同样弹。
+
+侧栏名字只有一个来源：`configStore.agents`（TopBar / ChatPanel / BookmarkStrip /
+TeamManagementModal 全是 `agents.find(...)` 解析，team 成员存的是 id 不是名字）。
+所以这一条 + [[configStore.ts]] 2026-08-17 条覆盖了前端能显示旧名的全部路径。
+
+工单：深圳线下第二轮 P1。注意**根因不在前端**——见 [[auth.py]] 2026-08-17 条，
+后端把已落库的改名报成了失败（rowcount 方言差异），本条修的是同一条链上前端
+这一段的两个真实缺陷。
+
+## 2026-08-14 — team 行的未读标记
+
+每个 team 行（展开态和折叠态的头像轨道**都有**：窄窗口下轨道就是整个 sidebar，
+只在展开态显示的标记等于用户看不见的标记）现在会在房间说过话之后打一个圆点，并在
+第二行显示「谁说了什么」，和它下面的 agent 行一致。
+
+判定是 `teamHasUnread(t.last_message_at, teamId)`（[[unread.ts]]），**当前打开的
+那个房间永远不打标记**——正在读的那一行上的标记是噪音。
+
+打开房间会把水位线写进 localStorage，所以**离开之后标记依然是清的**：只在行处于
+active 时清掉，正是 agent 徽标在拿到自己的 marker 之前的那个 bug。
+
+另一半在 [[useAutoRefresh]]：team 列表此前只在 sidebar 发现它未加载时取过一次，
+没有任何定时刷新。标记只会在整页重新加载后才出现——从用户角度和「这功能没做」
+无法区分。
+
+## 2026-08-11 — TEAMS/AGENTS 分组头三角换 lucide
+
+"▶" 字符三角(渲染为实心)→ lucide ChevronRight + rotate-90,与
+TeamChatRow / AgentGroupSection 的展开箭头统一线性图标语言
+(design_system.md §5)。
+
+## 2026-08-06 — Chat UI v4:回归纯列表
+
+创建 / 导入 / 导出 / manage-agents 入口全部移出(去 Sidebar 全局导航),
+`collapsed` prop 与 72px 头像栏代码路径删除(v4 收起=整栏隐藏)。头部只剩
+Chats 标签 + 计数 + 搜索(打开 ⌘K palette,uiStore.paletteOpen)+ 刷新。
+activitySignature 性能契约、TEAMS/AGENTS 两段式去重结构、unread 逻辑不变。
+TeamManagementModal / ImportAgentModal 挂载移交 [[Sidebar.tsx]];
+AgentsHeaderMenu 组件删除。
 
 ## 2026-07-28 — hosts the Agent Migration entry point ([[ImportAgentModal]])
 
@@ -155,9 +310,9 @@ unchanged (it already cleared correctly on `setActiveAgent`).
 
 `handleCreateAgent` no longer holds the create logic — it delegates to the
 shared `useCreateAgent` hook (`creatingAgent` state now comes from the
-hook too). Reason: the onboarding checklist also creates agents, and both
-call sites must share one path (store wiring + the
-`first_agent_created` onboarding side effect). See
+hook too). Reason at the time: the onboarding checklist (retired
+2026-08-19) also created agents, and both call sites had to share one path
+(store wiring + the `first_agent_created` onboarding side effect). See
 `.mindflow/mirror/frontend/src/hooks/useCreateAgent.ts.md`.
 
 ## 2026-05-19 — NM messenger fidelity pass
@@ -221,3 +376,16 @@ Owns `clearTeamTarget` / `clearTeamBusy` + `doClearTeamData` (calls `api.clearTe
 `DELETE /api/teams/{id}/data`, then requestHistoryRefresh on chat scope) and renders
 [[ClearTeamDataDialog]] — the exact pattern as the agent [[ClearAgentDataDialog]] path.
 TeamChatRow's `onClearData` opens it. Backend: [[teams]] `_wipe_team_data`.
+
+## 2026-08-10 — clearing a team's files also refreshes the workspace panel
+
+`doClearTeamData` already bumped `requestHistoryRefresh()` for the chat scope;
+the files scope had no equivalent, so an open team workspace kept listing the
+artifacts and files it had just deleted. Now calls
+`requestWorkspaceRefresh()` ([[chatStore.ts]]) on that scope.
+
+## 2026-08-11 — 清团队数据的第三个 scope
+
+`doClearTeamData` 的 scopes 增加 `bulletin`；`files || bulletin` 时都触发
+`requestWorkspaceRefresh()`，公告栏面板挂在同一个 tick 上，
+所以清空后不会留在屏上列已被服务端删掉的规则。

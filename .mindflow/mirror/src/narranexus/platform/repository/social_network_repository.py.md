@@ -1,0 +1,75 @@
+---
+code_file: src/narranexus/platform/repository/social_network_repository.py
+last_verified: 2026-06-08
+stub: false
+---
+
+## 2026-06-08 — entity folded into the unified memory engine (overhaul task 1)
+
+The repo NO LONGER owns `instance_social_entities` (table retired /
+tombstoned in schema_registry). Entities now live solely in the engine's
+`memory_entity` table; this class is a **thin adapter** over
+`MemoryRepository("entity")` mapping `SocialNetworkEntity ↔ MemoryRecord`.
+This kills the old "source table + incomplete mirror" dual-write
+(`_feed_entity_to_engine`, now deleted) that made third-party / un-touched
+entities invisible to `remember` (TODO-unified-memory-overhaul.md §2-P0).
+
+Mapping: `content_text` = name+aliases+description+keywords (DERIVED, so an
+entity is findable by NAME via unified recall/grep, not just by description);
+structured truth in `attributes`; `scope_type="instance"` /
+`scope_id=instance_id` (instance isolation); `record_id =
+mem_ent_+sha1(instance:entity)[:24]`. `agent_id` is needed only on
+`add_entity` (new rows) so unified recall — which filters by agent_id —
+finds them; it's a constructor arg write paths supply and read paths omit.
+Public method signatures are unchanged so callers don't move. Adjacent code
+still reading `instance_social_entities` directly (the bundle export/import)
+is pending the broader memory_* bundling work (overhaul task 3).
+
+## 2026-05-27 — semantic-search chain removed (Owner spec, scope B)
+
+`semantic_search()` (cosine similarity over per-entity embedding vectors)
+was deleted. The repo's search surface is now two methods only:
+`search_by_tags` and `keyword_search` (`LIKE` over name / description /
+tags / aliases). `_json_fields`, `_row_to_entity`, and `_entity_to_row`
+also stopped round-tripping the `embedding` column — the DB column
+stays dormant per iron rule #6 (no risky DB changes), but no Python
+path reads or writes it any more.
+
+See [[social_network_module.py]] for the caller-side removals
+(`_search_entities` semantic branch, Stage 2 dedup) and
+[[_entity_updater.py]] for the deletion of `update_entity_embedding`.
+
+# social_network_repository.py
+
+## Why it exists
+
+`SocialNetworkRepository` is the agent's knowledge graph of people and other agents it has interacted with. As of 2026-06-08 it stores entities in the unified `memory_entity` table (see the top note), not its own table. It exposes `keyword_search` / `search_by_tags` / `search_by_name_or_alias` (fuzzy/exact match over name / description / keywords / aliases). (Semantic vector search was removed 2026-05-27 — see the note above.)
+
+## Upstream / Downstream
+
+`SocialNetworkModule` calls this repository for all entity operations: `add_entity()` when a new person is encountered, `update_entity_info()` after each interaction, `increment_interaction()` to track engagement, and the three search methods during `gather()` to surface relevant contacts. `JobModule` calls `append_related_job_ids()` to maintain the bidirectional Job-Entity index.
+
+## Design decisions
+
+**`id_field = "id"`** (auto-increment): again the mismatch pattern. All external lookups use `entity_id + instance_id` compound keys. `get_entity()` queries with `find_one({"entity_id": ..., "instance_id": ...})`.
+
+**`update_entity_info()` bypasses base class `update()`**: the base class update uses `id_field = "id"`. Entity updates need to filter by `(entity_id, instance_id)` compound condition. The method builds raw SQL with both conditions. This is the correct and necessary bypass.
+
+**`semantic_search()` imports from `agent_framework/`**: the method historically imported `cosine_similarity` and `embedding_store_bridge` from agent_framework's embedding utilities (that subsystem has since been removed entirely). This is a violation of the usual direction (repositories should not import from the framework layer), but it was accepted as a pragmatic coupling to avoid code duplication. The bridge flag determines whether vectors are read from the entity row or from `EmbeddingStoreRepository`.
+
+**`append_related_job_ids()` uses read-then-write rather than `JSON_ARRAY_APPEND`**: MySQL's `JSON_ARRAY_APPEND` would be the ideal atomic operation, but it does not deduplicate. The code reads existing IDs, computes a set union, and writes back. This introduces a TOCTOU race for concurrent job associations, but in practice job creation is sequential for a given entity.
+
+**`_parse_json_field()` handles double-encoded JSON**: the social network repository's `_parse_json_field()` has extra logic for double-encoded strings (JSON string encoded as JSON again). This was added after discovering that some old data paths double-encoded the `tags` field.
+
+## Gotchas
+
+**`search_by_tags()` uses `JSON_SEARCH` with `LIKE`-style wildcard**: the `%{search_keyword}%` wrapping means it does substring matching inside the JSON array. This is fine for tag prefixes (`"expert:recommendation"`) but will also match `"expert:recommendation_system_v2"` and `"non_expert:some_recommendation"`. The search is intentionally broad.
+
+**`keyword_search()` does `tags LIKE %keyword%` on the raw JSON string**: the tags column stores JSON like `["tag1","tag2"]`. A `LIKE` match on this raw string will find keywords inside double quotes and brackets. Edge cases: a keyword `"]"` would always match; a keyword that appears in one tag's substring would also match other tags.
+
+**`semantic_search()` fetches all entities for the instance** regardless of how many there are. For a social network with thousands of contacts, this is a full table scan followed by Python cosine similarity computation. There is no `LIMIT` at the SQL level.
+
+## New-joiner traps
+
+- `entity_id` in this table is the user_id or agent_id of the contact — it is not a UUID generated by NexusAgent. It comes from the external system (e.g., a Matrix user ID like `@alice:matrix.org`). Multiple SocialNetworkModule instances can have entities with the same `entity_id` — the `instance_id` differentiates them.
+- `embedding` in the entity row is the legacy vector storage. New vectors go to `EmbeddingStoreRepository`. The `semantic_search()` method uses the bridge to choose between the two. Do not write new code that stores vectors in the entity row.

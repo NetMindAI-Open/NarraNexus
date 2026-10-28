@@ -18,8 +18,8 @@ divergence visible — the class of prefix breaker that byte counts cannot see:
 """
 from loguru import logger
 
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.schema.module_schema import ModuleInstructions
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.schema.module_schema import ModuleInstructions
 
 
 def _mi(name: str, size: int, priority: int = 5) -> ModuleInstructions:

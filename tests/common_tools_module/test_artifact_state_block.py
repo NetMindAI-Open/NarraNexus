@@ -15,10 +15,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import Artifact
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus_plugins.common_tools_module.common_tools_module import CommonToolsModule
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -37,7 +37,7 @@ async def _seed_url_tab(repo, artifact_id, slug):
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     (base / WS_REL).mkdir(parents=True)
-    from xyz_agent_context.settings import settings as sa
+    from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(base), raising=False)
     repo = ArtifactRepository(db_client)
     mod = CommonToolsModule("agent_x", "user_y", db_client)

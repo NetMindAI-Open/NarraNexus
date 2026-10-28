@@ -73,12 +73,23 @@ class PendingJob(BaseModel):
     job_id: str
     title: str
     job_type: str
-    next_run_time: str | None = None
+    next_run_at: str | None = None
+    next_run_timezone: str | None = None
     # v2.1 additions
     description: str | None = None
-    # Human-readable status variant: "pending" / "active" / "blocked" / "paused" / "failed"
+    # Every non-running live state emitted by fetch_jobs/routes.py.
     # Needed because we now surface all live states (not just pending/active).
-    queue_status: Literal['pending', 'active', 'blocked', 'paused', 'failed'] = 'pending'
+    queue_status: Literal[
+        'pending',
+        'active',
+        'blocked',
+        'paused',
+        'failed',
+        'cooling',
+        'paused_no_quota',
+        'blocked_failed',
+        'paused_spend_cap',
+    ] = 'pending'
 
 
 class QueueCounts(BaseModel):
@@ -89,6 +100,10 @@ class QueueCounts(BaseModel):
     blocked: int = 0
     paused: int = 0
     failed: int = 0
+    cooling: int = 0
+    paused_no_quota: int = 0
+    blocked_failed: int = 0
+    paused_spend_cap: int = 0
     total: int = 0
 
 

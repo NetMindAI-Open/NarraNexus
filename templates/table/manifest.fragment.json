@@ -1,0 +1,10 @@
+{
+  "api": {
+    "table": 0
+  },
+  "provides": {
+    "backend.tables": [
+      "nxplugins.__PLUGIN_PKG__:TABLES"
+    ]
+  }
+}

@@ -17,8 +17,8 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
-from xyz_agent_context.repository import NarrativeRepository
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.repository import NarrativeRepository
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeType,
     NarrativeInfo,

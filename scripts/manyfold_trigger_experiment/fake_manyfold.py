@@ -177,7 +177,9 @@ def send_im(
 ) -> None:
     """Forward an inbound IM message with channel context and assert the agent
     replies via its LOCAL channel tool (model B) targeting the right room —
-    NOT via send_message_to_user_directly (which would be model A)."""
+    NOT via the owner-chat tool (`reply_owner` / `notify_owner`, which would be
+    model A). Named as prose, not matched on: the assertion looks for the LOCAL
+    tool, and the owner tool is mentioned only to explain a miss."""
     body = {
         "model": agent_id,
         "messages": [{"role": "user", "content": text}],
@@ -225,7 +227,8 @@ def send_im(
     else:
         print(
             f"{_RED}✗ no local {local_tool!r} reply targeting room {room!r} found. "
-            f"Agent may have used send_message_to_user_directly (model A) or lacks "
+            f"Agent may have used an owner-chat tool (reply_owner / "
+            f"notify_owner — model A) or lacks "
             f"channel context / a bound credential.{_RESET}"
         )
 
@@ -584,7 +587,7 @@ def listen_wechat(agent_id: str, max_messages: int = 0) -> None:
     one home — run via `uv run python`."""
     import asyncio as _asyncio
 
-    from xyz_agent_context.module.wechat_module.wechat_sdk_client import (
+    from narranexus_plugins.wechat_module.wechat_sdk_client import (
         WeChatSDKClient,
         extract_text,
     )

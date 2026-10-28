@@ -1,0 +1,20 @@
+{
+  "id": "builtin.nexus_plugins_module",
+  "version": "1.0.0",
+  "displayName": "Nexus Plugins Module",
+  "description": "Agent self-extension: scaffold, test, register and observe plugins (local only).",
+  "hosts": [
+    "backend",
+    "mcp"
+  ],
+  "api": {
+    "module": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.nexus_plugins_module.contribution:MODULES"
+    ]
+  },
+  "protected": true,
+  "quality": "gold"
+}

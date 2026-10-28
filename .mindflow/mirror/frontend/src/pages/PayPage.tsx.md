@@ -1,8 +1,43 @@
 ---
 code_file: frontend/src/pages/PayPage.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 不再自己建卡结账，改为把轨道选择交给账号面板
+
+`/pay` 是官网定价页 CTA 的落点，原来直接 `api.subscribe()`（无参 = 信用卡）。
+**对这次改动要服务的人来说那是一条死路**：支付宝和微信根本付不了 Stripe 订阅，
+他们从定价页点「买 Pro」，落在一个只能刷卡的页面上。
+
+现在 `navigate('/app/settings?tab=account&intent=buy')`，由
+[[NetmindAccountPanel]] 的购买弹窗去问「哪条轨、几个月」。
+
+**为什么是跳转而不是在这里再放一个选择器**：那个问题带着真实规则（卡不能带
+months、一次性上下界 1–12、一次性生效期间卡要撤下），第二份实现一定会和第一份漂移。
+`intent=buy` 让弹窗**直接打开**——落在设置页上"再点一下就能买"只是把死路挪了个位置，
+没有消除。
+
+随之失效的：原来那张"建 session → 桌面端 openExternal / Web 端 location.replace"的
+分支表，以及 401 / "already subscribed" 的兜底跳转。
+
+**文件头也重写了**（评审 🟢-1）：它有 40 行，其中约 25 行在讲已经删掉的机制 ——
+same-tab `location.replace`、Tauri 分支、错误态与重试，还专门论证了「为什么用
+`replace` 而不是 `assign`」，而这个文件现在一次都不引用 `location`。这和
+[[NetmindAccountPanel]] 那条「一条能被自己文件证伪的理由比没有理由更糟」是同一件事，
+判断也该同样适用于文件头。现在头部只留「为什么需要这个路由」和四条去向。
+
+**并且整个错误态一起删了**：探测自己吞掉异常、`navigate` 不抛，所以这个页面停止建
+结账之后，外层 catch **没有任何东西可接**——`phase='error'`、错误卡片、重试按钮
+全部不可达。留着就是给一个不可能发生的状态维护 UI（铁律 #8）。这个页面现在就是
+它真实的样子：**一个转场 spinner**。订阅探测保留，仍是 defensive-only——它让已订阅
+的用户落在账号页而不是带着 `intent=buy` 弹出购买框。
+
+
+## 2026-08-10 — direct-pay funnel facts
+
+The bounce route records the same click/open stages as the account panel.
+Active-subscription redirects and failed checkout creation do not emit opened.
 
 # PayPage.tsx — /pay 官网直达 Stripe 的中转路由
 

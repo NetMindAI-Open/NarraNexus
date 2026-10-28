@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/UrlRenderer.tsx
-last_verified: 2026-07-30
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 浏览器支持
+
+实时浏览器由独立 Browser 面板承载。URL artifact 的 External 分支继续显示外部打开卡片，不把 Agent 的当前页面冒充成 artifact 指定 URL；该分支不启动浏览器。
 
 ## 2026-07-30 — 原生 alert 换成应用内通知
 

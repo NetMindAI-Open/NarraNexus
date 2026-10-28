@@ -1,0 +1,20 @@
+{
+  "id": "builtin.common_tools",
+  "version": "1.0.0",
+  "displayName": "CommonTools",
+  "description": "Builtin module CommonToolsModule.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.common_tools_module.contribution:MODULES"
+    ]
+  },
+  "quality": "gold"
+}

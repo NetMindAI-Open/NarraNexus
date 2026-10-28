@@ -17,12 +17,12 @@ from typing import AsyncIterator
 
 import pytest
 
-from xyz_agent_context.agent_runtime.run_collector import (
+from narranexus.platform.agent_runtime.run_collector import (
     RunCollection,
     RunError,
     collect_run,
 )
-from xyz_agent_context.schema.runtime_message import AgentThinking, MessageType
+from narranexus.platform.schema.runtime_message import AgentThinking, MessageType
 
 
 class _FakeRuntime:

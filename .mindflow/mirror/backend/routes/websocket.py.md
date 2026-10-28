@@ -1,8 +1,150 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-07-31
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #419 review I-3 / I-4）— 可见性闸的 local 语义与归属地
+
+- **local / 桌面模式同样判定，不做 no-op。** local 下 `request.user_id` 已被上面的
+  `?x_user_id=` 锚点校验保证非空且与 payload 一致，所以闸门照常执行：owner 通过、陌生人
+  `AgentNotFound`（`test_local_mode_*` 两条钉住）。不采用 `_ownership._deny_reason` 的
+  "无 user_id → 放行"：那个条件在这里永远不成立，硬加 `_is_cloud_mode()` 豁免会让 local
+  端任何能连上端口的进程驱动任意 agent，且与重连分支的判据更难对齐。代价：`created_by`
+  为空的历史行在两种模式下都无法再经 WS 启动，回的是统一 `AgentNotFound`。
+- 闸门改为调用 [[_ownership.py]] 的 `assert_visible`（原 dashboard 的 `assert_agent_visible`
+  已搬家）。DB 故障是非 HTTP 异常，穿过 `except HTTPException` 落到外层 `InternalError`
+  帧——fail-closed，且不会被报成 not-found；这是 `_ownership` mirror 里写明的契约。
+
+## 2026-10-28 — 新 run 先确认 agent 可见（归属或公开）
+
+安全审计发现：握手只校验了 JWT 与 payload 的 user_id 一致，**从不检查 agent_id 是谁的**；
+而 runtime 会把 user_id 改写成 agent 的 created_by，于是任何登录用户拿到别人的 agent_id
+就能用主人的 workspace、工具、渠道和额度跑一轮。现在在 fresh-run 校验之后、熔断门之前
+调用 dashboard 的 `assert_agent_visible`（自有或 is_public），失败统一回 `AgentNotFound`
+错误帧并关闭——与 dashboard 同口径，不暴露 agent_id 是否存在。公开 agent 仍可被陌生人
+驱动，这是现有"访客聊天"语义，未改。重连分支早已有 owner 检查。
+
+## 2026-09-23 - Own runs before Step 0
+
+Fresh runs start through `app.state.run_tasks`; this retains detached execution
+even after WebSocket teardown and before its run ID is assigned. Shutdown drains
+the task through its finalizer. `active_runs` remains the reconnect/control index.
+The circuit-breaker probe transfers only once `bg.task` exists: construction alone
+does not transfer ownership if shutdown refuses the task start.
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+`run_is_live` 改为从 `narranexus.platform.utils.run_liveness` 导入（原来经 `background_run`
+转手），行为不变；文中「background_run.py 的心跳新鲜度规则」现住在 `utils/run_liveness.py`。
+
+## 2026-09-10 — fresh-run 路径两步熔断门，赢得的探测随 run 走
+
+[[circuit_breaker]] 的 `should_skip`（纯读，返回 `GateVerdict`）放行之后、
+`_record_message_accepted` 之前调 `try_begin_probe(agent_id, prior=cb_gate)`（复用同一次
+读，普通 turn 只读一次，PR #394 M1）；被拒（`reason="probing"` 等）就发同一种
+`agent_circuit_open` 帧并关 socket，run 不记录、不创建。赢得认领时
+`cb_admission.probe_token` 交给 `BackgroundRun(probe_token=...)`，由 run 在终态按 token
+结算（PR #394 I1）。认领之后、`bg` 建出来之前抛异常（会话登记、消息受理记录等）时，外层
+`finally` 按 token `release_probe` 归还；`bg` 已存在则不归还——run 持有 token，此时归还会在
+活探测下误重挂。`_circuit_open_frame` 的文案改由 `circuit_breaker.describe_skip_reason`
+提供（与 [[openai_compat]] 共用一份）。锁：
+`test_ws_claims_the_half_open_probe_before_recording_the_run`、
+`test_ws_hands_back_a_won_probe_when_setup_throws_before_the_run`。
+
+## 2026-09-09 — `_circuit_open_frame` 补上 `should_skip` 的第四个原因 `probing`
+
+[[circuit_breaker]] 新增半开态 PROBING 后，`should_skip` 现在会返回
+`(True, "probing")`（并发 turn 撞上正在进行的探测时）。`_circuit_open_frame`
+的 else 分支本就把它当 "cooling" 文案处理（"稍后重试"，语义上完全对——探测
+不是硬暂停，不该建议用户去重新登录），代码行为无需改；只是补全文档字符串
+把 `probing` 列进已知的 `cb_reason` 取值集合，避免读者以为还是三值。
+`test_frame_probing_falls_back_to_cooling_copy` 钉住这个回退行为。
+
+## 2026-08-24 — `_format_dt` 补上时区契约(#349 I1 根因)
+
+MySQL DATETIME(6) 剥 tzinfo → driver 还回 naive datetime → 原来的
+`isoformat()` 吐无后缀串,浏览器 `Date.parse` 按**本地时区**解——
+run_reconnect 帧的 `started_at`/`input_timestamp` 在云端整体偏移观看者
+的 UTC offset(SQLite 往返自带 `+00:00`,本地永远复现不出)。naive 值
+现在补 `timezone.utc` 再 isoformat。**不能**换 `format_for_api`:它截到
+整秒,而 `input_timestamp` 与落库聊天行的去重依赖毫秒级一致(帧注释
+明写)。前端侧的容错解析器是 [[../../frontend/src/lib/backendTs]]。
+
+## 2026-08-24 — 单聊运行中插话:`_listen_for_control`(原 `_listen_for_stop`)加 `steer` + SteerChannel 接线
+
+`_listen_for_stop` 改名 `_listen_for_control`,除 `stop`/`force_stop` 外新收 `{"action":"steer","input_content","client_msg_id"?}`:owner 运行中再发一句 → `SteerChannel.push(SteerInjection(source="owner_chat",...))` 折进**同一 run**,而非起新 run。空/非字符串 input 忽略(坏控制行不扰动 run);steer **绝不** cancel(那是 stop 的活)。
+接线:`cancellation` 之后建 `steer_channel = SteerChannel(agent_id, channel_id="chat")` 并挂 `on_consumed`→给前端发 `{"type":"steer_consumed","ids":[...]}`;listener 收这个 channel + user_id;`BackgroundRun(..., steering=steer_channel)`([[background_run.py]]);run_id 出来后 `steer_channel.run_id = bg.run_id`(仅日志用)。三态气泡:push 后回 `{"type":"steer_queued","client_msg_id}`(→queued),消费后 `steer_consumed`(→merged)。
+**单聊 vs bus 区别**:2 通目走**同一 WS**(前端往开着的 run WS 发),故**不需 RunRegistry/surface 路由**(WS 直接握 channel);**不落 steer_inbox**(ephemeral,in-flight;`run_id` 在 injection 上是 cosmetic,render/push 不读);run 结束前未消费 → 前端凭无 `steer_consumed` 兜底(重发为新 run)。**依赖 #354**(cloud `RemoteAgentLoopDriver` 传 steering)才在 prod 生效;dev/本地 in-process 即可。`owner_chat` 不装 `STEER_PROVENANCE_RULE`(owner 是可信权威,无冒充/提权面,与 team 不同)。
+
+### 2026-08-24(审后补)— 上限 / 能力门 / reconnect
+
+steer 分支抽成纯函数 `_route_steer(ws, channel, user_id, data, steerable)`(可单测),补齐审查三条:
+* **上限(Critical)**:ephemeral 绕开 `steer_inbox` 的有界写边,故在 WS 侧**重加同两条上限**,常量**从 `steer_inbox_repository` import**(单一定义、防漂移):单条 `MAX_CONTENT_BYTES=128KB`、每 run 未消费 `MAX_UNCONSUMED_PER_RUN=500`;`client_msg_id` 限长 `_MAX_CLIENT_MSG_ID_LEN=128`(超长→自铸,不塞进 `STEER_ID_KEY`)。超限=**显式 `{"type":"steer_rejected","client_msg_id","reason"}` 帧**(`too_large`/`too_many_pending`),**push 之前**判、**绝不截断/静默丢**(否则乐观气泡永挂,比不做还糟)、拒绝路径**不发 `steer_queued``。
+* **能力门(Important;审后订正)**:`_resolve_run_steerable(agent_id)` **问真 driver 的 `capabilities()`**(协商接缝),**不**硬编码 framework 名。关键:steerability 是 **driver** 的属性不是 framework 名的——`get_agent_loop_driver` 只要有 executor/broker URL 就一律返 `RemoteAgentLoopDriver`(cloud 上 `BROKER_URL` 恒设,默认值也生效),而它(未上 #354 时)**不声明 steering**;所以 cloud 上 nexus_power(默认 framework)跑的是 remote driver、`steerable` 若按名判会**错报 True**→气泡永挂。故按 `get_agent_loop_driver` 的 remote-vs-in-process 选择读所选 driver 的 `capabilities()`;remote 判据用**规范函数 `executor_seam_active()`**([[broker_client.py]],`AGENT_EXECUTOR_URL` 或 broker,`get_agent_loop_driver` 自己也是这个单一真值——不再手抄裸 env,其 docstring 明写「只查静态 var 曾让云端 guard 上成死码」)。`capabilities()` 与 URL 无关,故用占位 URL 选中 remote driver 类而不碰 broker(且 remote 臂 `RemoteAgentLoopDriver` 构造无副作用)。`run_started` 帧带 `steerable`(前端显/隐输入框),listener 对不可 steer 的 run 回 `steer_rejected reason=framework_no_steering`。best-effort,解析失败→False(安全)。回归 `test_steerability_asks_the_actual_driver_not_the_framework_name`(cloud+nexus_power 但 remote 无 steering→False;local→True)。**这条同时对 #354 前后成立**:上 #354 后 remote driver 对 nexus_power 声明 steering→cloud 也 True。
+* **reconnect(Important)**:`run_reconnect` 帧带 `steerable=false`——重连的观察 WS **不持有** run 的 SteerChannel(它在原 WS handler 作用域),故前端隐藏输入,不发会永挂的 steer。重连侧回折 steer 是 follow-up(需 run 经 active_runs 暴露其 channel)。
+* **持久化(Important,记为 follow-up)**:owner 这句 steer 走 ephemeral,**不落 chat memory / event_stream**。其**效果**经 assistant 回复被 `persist_turn` 保存;但**字面消息**刷新后不在历史、下轮 chat memory 也没有——消费时补写 chat memory(去重 optimistic 气泡)是**独立 follow-up**。已在 [[steer_schema.py]] docstring 标注「owner_chat 首落地不走 inbox」以免文档与代码分叉。
+
+## 2026-08-14 — chat fast mode: 首包可带 fast_mode
+
+`AgentRunRequest` 新增 `fast_mode: bool = False`（首包可选字段；缺省=
+今日路径）。fresh-run 的 drive kwargs 构造抽成纯函数
+`_fresh_run_drive_kwargs(request, *, session_id, working_source,
+mcp_servers)`（沿 `_circuit_open_frame` 的纯函数可测 idiom），字段逐项
+锁在 tests/backend/test_websocket_fast_mode.py——WS payload → drive 契约
+不能静默丢字段。fast_mode 纯透传：策略在 AgentRuntime 的
+`_resolve_turn_profile`，本文件零判断；reconnect 路径不涉及（profile
+不持久化，重连只回放）。
+
+## 2026-08-13 — WebSocket 账户状态闸门（停用用户不能起 run）
+
+`/ws/agent/run` 在 cloud 分支验完 token、`token_user_id` 与 payload `user_id`
+一致性校验通过、`websocket.accept()` 之后、进入 reconnect / fresh-run（"Starting
+agent runtime"）**之前**，补一道**账户状态闸门**：
+`if (await _account_state(token_user_id)) in NON_TRANSACTING_USER_STATUSES:` →
+发一帧 `{type:"error", error_code: ACCOUNT_SUSPENDED}` 后
+`websocket.close(code=WS_CLOSE_POLICY_VIOLATION)` 并 `return`。
+
+**为什么必须在这里再来一遍**：账户闸门原本只在 HTTP auth middleware，而 middleware
+**豁免 `/ws/*`**（WebSocket 在首帧自带 auth），于是一个被停用用户拿自己有效的 JWT
+仍能经 WS **发起新 run**——而 WS 是产品**主**路径。复用 [[auth]] 的**同一个**
+`_account_state` 读取器（TTL 缓存、fail-open、BINARY 大小写敏感）与**同一个**
+共享集 `NON_TRANSACTING_USER_STATUSES`（[[entity_schema.py]]），两面绝不漂移。
+`_account_state` 是 async，需 `await`。
+
+**陷阱**：WS **不能**用 `auth_error_response()`——它返回 `JSONResponse`，无法经
+WebSocket 发送；必须用本文件里其它 auth 失败already在用的「error-frame + close」
+形式。`/ws/ping`（纯 liveness，另一个 route）**不 gate**。闸门在 cloud 分支内，
+local 模式（单可信用户，无停用概念）天然不过它。
+
+## 2026-08-11 — cloud 错误脱敏 + MCP egress SSRF 过滤（安全审计 P1-1/P0-3）
+
+构造 `mcp_servers` 后调 `backend.routes._mcp_egress.filter_public_mcp_servers`（cloud only）丢弃解析到内网的 MCP，防运行时把内网响应带进模型上下文（复用文件头已导入的 `_is_cloud_mode`，不再另 import）。
+
+顶层 `except` 原本把完整 `traceback.format_exc()` + `str(e)` 通过 `send_json` 发给前端，
+泄露服务器路径、依赖版本、内部变量。现在按 `is_cloud_mode()` 分流：cloud 只发通用
+`{"error_message": "Internal server error.", "error_type": "InternalError"}`（详情只进
+服务端日志）；local/dev 仍发完整 traceback 便于调试。
+
+## 2026-08-10 — accepted and started message stages
+
+After validation a fresh turn records `message_accepted`; after Step 0 assigns
+the durable run ID it records idempotent `run_started`. Their gap isolates
+runtime-start failures from browser submission failures. The accepted fact is
+keyed by the already-created WebSocket session ID and includes that ID as a
+dimension, so reconnect/retry paths cannot inflate the stage count. Small
+module-level helpers make both capture contracts directly testable.
+
+## 2026-08-06 — AuthError 帧带 `error_code`
+
+七个 AuthError 帧各自加一个 `error_code`（token_expired / token_invalid /
+token_missing / identity_missing / identity_unresolved，取值见
+[[auth_errors]]）。动机：这些帧原本只有 `error_type: 'AuthError'`，前端
+[[wsAuthError.ts]] 无法区分"JWT 真的死了"和"local 模式 URL 的 x_user_id 跟
+payload 对不上"（后者是前端状态 bug），一律当成会话死亡直接登出。
+
+前端侧现在不管哪种帧都先走 [[sessionGuard.ts]] 探针确认，所以即使分类错了，
+代价也从"整个会话"降到"这一次运行失败"。
 
 ## 2026-07-31 (三次) — 可见性判定改「agent 属主」（review R2 Critical #1）
 
@@ -89,14 +231,20 @@ instrumentation — the nearest surviving funnel event is
   `_format_dt`）。
 
 **为什么是 `created_at` 而不是 `started_at`**：
-`ChatModule.hook_after_event_execution` 把 user 这条持久化进
-`agent_messages` 时用的 `user_ts = params.event.created_at.isoformat()`
-（chat_module.py:786）。前端 ChatPanel 的 dedup 走 `role:content`
+`ChatModule.persist_turn` 把 user 这条写进
+`instance_json_format_memory_chat` 时，`meta_data.timestamp` 取的就是
+`params.event.created_at.isoformat()`（assistant 那条才用 `utc_now()`，
+即 run 结束时刻——两者刻意不同）。前端 ChatPanel 的 dedup 走 `role:content`
 + ±300_000ms 窗口（SAME_MESSAGE_WINDOW_MS），如果时间戳基准不一致，
 即便差几秒也只是窗口在兜底——但用同一个字段作基准让"reconnect 注入
-的 user bubble"和"run 结束后从 agent_messages 拉回来的 user 行"
+的 user bubble"和"run 结束后从 `/simple-chat-history` 拉回来的 user 行"
 匹配精度最高（只差 DB INSERT 时 SQL `datetime('now')` 与 Python
 `utc_now()` 之间的几个毫秒），不会出现双重 user 气泡。
+
+> 2026-08-05 更正：这段原来写的是"持久化进 `agent_messages`"并钉了
+> `chat_module.py:786`。`agent_messages` **没有写入者、0 行**，是墓碑表
+> （见 [[agent_message_repository]] 2026-08-05）；聊天正文一直在
+> `instance_json_format_memory_chat`。行号也已失效，故不再钉行号。
 
 env_context 解析失败（JSON 损坏、列空）走 `suppress + warn-log`：
 reconnect 仍然继续，只是前端那一帧拿不到 input_content，user 气泡

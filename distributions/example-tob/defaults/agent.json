@@ -1,0 +1,6 @@
+{
+  "name": "Acme CRM Assistant",
+  "description": "Answers CRM questions for Acme sales staff.",
+  "framework": "nexus_power",
+  "pipelineProfile": "default"
+}

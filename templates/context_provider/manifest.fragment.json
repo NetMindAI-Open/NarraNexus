@@ -1,0 +1,15 @@
+{
+  "api": {
+    "context_provider": 0
+  },
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "provides": {
+    "agent.capabilities.context_providers": [
+      "nxplugins.__PLUGIN_PKG__:CONTEXT_PROVIDERS"
+    ]
+  }
+}

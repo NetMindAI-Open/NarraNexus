@@ -1,8 +1,13 @@
 ---
 code_file: tests/bundle/test_roundtrip.py
-last_verified: 2026-05-08
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 归属拒绝断言改为 `BundleForbidden`
+
+team 归属用例改为 `pytest.raises(BundleForbidden)`；新增外人 agent 用例：外人 agent →
+`BundleForbidden`，未知 agent → 普通 `ValueError`（不是 `BundleForbidden`，路由侧 500）。
 
 # test_roundtrip.py — ID Rewrite Layer 5 (PRD §8.11)
 

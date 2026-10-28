@@ -177,8 +177,8 @@ def main() -> None:
     # Import channel modules so they register their MessageSourceHandlers.
     # In the live process this happens at startup; here we trigger it
     # manually so the dump renders rows with the right source prefixes.
-    import xyz_agent_context.module.lark_module  # noqa: F401
-    import xyz_agent_context.message_bus  # noqa: F401
+    import narranexus_plugins.lark_module  # noqa: F401
+    import narranexus.platform.message_bus  # noqa: F401
 
     conn = sqlite3.connect(DB_PATH)
 
@@ -223,7 +223,7 @@ def main() -> None:
     # Use the real SHORT_TERM_MEMORY_HEADER + inline the
     # _build_short_term_memory_prompt logic so we don't pull in
     # ContextRuntime (which requires a DB client at construction time).
-    from xyz_agent_context.context_runtime.prompts import SHORT_TERM_MEMORY_HEADER
+    from narranexus.platform.context_runtime.prompts import SHORT_TERM_MEMORY_HEADER
     short_term_section = _build_short_term_section(short_term, SHORT_TERM_MEMORY_HEADER)
 
     fake_base_system = (
@@ -236,7 +236,7 @@ def main() -> None:
     final_messages = [{"role": "system", "content": enhanced_system_prompt}]
     # Phase 4: prefix every long_term row with its MessageSource handler's
     # prefix so the LLM can tell channel-specific rows apart.
-    from xyz_agent_context.channel.message_source_handler import (
+    from narranexus.platform.channel.message_source_handler import (
         MessageSourceRegistry,
     )
     for msg in long_term:

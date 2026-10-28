@@ -1,8 +1,56 @@
 ---
 code_file: frontend/src/components/settings/NetmindActionZone.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — free 的升级 CTA 改为打开支付方式选择，不再直接走信用卡
+
+`NetmindUpsellCard` 的 `onUpgrade` 原本直接调 `handleSubscribe`（无参 = 卡）。
+**这一步就是「支付宝买不了套餐」的全部原因**：三条轨在后端早就通了、类型也定义了，
+但前端只给已经持有一次性订阅的人开了口子。现在它打开一个弹窗，里面是
+[[NetmindProPurchase]]（三轨全在，卡预选）。
+
+`free × low` 是**内联**渲染 planBlock 的，所以弹窗要跟着挂进那个分支，不能只挂在
+healthy 的 manage 弹窗里 —— 两处都要，否则最需要升级的那个状态反而点不开。
+
+
+## 2026-08-19 — 定价链接搬到主域名
+
+`PRICING_URL`: `https://website.narra.nexus/pricing` → `https://narra.nexus/pricing`
+（Owner 指定）。下方 2026-07-18 条目里的那个 `website.` 子域值**已作废**，换链接
+的理由和"链接只出现在决策时刻"的判断都没变。
+
+**它是构建期常量，不是部署配置** —— 改了要重新构建前端才生效。查过 `openExternal`
+这条路上**没有域名白名单**（Tauri 侧是无 scope 的 `shell:allow-open`），所以换域名
+不会在桌面端静默打不开。注释里留了话：如果这个 URL 开始反复变（官网改版、按语言
+分中英文定价页），就把它提升到 `window.__NARRANEXUS_CONFIG__`，别再回来改这一行。
+
+注意 `website.narra.nexus` 在 [[bundle]] 的允许域名清单里还有一份，那是归档导入
+用的、与本链接无关 —— 但真要下线那个子域时它得一起看。
+
+
+## 2026-08-19 — 第四个状态 `pro_onetime`（支付宝/微信一次性订阅）
+
+⚠ **作废下方那张 state × runway 表**：它只列了 free / pro_active / pro_cancelled
+三行。现在有第四行：
+
+| pro_onetime（无视 runway） | Renew 主按钮 + 续订弹窗（月数 + 充值） |
+
+这一格的首行放的是**会员价**，不是「Pro 生效中 —— 一次性购买」：紧邻上方的套餐行
+已经把套餐、到期日、不自动续费三件事说全了，在动作区最显眼的一行复述一遍，等于把
+最贵的位置花在眼睛刚读过的内容上（Owner 从运行中的界面上指出来的）。改成说"当 Pro
+能换到什么"——和 `pro_active` 在同一位置说的是同一句。`onetimeActive` 这个 key 随之
+删除，没有读者的文案就是腐烂。
+
+这一格**既不给取消也不给恢复**，两条都不是为了整洁：
+
+- `reactivate` 对一个永不续费的购买没有意义；
+- `cancel` 对它返回 **200 `{"status":"auto_renew_off"}`**（2026-08-19 dev 实测）——
+  一个**谎报成功的空操作**，会让界面宣布一次根本没发生、也从不需要的取消。
+
+「续订」无视 runway 恒为主按钮：和卡订阅用户不同，他们不动手就什么都不会续。
+
 
 ## 2026-07-31 — 付费入口从 12px 文字链接升级为 outline 按钮 + 文案改直白
 

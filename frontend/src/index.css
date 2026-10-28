@@ -150,6 +150,16 @@
      dark: a hint of lifted gray). Distinct from --nm-paper-warm (the
      hover bg, opaque) so hover ≠ selected can read at a glance. */
   --nm-row-active:    rgba(42,38,32,0.07);
+  /* List-row hover — the same ink family as row-active at roughly half
+     strength (Owner 2026-08-18: hover and selected must be two steps of
+     ONE hue, not warm-vs-gray). Rows only; control/menu hover stays
+     --nm-paper-warm per design_system.md §2.5. */
+  --nm-row-hover:     rgba(42,38,32,0.04);
+
+  /* First-run graph paper (WelcomeRail). Lifted from narra.nexus's hero
+     overlay — #1112140a on 72px cells — re-expressed in warm ink so it
+     matches this app's paper instead of the site's cooler grey. */
+  --nm-welcome-grid:  rgba(42,38,32,0.04);
 
   /* Surfaces — paper-raised (used for own-bubble paper variant,
      inputs, dropdowns, banners, OAuth chips). The shadow tokens
@@ -255,7 +265,11 @@
 
   /* Row-active overlay — light ink at low alpha so dark warm paper
      lifts to a slightly grayer feel without losing the temperature. */
-  --nm-row-active:   rgba(242,239,232,0.09);
+  --nm-row-active:   rgba(242,239,232,0.12);
+  --nm-row-hover:    rgba(242,239,232,0.07);
+  /* Dark needs a higher alpha for the same perceived weight (same reason the
+     row-hover pair is 0.07/0.12 dark vs 0.04/0.07 light). */
+  --nm-welcome-grid: rgba(242,239,232,0.055);
 
   /* Species lifted for AA contrast on dark warm paper */
   --color-carbon:       #FF7A5C;
@@ -596,6 +610,25 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 .markdown-content.markdown-dim {
   color: var(--text-tertiary);
 }
+/* Progress tier (design A′): NexusPower's own narration — what the agent is
+   doing right now, in prose. One rung of the SAME ink ladder above receded
+   thinking (tertiary) and one below the answer (primary), so it is legible
+   without competing with the reply. Still a process block: no bubble, no
+   fill, no radius — the tier changes, the register does not. */
+.markdown-content.markdown-progress {
+  color: var(--text-secondary);
+}
+/* Crepe (the md artifact block editor) ships `.ProseMirror { padding: 60px
+   120px }` in its theme reset — sized for a full-page editor. In the artifact
+   column (~340px at its normal width) that leaves ~100px of content and the
+   text crams one glyph per line; the zoom modal only looked fine because it
+   is wide enough to absorb 240px of chrome. Scope-override inside our md
+   surface: modest padding, with extra LEFT room because Crepe's block drag
+   handle (+ / ⋮⋮) renders in the left padding band and would otherwise sit
+   on top of the text. */
+.markdown-content .milkdown .ProseMirror {
+  padding: 16px 16px 16px 48px;
+}
 .markdown-content.markdown-reply {
   /* Match the chat bubble body (0.95rem). The old 1.05rem read noticeably
      larger than the bubbles when the same reply appears inside the reasoning
@@ -911,16 +944,6 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
 }
-
-/* JourneyBand: a carbon pulse travels the memory→network→team baseline,
-   visualising "the more you work together, the more it carries forward"
-   (onboarding empty state). Honors prefers-reduced-motion via the global
-   reduce block below. */
-@keyframes nm-travel {
-  0%   { left: 2%; }
-  100% { left: 98%; }
-}
-.animate-travel { animation: nm-travel 5s ease-in-out infinite alternate; }
 
 /* Header activity glyph — the agent's heartbeat, drawn as an ECG (silicon =
    the AI side). Two stacked paths: a faint static baseline, and a bright pulse

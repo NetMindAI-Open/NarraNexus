@@ -19,8 +19,8 @@ this test pins the same guarantee for `_resolve_skill_dir`.
 """
 from __future__ import annotations
 
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
-from xyz_agent_context.settings import settings
+from narranexus_plugins.skill_module.skill_module import SkillModule
+from narranexus.platform.settings import settings
 
 
 def test_resolve_skill_dir_returns_none_when_skills_dir_missing(tmp_path, monkeypatch):

@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/arena.py
-last_verified: 2026-06-23
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — provision 失败不回显异常原文
+
+与 bundle 同类：`Arena provisioning failed: {e}` → 固定文案，细节已在 `logger.exception`。
 
 # arena.py — Arena onboarding HTTP endpoint
 

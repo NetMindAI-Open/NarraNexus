@@ -7,7 +7,7 @@
  *
  * Reached by clicking your own avatar in the left sidebar. Where the right
  * rail is headed by "<agent>" and shows ONE agent's Config / Memory / Network,
- * this page is headed by "You · <name>" and aggregates ACROSS all your agents:
+ * this page is headed by "My World · <name>" and aggregates ACROSS all your agents:
  *   - Memory  — your storylines/narratives, by topic (carbon · Narra)
  *   - Network — everyone your agents know, combined (silicon · Nexus)
  *   - World   — what your agents collectively believe about you
@@ -48,7 +48,9 @@ export function YouWorkspace() {
   const { t } = useTranslation();
   const userId = useConfigStore((s) => s.userId);
   const displayName = useConfigStore((s) => s.displayName);
-  const name = (displayName || userId || t('pages.you.you')).trim();
+  // Just the identity here — the "My World" heading is rendered separately
+  // (below), so falling back to it would read "My World · My World".
+  const name = (displayName || userId || '').trim();
 
   const [tab, setTab] = useState<YouTab>('memory');
 
@@ -87,11 +89,11 @@ export function YouWorkspace() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[860px] min-h-full px-6 py-8 flex flex-col">
-        {/* Header — "You · <name>", carbon·silicon binding dots. */}
+        {/* Header — "My World · <name>", carbon·silicon binding dots. */}
         <div className="flex items-center gap-3 mb-1 shrink-0">
           <RingAvatar species="carbon" label={name || '?'} size="md" />
           <div className="flex-1 min-w-0">
-            <h1 className="text-[18px] font-medium leading-tight text-[var(--text-primary)]">
+            <h1 className="text-lg font-medium leading-tight text-[var(--text-primary)]">
               {t('pages.you.you')}{name ? ` · ${name}` : ''}
             </h1>
             <p className="mt-0.5 text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">

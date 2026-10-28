@@ -21,12 +21,12 @@ import sys
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.quota_service import QuotaService
-from xyz_agent_context.agent_framework.providers.system_service import (
+from narranexus.platform.agent_framework.quota_service import QuotaService
+from narranexus.platform.agent_framework.providers.system_service import (
     SystemProviderService,
 )
-from xyz_agent_context.repository.quota_repository import QuotaRepository
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.repository.quota_repository import QuotaRepository
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 async def main() -> int:

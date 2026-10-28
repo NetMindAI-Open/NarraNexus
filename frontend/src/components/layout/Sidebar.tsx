@@ -1,128 +1,98 @@
 /**
- * Sidebar - Bioluminescent Terminal style
- * Agent selection and navigation with dramatic visual effects
+ * Sidebar — the app's three-zone shell.
+ *
+ * Zone 1: logo + collapse (panel icon). Zone 2: global nav (New / Export /
+ * Dashboard / Marketplace / Workspace / Settings) then the Chats list
+ * (teams + agents, owned by AgentList — the sidebar stays "a shell, not a
+ * list owner"). Zone 3: the user row opening an identity-only account
+ * popover (account / version / logout) + the Find Us entry. Theme and
+ * language live in Settings → Personalization, not here.
+ *
+ * Collapse hides the whole aside (uiStore.sidebarCollapsed); the expand
+ * button renders in the chat header / a floating chip, outside this tree.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   LogOut,
-  ChevronLeft,
-  ChevronRight,
-  Sliders,
-  Server,
+  PanelLeft,
   Monitor,
   Cloud,
   RotateCcw,
-  LayoutDashboard,
-  MessageSquarePlus,
-  Store,
+  User,
+  Users,
+  ChevronsUpDown,
 } from 'lucide-react';
-import { BetaBadge, Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
+import { BetaBadge, ScrollArea, useConfirm } from '@/components/ui';
 import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
-import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore, useUIStore } from '@/stores';
+import { useAgentImported, useDismissOnOutside } from '@/hooks';
+import { useConfigStore, useRuntimeStore, useUIStore } from '@/stores';
 import { cn } from '@/lib/utils';
-
-// v2.2 G1: prefetch the lazy DashboardPage chunk on hover/focus so click
-// arrives to a warm cache. Static literal -> Vite resolves at build time,
-// no injection risk.
-const prefetchDashboard = () => {
-  void import('@/pages/DashboardPage');
-};
-
-// Left-nav hover/active treatment: light up the label + icon (carbon), no
-// background fill — matches the right BookmarkStrip. Destructive actions
-// (Clear History / Logout) light up in error red instead of carbon. Both
-// override the ghost variant's default `hover:bg` via tailwind-merge.
-const NAV_ITEM = 'text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]';
-const NAV_ITEM_ACTIVE = 'text-[var(--color-carbon)]';
-const NAV_ITEM_DANGER = 'text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-error)]';
+import { SIDEBAR, SIDEBAR_SECTIONS, sortedSidebarItems, useRegistryEntries } from '@/platform/registries';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { useWhenContext } from '@/platform/whenContext';
+import { wipeAllSessionData } from '@/lib/sessionWipe';
 import { AgentList } from './AgentList';
+import { CreateMenu } from './CreateMenu';
+import { ImportAgentModal } from './ImportAgentModal';
+import { FIND_US_URL } from './TopBar';
+
+// Nav rows are LIST ROWS — same interaction ladder as the agent/team rows
+// below them (design_system.md §2.5): hover = --nm-row-hover, current page =
+// --nm-row-active. Keeping them off the warm control family avoids two hue
+// systems inside one sidebar.
+const NAV_ROW =
+  'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors text-[var(--nm-ink70)] hover:bg-[var(--nm-row-hover)] hover:text-[var(--nm-ink)]';
+const NAV_ROW_ACTIVE = 'bg-[var(--nm-row-active)] text-[var(--nm-ink)]';
 
 export function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
   const [showModePopup, setShowModePopup] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   // Mobile-only feedback entry. Desktop uses the floating FeedbackButton
   // (bottom-right, by the help "?"); on mobile that corner is the composer's,
   // so the drawer footer carries it instead. Exactly one entry per viewport.
   const [showFeedback, setShowFeedback] = useState(false);
-  // Mobile (< md): the sidebar is an off-canvas drawer toggled from the TopBar.
+  // Mobile (< md): the sidebar is an off-canvas drawer toggled from the
+  // mobile top strip. Desktop (md+): collapse hides the aside entirely.
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const isMobile = useIsMobile();
-
-  // The icon-only collapsed layout makes no sense inside the mobile drawer
-  // (it's a full-width overlay, not a docked rail) — force it expanded there.
-  useEffect(() => {
-    if (isMobile && collapsed) setCollapsed(false);
-  }, [isMobile, collapsed]);
   const navigate = useNavigate();
   const location = useLocation();
-
-  const { userId, displayName, logout } = useConfigStore();
+  const { userId, displayName } = useConfigStore();
+  const netmindToken = useConfigStore((s) => s.netmindToken);
   // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
   // human-readable. Show the NetMind nickname when we have it; fall back to
   // user_id (local mode, where it IS the chosen username).
   const userLabel = displayName || userId;
-  const { clearAll: clearChat } = useChatStore();
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
-  const clearPreload = usePreloadStore((s) => s.clearAll);
+  const handleImportApplied = useAgentImported();
+  // Import-from-other-source is local-only: the scanner reads the user's
+  // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
+  const isLocalMode = mode === 'local';
+  // Nav rows come from the sidebar registry (builtin rows are registered by
+  // platform/builtin.ts; a plugin registering later re-renders this list).
+  const navItems = sortedSidebarItems(features, useRegistryEntries(SIDEBAR));
+  const whenCtx = useWhenContext({});
 
-  // The cloud/local mode switcher is hidden from the sidebar — we don't want
-  // users choosing the deployment mode. All the switching logic (handleSwitchMode,
-  // mode state, /mode-select) is kept intact behind this flag so it can be
-  // re-enabled by flipping to true; only the UI entry points are gated.
+  // The cloud/local mode switcher is hidden — we don't want users choosing
+  // the deployment mode. All the switching logic (handleSwitchMode, mode
+  // state) is kept intact behind this flag so it can be re-enabled by
+  // flipping to true; only the UI entry points are gated.
   const SHOW_MODE_SWITCHER = false;
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { isDark } = useTheme();
   const { t } = useTranslation();
+  const accountRef = useDismissOnOutside<HTMLDivElement>(accountOpen, () => setAccountOpen(false));
 
-  /**
-   * Wipe all session + cached data before leaving the current mode.
-   *
-   * This is deliberately aggressive. We do NOT trust Zustand's persist
-   * middleware to have flushed to localStorage by the time the subsequent
-   * window.location.href reload happens — so we also manually
-   * `removeItem()` every known persisted key. After the reload each store
-   * will re-hydrate from whatever is (or is not) in localStorage, so
-   * removed keys mean default-state stores.
-   *
-   * Keys wiped:
-   *   - narra-nexus-config  → configStore (userId, token, agents, ...)
-   *   - narranexus-runtime  → runtimeStore (mode, cloudApiUrl, ...)
-   *   - lastSeenAwarenessTime:*  → written directly by configStore, not
-   *                                 covered by any store's clearAll
-   */
-  const wipeAllSessionData = () => {
-    // 1. Reset in-memory store state via each store's clearAll/logout.
-    //    This updates the UI immediately and invokes persist middleware
-    //    to sync localStorage (best-effort — we do not rely on it).
-    logout();           // configStore
-    clearChat();        // chatStore
-    clearPreload();     // preloadStore
-
-    // 2. Directly nuke every key in localStorage that could carry
-    //    session state. This is the authoritative clear, independent
-    //    of whatever Zustand persist may or may not have flushed yet.
-    try {
-      localStorage.removeItem('narra-nexus-config');
-      localStorage.removeItem('narranexus-runtime');
-
-      const auxKeys: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('lastSeenAwarenessTime:')) {
-          auxKeys.push(k);
-        }
-      }
-      auxKeys.forEach((k) => localStorage.removeItem(k));
-    } catch {
-      // Safari private mode / other storage exceptions — ignore.
-    }
-  };
+  const modeLabel = mode === 'local' ? t('sidebar.local') : t('sidebar.cloud');
 
   const handleSwitchMode = () => {
     wipeAllSessionData();
@@ -142,6 +112,7 @@ export function Sidebar() {
   };
 
   const handleLogout = async () => {
+    setAccountOpen(false);
     const ok = await confirm({
       title: t('layout.sidebar.logoutConfirmTitle'),
       message: t('layout.sidebar.logoutConfirmMessage'),
@@ -153,6 +124,11 @@ export function Sidebar() {
     window.location.href = '/login';
   };
 
+  const accountNavigate = (to: string) => {
+    setAccountOpen(false);
+    navigate(to);
+  };
+
   return (
     <aside
       className={cn(
@@ -161,358 +137,230 @@ export function Sidebar() {
         // Rows sit on paper directly with rounded highlight when active.
         'bg-[color:var(--nm-paper)]',
         'border-r border-[color:var(--nm-hairline)]',
-        'transition-all duration-300 ease-out',
-        // Mobile (< md): off-canvas drawer below the 36px TopBar, slides in.
+        // Mobile (< md): off-canvas drawer below the 36px mobile top strip.
         // Height comes from top-9 + bottom-0 (NOT h-full, which would overflow
-        // 36px below the viewport and clip the footer / theme toggle).
-        'fixed top-9 bottom-0 left-0 z-40 w-72',
+        // 36px below the viewport and clip the footer).
+        'fixed top-9 bottom-0 left-0 z-40 w-[272px] transition-transform duration-300 ease-out',
         mobileNavOpen ? 'translate-x-0 shadow-[var(--nm-elev-3)]' : '-translate-x-full',
-        // Tablet/desktop (md+): back in normal flow, full height, width by collapse.
+        // Tablet/desktop (md+): back in normal flow, full height; collapse
+        // hides the whole aside (the expand affordance lives outside it).
         'md:static md:top-auto md:bottom-auto md:z-auto md:h-full md:translate-x-0 md:shadow-none',
-        collapsed ? 'md:w-[72px]' : 'md:w-72',
+        sidebarCollapsed ? 'md:hidden' : 'md:flex',
       )}
     >
       {confirmDialog}
       {isMobile && <FeedbackDialog isOpen={showFeedback} onClose={() => setShowFeedback(false)} />}
+      {importOpen && (
+        <ImportAgentModal
+          onClose={() => setImportOpen(false)}
+          onApplied={handleImportApplied}
+        />
+      )}
 
-      {/* Header — original NarraNexus logo image preserved.
-          Collapsed state hides the wordmark and keeps only the toggle button. */}
-      <div className="p-4 border-b border-[var(--rule)]">
-        <div className="flex items-center justify-between gap-2">
-          {!collapsed && (
-            <div className="flex items-center gap-2 animate-fade-in min-w-0">
-              <img
-                src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
-                alt="NarraNexus"
-                className="h-11 w-auto object-contain shrink-0"
-              />
-              <BetaBadge className="shrink-0" />
-            </div>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setCollapsed(!collapsed)}
-            className={cn('shrink-0 hidden md:inline-flex', collapsed && 'mx-auto')}
-          >
-            {collapsed ? (
-              <ChevronRight className="w-4 h-4" />
-            ) : (
-              <ChevronLeft className="w-4 h-4" />
-            )}
-          </Button>
+      {/* ── Zone 1: logo + collapse ─────────────────────────────────────── */}
+      <div className="px-4 pt-3.5 pb-2.5 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <img
+            src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
+            alt="NarraNexus"
+            className="h-9 w-auto object-contain shrink-0"
+          />
+          <BetaBadge className="shrink-0" />
         </div>
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title={t('sidebar.collapseTitle')}
+          aria-label={t('sidebar.collapseTitle')}
+          className="shrink-0 hidden md:inline-flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] text-[var(--nm-ink50)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)] transition-colors"
+        >
+          <PanelLeft className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* User Info — NM RingAvatar carbon (human species), name + StatusDot status row.
-          Carbon ring marks "this is a human user" per Axiom #1. Clicking it opens
-          the owner-scoped "You" workspace (Memory / Network / World + Notes) — the
-          carbon counterpart to clicking an agent. */}
-      {!collapsed && (
-        <button
-          type="button"
-          onClick={() => navigate('/app/you')}
-          aria-label={t('layout.sidebar.openWorkspace')}
-          aria-current={location.pathname === '/app/you' ? 'page' : undefined}
-          className={cn(
-            'group w-full px-4 py-3 border-b border-[var(--rule)] text-left transition-colors',
-            location.pathname === '/app/you'
-              ? 'bg-[var(--bg-elevated)]'
-              : 'hover:bg-[var(--bg-elevated)]',
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <RingAvatar species="carbon" label={userLabel || '?'} size="sm" />
-            <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
-              <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]" title={userLabel}>
-                {userLabel}
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
-                <StatusDot status="success" size={6} />
-                <span>{t('sidebar.online')}</span>
-              </div>
-            </div>
-            {/* Affordance: this row opens your "You" workspace — a chevron that
-                brightens on hover (and a "your space" hint label). */}
-            <span
-              className={cn(
-                'shrink-0 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] transition-colors',
-                location.pathname === '/app/you'
-                  ? 'text-[var(--color-carbon)]'
-                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
-              )}
+      {/* ── Zone 2a: global nav ─────────────────────────────────────────── */}
+      <div className="px-2 pb-2 flex flex-col gap-px border-b border-[var(--nm-hairline)]">
+        <span data-help-id="sidebar.create-agent">
+          <CreateMenu
+            // The "+" opens the creation studio's fork rather than creating
+            // straight away: a one-click create is what left users unaware
+            // they had created an agent at all. The blank path there calls
+            // the same useCreateAgent().
+            onCreateAgent={() => navigate('/app/agents/new')}
+            onCreateTeam={() => navigate('/app/teams/new')}
+            onImportBundle={() => navigate('/app/bundle/import')}
+            onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
+          />
+        </span>
+        {navItems.map(({ id, value }) => {
+          const Icon = value.icon;
+          const active = value.isActive ? value.isActive(location) : location.pathname === value.to;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => navigate(value.to)}
+              onMouseEnter={value.prefetch}
+              onFocus={value.prefetch}
+              title={value.titleKey ? t(value.titleKey) : undefined}
+              data-help-id={value.helpId}
+              className={cn(NAV_ROW, active && NAV_ROW_ACTIVE)}
             >
-              {t('sidebar.you')}
-            </span>
-            <ChevronRight
-              className={cn(
-                'w-4 h-4 shrink-0 transition-all group-hover:translate-x-0.5',
-                location.pathname === '/app/you'
-                  ? 'text-[var(--color-carbon)]'
-                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
-              )}
-              aria-hidden
-            />
-          </div>
-        </button>
-      )}
-      {/* Collapsed: just the carbon avatar centered (still opens the workspace) */}
-      {collapsed && userId && (
-        <button
-          type="button"
-          onClick={() => navigate('/app/you')}
-          aria-label={t('layout.sidebar.openWorkspace')}
-          aria-current={location.pathname === '/app/you' ? 'page' : undefined}
-          className={cn(
-            'w-full px-4 py-3 border-b border-[var(--rule)] flex justify-center transition-colors',
-            location.pathname === '/app/you'
-              ? 'bg-[var(--bg-elevated)]'
-              : 'hover:bg-[var(--bg-elevated)]',
-          )}
-        >
-          <RingAvatar species="carbon" label={userLabel} size="sm" title={userLabel} />
-        </button>
-      )}
+              <Icon className="w-4 h-4 shrink-0" />
+              {t(value.labelKey)}
+            </button>
+          );
+        })}
+      </div>
+      {/* Plugin sections under the nav (ui.sidebarSections), gated by `when`. */}
+      <SlotOutlet registry={SIDEBAR_SECTIONS} ctx={whenCtx} agentId={null} as="div" className="px-2 pb-1 space-y-1" />
 
-      {/* Agent list — grouped by team (spec §11); teams are sections inside
-          the list itself, the old TeamFilterBar chip filter is retired. */}
+      {/* ── Zone 2b: Chats (teams + agents, owned by AgentList) ─────────── */}
       <ScrollArea className="flex-1">
-        <AgentList collapsed={collapsed} />
+        <AgentList />
       </ScrollArea>
 
-
-      {/* Navigation Items */}
-      <div className="px-3 py-2 border-t border-[var(--rule)] space-y-1">
-        {!collapsed ? (
-          <>
-            {/* Mode Switcher — hidden (SHOW_MODE_SWITCHER); logic preserved */}
+      {/* ── Zone 3: user row + account popover + Find Us ────────────────── */}
+      <div ref={accountRef} className="p-2 border-t border-[var(--nm-hairline)] relative">
+        {accountOpen && (
+          <div
+            className={cn(
+              'absolute bottom-full left-2 right-2 mb-1.5 z-50 p-1.5',
+              'rounded-[var(--radius-md)] border shadow-[0_8px_24px_rgba(0,0,0,0.14)]',
+              'bg-[var(--nm-card)] border-[var(--nm-hairline)]',
+            )}
+          >
+            <div className="px-2.5 pt-2 pb-1.5 border-b border-[var(--nm-hairline)] mb-1">
+              <div className="text-[13px] font-semibold text-[var(--nm-ink)] truncate" title={userLabel}>
+                {userLabel}
+              </div>
+              <div className="text-[10px] text-[var(--nm-ink50)]">
+                {t('sidebar.online')} · {modeLabel} · v{__APP_VERSION__}
+              </div>
+            </div>
+            {/* Identity actions only. Theme and language live in Settings →
+                Personalization; the workspace has its own nav row. Keeping a
+                second settings surface here is what made users ask what the
+                difference between the two was. */}
+            {netmindToken && (
+              <AccountItem
+                icon={<User className="w-3.5 h-3.5" />}
+                label={t('sidebar.account')}
+                onClick={() => accountNavigate('/app/settings?tab=account')}
+              />
+            )}
+            {isMobile && (
+              <AccountItem
+                icon={<Users className="w-3.5 h-3.5" />}
+                label={t('feedback.title')}
+                onClick={() => { setAccountOpen(false); setShowFeedback(true); }}
+              />
+            )}
             {SHOW_MODE_SWITCHER && (
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="sm"
+              <AccountItem
+                icon={mode === 'local' ? <Monitor className="w-3.5 h-3.5" /> : <Cloud className="w-3.5 h-3.5" />}
+                label={t('layout.sidebar.switchTo', {
+                  mode: mode === 'local' ? t('sidebar.cloud') : t('sidebar.local'),
+                })}
                 onClick={() => setShowModePopup(!showModePopup)}
-                className={cn('w-full justify-start gap-2', NAV_ITEM)}
+              />
+            )}
+            {SHOW_MODE_SWITCHER && showModePopup && (
+              <button
+                type="button"
+                onClick={handleSwitchMode}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)]"
               >
-                {mode === 'local' ? (
-                  <Monitor className="w-4 h-4" />
-                ) : (
-                  <Cloud className="w-4 h-4" />
-                )}
-                {mode === 'local' ? t('sidebar.local') : t('sidebar.cloud')}
-              </Button>
-              {showModePopup && (
-                <div className="absolute bottom-full left-0 mb-1 w-full p-3 rounded-lg border shadow-lg z-50"
-                  style={{
-                    backgroundColor: 'var(--bg-secondary)',
-                    borderColor: 'var(--border-default)',
-                  }}>
-                  <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                    {t('layout.sidebar.currentMode', {
-                      mode: mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode'),
-                    })}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={handleSwitchMode}
-                  >
-                    <RotateCcw className="w-3 h-3 mr-1" />
-                    {t('layout.sidebar.switchTo', {
-                      mode: mode === 'local' ? t('sidebar.cloud') : t('sidebar.local'),
-                    })}
-                  </Button>
-                </div>
-              )}
+                <RotateCcw className="w-3.5 h-3.5" />
+                {t('layout.sidebar.currentMode', {
+                  mode: mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode'),
+                })}
+              </button>
+            )}
+            <div className="my-1 mx-1 border-t border-[var(--nm-hairline)]" />
+            <AccountItem
+              icon={<LogOut className="w-3.5 h-3.5" />}
+              label={t('sidebar.logout')}
+              danger
+              onClick={handleLogout}
+            />
+            <div className="px-2.5 pt-1 pb-0.5 text-[9px] text-[var(--nm-ink30)] font-mono tracking-wider truncate">
+              {t('sidebar.poweredBy')}
             </div>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/app/dashboard')}
-              onMouseEnter={prefetchDashboard}
-              onFocus={prefetchDashboard}
-              className={cn(
-                'w-full justify-start gap-2',
-                NAV_ITEM,
-                location.pathname === '/app/dashboard' &&
-                  NAV_ITEM_ACTIVE,
-              )}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              {t('sidebar.dashboard')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/app/marketplace')}
-              className={cn(
-                'w-full justify-start gap-2',
-                NAV_ITEM,
-                location.pathname === '/app/marketplace' &&
-                  NAV_ITEM_ACTIVE,
-              )}
-            >
-              <Store className="w-4 h-4" />
-              {t('sidebar.marketplace')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/app/settings')}
-              className={cn(
-                'w-full justify-start gap-2',
-                NAV_ITEM,
-                location.pathname === '/app/settings' &&
-                  NAV_ITEM_ACTIVE,
-              )}
-            >
-              <Sliders className="w-4 h-4" />
-              {t('sidebar.settings')}
-            </Button>
-            {features.showSystemPage && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate('/app/system')}
-                className={cn(
-                  'w-full justify-start gap-2',
-                  NAV_ITEM,
-                  location.pathname === '/app/system' &&
-                    NAV_ITEM_ACTIVE,
-                )}
-              >
-                <Server className="w-4 h-4" />
-                {t('sidebar.system')}
-              </Button>
-            )}
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-1">
-            {SHOW_MODE_SWITCHER && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowModePopup(!showModePopup)}
-              title={mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode')}
-              className={NAV_ITEM}
-            >
-              {mode === 'local' ? (
-                <Monitor className="w-4 h-4" />
-              ) : (
-                <Cloud className="w-4 h-4" />
-              )}
-            </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/app/dashboard')}
-              onMouseEnter={prefetchDashboard}
-              onFocus={prefetchDashboard}
-              title={t('sidebar.dashboard')}
-              className={cn(
-                NAV_ITEM,
-                location.pathname === '/app/dashboard' &&
-                  NAV_ITEM_ACTIVE,
-              )}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/app/marketplace')}
-              title={t('sidebar.marketplace')}
-              className={cn(
-                NAV_ITEM,
-                location.pathname === '/app/marketplace' &&
-                  NAV_ITEM_ACTIVE,
-              )}
-            >
-              <Store className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/app/settings')}
-              title={t('sidebar.settings')}
-              className={cn(
-                NAV_ITEM,
-                location.pathname === '/app/settings' &&
-                  NAV_ITEM_ACTIVE,
-              )}
-            >
-              <Sliders className="w-4 h-4" />
-            </Button>
-            {features.showSystemPage && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate('/app/system')}
-                title={t('sidebar.system')}
-                className={cn(
-                  NAV_ITEM,
-                  location.pathname === '/app/system' &&
-                    NAV_ITEM_ACTIVE,
-                )}
-              >
-                <Server className="w-4 h-4" />
-              </Button>
-            )}
           </div>
         )}
-      </div>
 
-      {/* Footer Actions */}
-      <div className="p-3 border-t border-[var(--rule)] space-y-2">
-        {!collapsed ? (
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
-            >
-              <LogOut className="w-4 h-4" />
-              {t('sidebar.logout')}
-            </Button>
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--rule)]">
-              <ThemeToggle />
-              <LanguageToggle />
-              {isMobile && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowFeedback(true)}
-                  title={t('feedback.title')}
-                  className={NAV_ITEM}
-                >
-                  <MessageSquarePlus className="w-4 h-4" />
-                </Button>
-              )}
-              <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
-                {t('sidebar.poweredBy')}
+        <div className="flex items-stretch gap-1.5">
+          <button
+            type="button"
+            onClick={() => setAccountOpen((v) => !v)}
+            title={t('sidebar.accountTitle')}
+            aria-label={t('sidebar.accountTitle')}
+            className={cn(
+              'flex flex-1 min-w-0 items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] text-left transition-colors',
+              accountOpen ? 'bg-[var(--nm-raised)]' : 'hover:bg-[var(--nm-paper-warm)]',
+            )}
+          >
+            <RingAvatar species="carbon" label={userLabel || '?'} size="sm" />
+            <span className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+              <span className="text-[13px] font-semibold leading-tight text-[var(--nm-ink)] truncate" title={userLabel}>
+                {userLabel}
               </span>
-              <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v{__APP_VERSION__}</span>
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleLogout}
-              title={t('sidebar.logout')}
-              className={NAV_ITEM_DANGER}
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
-            <ThemeToggle />
-          </div>
-        )}
+              <span className="flex items-center gap-1.5 text-[10px] leading-tight text-[var(--nm-ink50)]">
+                <StatusDot status="success" size={6} />
+                {t('sidebar.online')} · {modeLabel}
+              </span>
+            </span>
+            <ChevronsUpDown className="w-3.5 h-3.5 shrink-0 text-[var(--nm-ink30)]" aria-hidden />
+          </button>
+          {/* Community entry — must stay a plain external link (no in-app
+              routing); shortens the "sign up → join the community" path. */}
+          <a
+            href={FIND_US_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t('layout.topBar.findUsTitle')}
+            data-help-id="sidebar.find-us"
+            className="shrink-0 inline-flex flex-col items-center justify-center gap-1 px-2.5 rounded-[var(--radius-sm)] border border-[var(--nm-hairline)] text-[var(--nm-ink50)] no-underline text-[9px] font-medium transition-colors hover:text-[var(--nm-ink)] hover:border-[var(--border-strong)]"
+          >
+            <Users className="w-3.5 h-3.5" />
+            {t('layout.topBar.findUs')}
+          </a>
+        </div>
       </div>
     </aside>
+  );
+}
+
+function AccountItem({
+  icon,
+  label,
+  hint,
+  danger,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  hint?: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-[13px] font-medium text-left transition-colors',
+        danger
+          ? 'text-[var(--color-error)] hover:bg-[rgba(201,90,77,0.08)]'
+          : 'text-[var(--nm-ink70)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]',
+      )}
+    >
+      {icon}
+      <span className="flex-1 min-w-0 truncate">{label}</span>
+      {hint && (
+        <span className="text-[10px] font-mono text-[var(--nm-ink30)] shrink-0">{hint}</span>
+      )}
+    </button>
   );
 }

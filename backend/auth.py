@@ -13,7 +13,10 @@ bypassed — no JWT required.
 
 from __future__ import annotations
 
+import re
+
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -21,14 +24,69 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
 
+from narranexus.kernel.deployment import is_cloud_mode as _kernel_is_cloud_mode
+
+from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
+
+from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
+    GATEWAY_TOKEN_INVALID,
+    IDENTITY_MISSING,
+    IDENTITY_UNRESOLVED,
+    TOKEN_EXPIRED,
+    TOKEN_INVALID,
+    TOKEN_MISSING,
+    AuthError,
+    auth_error_response,
+)
+
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-do-not-use-in-production")
+_DEFAULT_JWT_SECRET = "dev-secret-do-not-use-in-production"
+# Known placeholders shipped in the deploy templates (stacks/.../.env.example,
+# .env.cloud.example). A cloud .env copied from the template but never edited
+# carries one of these, and they're public in git — the real failure mode is
+# "copied the template, forgot to change it", not "forgot the line". Treat them
+# exactly like the default.
+_PLACEHOLDER_JWT_SECRETS = frozenset(
+    {
+        _DEFAULT_JWT_SECRET,
+        "CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING",
+    }
+)
+_MIN_CLOUD_JWT_SECRET_LEN = 32
+JWT_SECRET = os.environ.get("JWT_SECRET", _DEFAULT_JWT_SECRET)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
+
+
+def assert_jwt_secret_safe() -> None:
+    """Fail-fast in cloud mode when JWT_SECRET is unset, a known template
+    placeholder, or too short to be a real secret. A guessable signing secret
+    lets anyone forge any user's JWT, so we refuse to boot rather than sign
+    with it — the same cloud-mode posture the artifact-token secret takes
+    (routes/artifacts/_token.py). Local mode keeps the default: single trusted
+    user, no JWT required.
+
+    Reads the effective module constant `JWT_SECRET` (resolved from the env at
+    import, i.e. at startup) as the single source of truth.
+    """
+    if not _is_cloud_mode():
+        return
+    secret = (JWT_SECRET or "").strip()
+    if (
+        not secret
+        or secret in _PLACEHOLDER_JWT_SECRETS
+        or len(secret) < _MIN_CLOUD_JWT_SECRET_LEN
+    ):
+        raise RuntimeError(
+            "JWT_SECRET is required in cloud mode but is unset, a known "
+            "placeholder, or shorter than 32 chars. Set a strong, unique "
+            "JWT_SECRET; we refuse to sign tokens with a guessable secret."
+        )
 
 
 # =============================================================================
@@ -96,7 +154,7 @@ async def _resolve_manyfold_default_user_id() -> Optional[str]:
     path — see auth_middleware. Kept so older URLs (pre-2026-05-26 build
     of the frontend) keep working without 401.
     """
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     return row.get("user_id") if row else None
@@ -119,7 +177,7 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
     """
     if not user_id.startswith("mf_"):
         return
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     existing = await db.get_one("users", {"user_id": user_id})
     if existing:
@@ -141,30 +199,62 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
 def _is_cloud_mode() -> bool:
     """Check if running in cloud mode (MySQL) vs local mode (SQLite).
 
-    Precedence (consistent with utils.deployment_mode, the canonical
-    resolver the rest of the codebase uses):
-      1. An explicit NARRANEXUS_DEPLOYMENT_MODE ("cloud"/"local") wins —
-         this is what lets a sqlite + NARRANEXUS_DEPLOYMENT_MODE=cloud
-         local smoke run cloud semantics.
-      2. Else the legacy heuristic below.
-
-    SAFETY: with NO explicit env var, an unset / empty / sqlite DATABASE_URL
-    MUST default to local mode, not cloud. A packaged desktop app (Tauri
-    dmg) sets DATABASE_URL via Rust's std::env::set_var, which is NOT
-    thread-safe on macOS — the tokio-spawned Python subprocess may not see
-    it. If we defaulted to cloud here, the bundled backend would demand
-    NetMind login from users running the desktop app in its intended local
-    mode (the v0.1.0 dmg bug). The dmg does NOT set
-    NARRANEXUS_DEPLOYMENT_MODE, so step 1 never trips it into cloud.
+    Forwards to the kernel's single resolver (``narranexus.kernel.deployment``):
+    explicit ``NARRANEXUS_DEPLOYMENT_MODE`` wins, then the ``DATABASE_URL``
+    heuristic, then ``DB_HOST``. With NO explicit env var an unset / empty /
+    sqlite ``DATABASE_URL`` MUST resolve to local — a packaged desktop app
+    (Tauri dmg) sets ``DATABASE_URL`` via Rust's ``std::env::set_var``, which is
+    NOT thread-safe on macOS, so the bundled backend must never demand a
+    NetMind login because the variable failed to propagate (the v0.1.0 dmg bug).
     """
-    explicit = os.environ.get("NARRANEXUS_DEPLOYMENT_MODE", "").strip().lower()
-    if explicit in ("cloud", "local"):
-        return explicit == "cloud"
-    db_url = os.environ.get("DATABASE_URL", "")
-    if db_url:
-        return not db_url.startswith("sqlite")
-    # Fallback: individual DB_HOST field means cloud deployment
-    return bool(os.environ.get("DB_HOST", ""))
+    return _kernel_is_cloud_mode()
+
+
+# =============================================================================
+# NarraNexus service identity (blueprint Q6 — mcp→backend trust path)
+# =============================================================================
+#
+# Cloud-mode requests whose Authorization bearer is the nx-agent positional
+# record (the executor→mcp identity channel, forwarded verbatim by the mcp
+# container's HttpStore). Verification is asymmetric: the broker signed the
+# identity_token field (last in BEARER_FIELDS) with its Ed25519 PRIVATE key;
+# we hold only the PUBLIC key, so a
+# compromised backend/mcp cannot mint identities. Consumed by auth_middleware
+# right before the user-JWT decode; see the block comment there for the
+# no-fail-open rationale.
+
+
+def _is_nx_service_bearer(auth_header: str) -> bool:
+    from narranexus.platform.module_system import BEARER_AGENT_PREFIX
+
+    return auth_header.startswith(f"Bearer {BEARER_AGENT_PREFIX}")
+
+
+def _verify_nx_service_bearer(request: "Request"):
+    """The proven service identity, or None (invalid/absent/unverifiable).
+
+    Verification itself is the shared identity/verify.py algorithm — this
+    wrapper only owns backend's degradation policy (fail CLOSED, unlike the
+    mcp middleware: an nx-agent bearer reaching backend is always a service
+    call and must prove itself, so a missing public key rejects too) and the
+    per-reason logging (0806 discipline: every reject must be diagnosable
+    from server logs).
+    """
+    from narranexus.platform.module_system.identity.tokens import load_public_key_pem
+    from narranexus.platform.module_system.identity.verify import verify_caller_identity
+
+    public_key = load_public_key_pem()
+    if public_key is None:
+        logger.warning(
+            "[nx-service-auth] no identity public key provisioned "
+            "(NX_IDENTITY_PUBLIC_KEY_FILE) — rejecting service call"
+        )
+        return None
+    identity, reason = verify_caller_identity(request.headers, public_key)
+    if identity is None:
+        logger.warning(f"[nx-service-auth] {reason}")
+        return None
+    return identity
 
 
 # =============================================================================
@@ -216,22 +306,13 @@ async def get_current_user(request: Request) -> Optional[CurrentUser]:
         # Local mode: no JWT enforcement, extract user_id from request
         return None
 
-    # Cloud mode: require JWT
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    # Cloud mode: the bound authProviders plugin must name the user
+    from backend.auth_provider import auth_provider
 
-    token = auth_header[7:]
-    try:
-        payload = decode_token(token)
-        return CurrentUser(
-            user_id=payload["user_id"],
-            role=payload.get("role", "user"),
-        )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    identity = await auth_provider().authenticate(request)
+    if identity is None:
+        raise AuthError(TOKEN_MISSING, "Missing or invalid Authorization header")
+    return CurrentUser(user_id=identity["user_id"], role=identity.get("role", "user"))
 
 
 def require_auth(request: Request) -> CurrentUser:
@@ -268,10 +349,36 @@ AUTH_EXEMPT_PATHS = {
     # inside the handler (admin_secret_key), not a user JWT — the offline batch
     # migrator has no JWT. Same self-credentialed pattern as netmind-login.
     "/api/admin/migrate-identity",
+    # Account-suspension mechanism: self-credentialed on X-Admin-Secret inside
+    # the handlers (same pattern as migrate-identity). A private operator, not
+    # a user JWT, drives these — and a suspended account holds no usable JWT
+    # anyway, so gating them on the user auth path would be circular. The
+    # account-state READ is a path-parameter route, so it is exempted via the
+    # prefix list below rather than here.
+    "/api/admin/suspend",
+    "/api/admin/reinstate",
+    # Internal gateway-key-misuse writer: self-credentialed on X-Admin-Secret
+    # inside the handler (same lock as suspend). The caller is the internal
+    # server-to-server path forwarding an authoritative gateway-key misuse event
+    # — a machine with no user JWT — so gating it on the user auth path would be
+    # wrong. Sole writer of gateway_key_misuse.
+    "/api/admin/gateway-key-misuse",
+    # Sensitive-operation warning: self-credentialed on X-Admin-Secret inside the
+    # handler (same lock as suspend). The caller is the private monitor
+    # forwarding a soft-signal detection — a machine with no user JWT — so gating
+    # it on the user auth path would be wrong. Writes one generic abuse_warning
+    # notification + a ban_audit(action="warn") row.
+    "/api/admin/warn-user",
     # Runtime observability: polled by the deploy-side alert watcher (a
     # headless container with no user JWT), gated on the same X-Admin-Secret
     # inside the handler. Read-only.
     "/api/admin/runtime/status",
+    # NarraMessenger sandbox prewarm (F28): machine-to-machine, self-
+    # credentialed inside the handler with the per-agent bearer_token
+    # (constant-time compare) — the caller is the NarraMessenger backend,
+    # which has no user JWT. Same pattern as /api/admin/runtime/status.
+    "/api/narramessenger/prewarm",
+    "/api/narramessenger/prewarm/status",
     # Marketplace publish: self-credentialed via the X-Publish-Token header
     # (MARKETPLACE_PUBLISH_TOKEN env) — CI/ops publishers have no user JWT.
     # Same pattern as migrate-identity above.
@@ -298,18 +405,68 @@ MARKETPLACE_PUBLIC_READ_PREFIXES = ("/api/marketplace/skills", "/api/marketplace
 
 
 def _is_marketplace_public_read(request: "Request") -> bool:
+    # path_under_prefix, not startswith: a prefix set is a set of PATH prefixes,
+    # and string matching is not segment matching (`/api/marketplace/skills`
+    # would otherwise open `/api/marketplace/skills-admin`). Same rule for every
+    # prefix set in this file.
     return request.method == "GET" and any(
-        request.url.path.startswith(p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
+        path_under_prefix(request.url.path, p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
     )
 
 
+# Prefixes plugin routers declared with ``auth="none"`` (RouterSpec). Filled by
+# ``backend.plugins_host.mount_plugin_routes`` at boot — the ONLY way a plugin
+# obtains an unauthenticated endpoint, and always explicit in its manifest
+# code. A set (not the tuple below) because it is populated at runtime.
+PLUGIN_EXEMPT_PREFIXES: set[str] = set()
+
+# Route prefixes plugin routers declared with ``quota_bypass=True`` (RouterSpec):
+# config-class endpoints a user whose free tier is exhausted must still reach
+# (the same reason QUOTA_BYPASS_PREFIXES exists). Filled at mount time.
+PLUGIN_QUOTA_BYPASS_PREFIXES: set[str] = set()
+
+
+def path_under_prefix(path: str, prefix: str) -> bool:
+    """True when ``path`` IS ``prefix`` or lies beneath it as a whole path segment.
+
+    String prefix matching is not segment matching: ``/api/x/acme.w`` used to
+    exempt ``/api/x/acme.w2/...`` and ``/api/x/p/webhook`` exempted
+    ``/api/x/p/webhook-admin``. Starlette routes by segment; auth must too.
+    """
+    base = prefix.rstrip("/")
+    return path == base or path.startswith(base + "/")
+
+# Inbound channel webhooks (plugin platform batch 4c): the external platform
+# has no session; the binding's webhook_secret is the auth, verified in the
+# handler (backend/routes/channels/generic.py). Exact shape only — every
+# other /api/channels/* route keeps the normal auth.
+_CHANNEL_WEBHOOK_RE = re.compile(r"^/api/channels/[^/]+/webhook/[^/]+$")
+
+
+def _is_channel_webhook_path(path: str) -> bool:
+    return bool(_CHANNEL_WEBHOOK_RE.match(path))
+
+
+def _is_plugin_exempt(path: str) -> bool:
+    return any(path_under_prefix(path, p) for p in PLUGIN_EXEMPT_PREFIXES) or _is_channel_webhook_path(path)
+
+
+def _is_plugin_quota_bypass(path: str) -> bool:
+    return any(path_under_prefix(path, p) for p in PLUGIN_QUOTA_BYPASS_PREFIXES)
+
+
 AUTH_EXEMPT_PREFIXES = (
+    # Account-state READ (GET /api/admin/account-state/{user_id}): a
+    # path-parameter route, so it cannot be an exact entry in
+    # AUTH_EXEMPT_PATHS. Self-credentialed on X-Admin-Secret inside the
+    # handler, same as the two suspend/reinstate POSTs above.
+    "/api/admin/account-state/",
     "/ws/",  # WebSocket handles its own auth via message payload
     # Public transcription audio: NetMind's STT worker fetches via
     # HMAC-signed token URLs; the token IS the auth. Without bypass,
     # NetMind can't fetch (it has no JWT). See
     # backend/routes/transcription/public.py and
-    # src/xyz_agent_context/agent_framework/llm/transcription/url_signer.py.
+    # src/narranexus/platform/agent_framework/llm/transcription/url_signer.py.
     "/api/public/",
 )
 
@@ -337,6 +494,10 @@ QUOTA_BYPASS_PREFIXES = (
     # them. Billing calls carry no NarraNexus LLM cost (they proxy NetMind),
     # so bypass the quota gate.
     "/api/billing",
+    # First-party product facts are metadata-only and do not invoke an LLM.
+    # Quota-exhausted users must still be able to record upgrade and checkout
+    # actions; otherwise the payment funnel is biased exactly at the paywall.
+    "/api/analytics",
     # Notices are pure metadata (system notifications + mark-read) with no
     # LLM cost. The primary notice class is "your agent's provider is
     # broken / quota exhausted" — exactly the users the quota gate would
@@ -364,6 +525,95 @@ QUOTA_BYPASS_PREFIXES = (
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD"})
 
 
+# ---------------------------------------------------------------------------
+# Account-state gate
+# ---------------------------------------------------------------------------
+# A per-request check on the caller's account state. An account whose state is
+# not one that may transact is refused at the door with a 403, so a suspended
+# account cannot use an already-issued (still-valid) JWT.
+#
+# The states that forbid transacting are the shared
+# ``NON_TRANSACTING_USER_STATUSES`` set (imported above). Kept as a single
+# source of truth so this gate, the WS run gate, and the login gate can never
+# drift apart. This file holds no policy about how an account reaches one of
+# those states; a private operator drives that via the admin endpoints.
+
+# The middleware runs on every authenticated request, so a DB read per request
+# would put the users table on the hot path. A tiny in-process TTL cache keeps
+# the common case (an active account making many requests) DB-free; the TTL
+# bounds how long a just-suspended account can keep transacting to at most
+# ~_ACCOUNT_STATE_TTL seconds even if the invalidate hook is missed (e.g. a
+# suspend applied on a different backend process). A module-level dict is fine:
+# it is per-process, best-effort, and self-correcting.
+#
+# Bounded so a burst of distinct user_ids (many short-lived sessions, or a
+# probe hitting the gate with junk-but-valid JWTs) cannot grow it without limit.
+# At the cap we drop the whole dict rather than evict one entry: the cache is
+# best-effort and self-refilling, so a wholesale clear is the cheapest bound and
+# costs at most one extra DB read per still-active user afterwards.
+_ACCOUNT_STATE_TTL_SECONDS = 30.0
+_ACCOUNT_STATE_MAX_ENTRIES = 10_000
+_account_state_cache: dict[str, "tuple[str, float]"] = {}
+
+
+def invalidate_account_state(user_id: str) -> None:
+    """Best-effort drop of a cached account state.
+
+    Called after a suspend/reinstate so the change is visible immediately in
+    THIS process. Cross-process staleness is bounded by the TTL instead.
+    """
+    _account_state_cache.pop(user_id, None)
+
+
+async def _account_state(user_id: str) -> str:
+    """Return the caller's ``users.status`` (cached ~TTL seconds).
+
+    Fails OPEN: on any lookup error, or a user row that cannot be found, it
+    returns ``"active"`` and does not cache. A transient DB blip must never
+    lock every user out of the product — the gate exists to stop a specific
+    suspended account, not to become a global availability dependency.
+
+    Reads through ``UserRepository.get_user`` (a ``WHERE BINARY user_id`` query)
+    so the account-state READ is case-sensitive in exactly the same way the
+    suspension WRITE is — a plain ``get_one`` uses MySQL's default
+    case-INSENSITIVE collation and would let a look-alike user_id dodge the gate
+    (invisible on SQLite, which has no such collation). Its strong
+    ``_row_to_entity`` cast can raise on a ``status`` value not in
+    ``UserStatus``; the ``except Exception`` below fails that open too.
+    """
+    # Repository is imported lazily (inside the function) on purpose: it pulls
+    # the DB layer in, and auth.py must stay importable at process start without
+    # it.
+    now = time.monotonic()
+    cached = _account_state_cache.get(user_id)
+    if cached is not None and cached[1] > now:
+        return cached[0]
+
+    try:
+        from narranexus.platform.repository.user_repository import UserRepository
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        db = await get_db_client()
+        user = await UserRepository(db).get_user(user_id)
+    except Exception as e:  # noqa: BLE001 — availability over strictness
+        logger.warning(
+            f"[account-state] lookup failed for user={user_id!r}: "
+            f"{type(e).__name__}: {e} (failing open)"
+        )
+        return "active"
+
+    if user is None:
+        # No such row: nothing to suspend. Don't cache — the row may appear
+        # (lazy user creation) and we don't want a stale miss to linger.
+        return "active"
+
+    status = user.status.value
+    if len(_account_state_cache) >= _ACCOUNT_STATE_MAX_ENTRIES:
+        _account_state_cache.clear()
+    _account_state_cache[user_id] = (status, now + _ACCOUNT_STATE_TTL_SECONDS)
+    return status
+
+
 async def auth_middleware(request: Request, call_next):
     """
     Middleware that enforces JWT authentication in cloud mode.
@@ -379,10 +629,13 @@ async def auth_middleware(request: Request, call_next):
     # would kill all /api/* calls from the dev server or from a cloud-app
     # frontend on a different origin.
     #
-    # CORSMiddleware is registered in backend/main.py, but FastAPI middleware
-    # is LIFO — this auth middleware runs FIRST, so CORSMiddleware never gets
-    # a chance at the preflight unless we call_next here. Let the request fall
-    # through; CORSMiddleware will intercept and return the correct headers.
+    # Since 2026-08-06 CORSMiddleware is the OUTERMOST layer (see the
+    # ordering note in backend/main.py), so a preflight is answered before it
+    # ever reaches this function and this branch is defence in depth. It used
+    # to be load-bearing: CORS was registered innermost, and without this
+    # bypass every cross-origin preflight died here. Kept because the cost is
+    # one comparison and the failure mode of losing it — should the ordering
+    # ever regress — is "all cross-origin calls stop working".
     if request.method == "OPTIONS":
         return await call_next(request)
 
@@ -403,13 +656,16 @@ async def auth_middleware(request: Request, call_next):
             # auth rules (which would either let them pass without auth
             # in local mode or 401 via JWT logic — both wrong here).
             if not has_token:
-                return _json_response(401, {
-                    "detail": (
+                return auth_error_response(
+                    GATEWAY_TOKEN_INVALID,
+                    (
                         "missing or invalid MANYFOLD_GATEWAY_TOKEN — "
                         "manyfold-class endpoints require Authorization: "
                         "Bearer <token>"
                     ),
-                })
+                    path=path,
+                    method=request.method,
+                )
             request.state.manyfold_authed = True
             return await call_next(request)
         if has_token and (path.startswith("/api/") or path.startswith("/ws/")):
@@ -443,7 +699,7 @@ async def auth_middleware(request: Request, call_next):
             if user_id:
                 request.state.user_id = user_id
                 request.state.manyfold_authed = True
-                from xyz_agent_context.agent_framework.api_config import (
+                from narranexus.platform.agent_framework.api_config import (
                     set_current_user_id,
                 )
                 set_current_user_id(user_id)
@@ -472,26 +728,33 @@ async def auth_middleware(request: Request, call_next):
         if (
             local_path.startswith("/api/")
             and local_path not in AUTH_EXEMPT_PATHS
-            and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
+            and not any(path_under_prefix(local_path, p) for p in AUTH_EXEMPT_PREFIXES)
+            and not _is_plugin_exempt(local_path)
         ):
-            header_uid = request.headers.get("x-user-id")
+            from backend.auth_provider import auth_provider
+
+            identity = await auth_provider().authenticate(request)
+            header_uid = identity["user_id"] if identity else None
             if not header_uid and _is_marketplace_public_read(request):
                 # Anonymous marketplace read — proceed without identity;
                 # routes skip agent-scoped annotations.
                 return await call_next(request)
             if not header_uid:
-                return _json_response(401, {
-                    "success": False,
-                    "detail": (
+                return auth_error_response(
+                    IDENTITY_MISSING,
+                    (
                         "Missing X-User-Id header. The frontend must send "
                         "this header for every authenticated request in "
                         "local mode. If you just registered, log in first."
                     ),
-                })
+                    path=local_path,
+                    method=request.method,
+                    extra={"success": False},
+                )
             request.state.user_id = header_uid
             # Mirror cloud mode: tag the cost-tracker ContextVar so usage
             # records get attributed to the right user even in local mode.
-            from xyz_agent_context.agent_framework.api_config import set_current_user_id
+            from narranexus.platform.agent_framework.api_config import set_current_user_id
             set_current_user_id(header_uid)
         response = await call_next(request)
         return response
@@ -499,7 +762,7 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # Check exemptions
-    if path in AUTH_EXEMPT_PATHS or any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES):
+    if path in AUTH_EXEMPT_PATHS or any(path_under_prefix(path, p) for p in AUTH_EXEMPT_PREFIXES) or _is_plugin_exempt(path):
         response = await call_next(request)
         return response
 
@@ -508,23 +771,105 @@ async def auth_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
 
-    # Require JWT
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    has_bearer = auth_header.startswith("Bearer ")
+
+    # ---- NarraNexus service identity (blueprint Q6) -----------------------
+    # The mcp container's HttpStore forwards the executor→mcp identity
+    # headers verbatim; the bearer is the nx-agent positional record whose
+    # identity_token field (last in BEARER_FIELDS) is a broker/local-signed
+    # Ed25519 identity token. Verify it
+    # with the identity PUBLIC key and trust its sub as the effective user —
+    # routes still owner-check the target agent_id. Parallel to the manyfold
+    # gateway-token bypass above, but NEVER fail-open: an nx-agent bearer
+    # reaching backend is always a service call and must prove itself (no
+    # key provisioned = still 401). Early return also skips the provider/
+    # quota resolver below on purpose — these are repository operations, not
+    # LLM spends (same reason SAFE_HTTP_METHODS skip it).
+    #
+    # Account state is enforced here too (2026-10-28): a suspended / banned
+    # user's service bearer gets the same 403 ACCOUNT_SUSPENDED as their JWT,
+    # so background work already running for them (jobs, agent turns calling
+    # backend via the executor) stops at its next backend call instead of
+    # riding the token's TTL. ``_account_state`` is TTL-cached, so this costs
+    # at most one users-table read per user per TTL on the internal hot path.
+    if has_bearer and _is_nx_service_bearer(auth_header):
+        identity = _verify_nx_service_bearer(request)
+        if identity is None:
+            return auth_error_response(
+                TOKEN_INVALID, "Invalid NarraNexus service identity",
+                path=path, method=request.method,
+            )
+        # A sandbox token must die with the account (2026-10-28: an attacker
+        # replayed one from the internet; a banned user's executor token kept
+        # working for its 72h TTL). Same reader, same statuses as the JWT path.
+        if (await _account_state(identity.user_id)) in NON_TRANSACTING_USER_STATUSES:
+            return auth_error_response(
+                ACCOUNT_SUSPENDED,
+                "Account is not available",
+                path=path,
+                method=request.method,
+                user_id=identity.user_id,
+                status_code=403,
+            )
+        request.state.user_id = identity.user_id
+        request.state.role = "user"
+        request.state.nx_service_authed = True
+        from narranexus.platform.agent_framework.api_config import set_current_user_id
+
+        set_current_user_id(identity.user_id)
+        return await call_next(request)
+
+    # ---- the bound authProviders plugin (kernel.auth) names the user -------
+    # builtin.auth.netmind decodes the NetMind JWT; a distribution may bind
+    # its own (SSO). The provider raises AuthError with the code to report.
+    # The provider decides whether a credential is present at all: a
+    # distribution binding a cookie / SSO / header provider must be reachable
+    # without a bearer (the old "Bearer or 401" gate ran first and made the
+    # seam impossible to exercise). ``None`` from the provider with no bearer
+    # is "no credential" (TOKEN_MISSING); with a bearer it is "bad credential".
+    from backend.auth_provider import auth_provider
+
+    token = auth_header[7:] if has_bearer else ""  # only a bearer's value belongs in the error log
+    try:
+        identity = await auth_provider().authenticate(request)
+    except AuthError as exc:
+        return auth_error_response(
+            exc.code, str(exc.detail),
+            path=path, method=request.method, token=token, status_code=exc.status_code,
+        )
+    if identity is None:
         if _is_marketplace_public_read(request):
             # Anonymous marketplace read (desktop clients have no cloud JWT).
             return await call_next(request)
-        return _json_response(401, {"detail": "Authentication required"})
+        if not has_bearer:
+            return auth_error_response(
+                TOKEN_MISSING, "Authentication required",
+                path=path, method=request.method,
+            )
+        return auth_error_response(
+            TOKEN_INVALID, "Invalid token",
+            path=path, method=request.method, token=token,
+        )
+    request.state.user_id = identity["user_id"]
+    request.state.role = identity.get("role", "user")
 
-    token = auth_header[7:]
-    try:
-        payload = decode_token(token)
-        request.state.user_id = payload["user_id"]
-        request.state.role = payload.get("role", "user")
-    except jwt.ExpiredSignatureError:
-        return _json_response(401, {"detail": "Token expired"})
-    except jwt.InvalidTokenError:
-        return _json_response(401, {"detail": "Invalid token"})
+    # Account-state gate. The JWT is valid, but a still-valid token must not
+    # keep working once the account it names has been suspended. This is a 403
+    # (authenticated, not permitted) with a distinct code — never a 401, which
+    # the SPA reads as "session dead" and would bounce to a login loop that
+    # only re-mints the same token. Cached ~TTL seconds so this is DB-free on
+    # the common (active) path.
+    account_state = await _account_state(request.state.user_id)
+    if account_state in NON_TRANSACTING_USER_STATUSES:
+        return auth_error_response(
+            ACCOUNT_SUSPENDED,
+            "Account is not available",
+            path=path,
+            method=request.method,
+            user_id=request.state.user_id,
+            status_code=403,
+        )
 
     # Provider routing. Tag current_user_id on the ContextVar (consumed by
     # cost_tracker to attribute usage) and dispatch the resolver, which puts
@@ -536,15 +881,17 @@ async def auth_middleware(request: Request, call_next):
     # Safe/read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
     # EVERY path, since reads never spend anything. JWT auth above still
     # applies in both cases.
-    from xyz_agent_context.agent_framework.api_config import set_current_user_id
-    from xyz_agent_context.agent_framework.providers.resolver import (
+    from narranexus.platform.agent_framework.api_config import set_current_user_id
+    from narranexus.platform.agent_framework.providers.resolver import (
         ProviderResolverError,
     )
 
     set_current_user_id(request.state.user_id)
 
-    if request.method in SAFE_HTTP_METHODS or any(
-        path.startswith(p) for p in QUOTA_BYPASS_PREFIXES
+    if (
+        request.method in SAFE_HTTP_METHODS
+        or any(path_under_prefix(path, p) for p in QUOTA_BYPASS_PREFIXES)
+        or _is_plugin_quota_bypass(path)
     ):
         return await call_next(request)
 
@@ -626,10 +973,13 @@ async def resolve_current_user_id(request) -> str:
     route is on an exempt path and called this helper by mistake) —
     treats it as an authentication failure rather than masking the bug.
     """
-    from fastapi import HTTPException
     uid = getattr(request.state, "user_id", None)
     if not uid:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        # NOT session death — the middleware already accepted this request's
+        # credential; an empty request.state.user_id here is our own wiring
+        # bug. Tagged so the frontend surfaces it locally instead of logging
+        # the user out (see backend/auth_errors.py).
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
     return uid
 
 
@@ -651,7 +1001,7 @@ async def ensure_local_default_user() -> str:
     Returns the user_id of an existing row when one is present, or
     creates 'local-default' and returns it. Idempotent.
     """
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     if row:

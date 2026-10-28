@@ -6,8 +6,8 @@ the credential, while a transient blip must keep reconnecting.
 """
 import httpx
 
-from xyz_agent_context.module.wechat_module.wechat_sdk_client import WeChatSDKError
-from xyz_agent_context.module.wechat_module.wechat_trigger import WeChatTrigger
+from narranexus_plugins.wechat_module.wechat_sdk_client import WeChatSDKError
+from narranexus_plugins.wechat_module.wechat_trigger import WeChatTrigger
 
 
 def test_dead_session_is_permanent_auth_failure():
@@ -34,10 +34,10 @@ import asyncio  # noqa: E402
 
 import pytest  # noqa: E402
 
-from xyz_agent_context.module.wechat_module._wechat_credential_manager import (  # noqa: E402
+from narranexus_plugins.wechat_module._wechat_credential_manager import (  # noqa: E402
     WeChatCredential,
 )
-import xyz_agent_context.module.wechat_module.wechat_trigger as _wt  # noqa: E402
+import narranexus_plugins.wechat_module.wechat_trigger as _wt  # noqa: E402
 
 
 def _cred() -> WeChatCredential:

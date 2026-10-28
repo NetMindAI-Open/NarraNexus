@@ -1,0 +1,126 @@
+{
+  "id": "builtin.ui",
+  "version": "1.0.0",
+  "displayName": "Frontend Shell",
+  "description": "The frontend shell: declares the seventeen frontend registries (ui.*) that plugin bundles and the shell's own builtin.ts fill. Manifest-only on the Python side — the contributions live in TypeScript.",
+  "hosts": [
+    "backend"
+  ],
+  "api": {
+    "ui": 1,
+    "theme": 0
+  },
+  "protected": true,
+  "distributionOnly": true,
+  "declares": {
+    "ui.themes": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:Theme",
+      "kind": "theme",
+      "doc": "Frontend themes (override declared design tokens only)."
+    },
+    "ui.pages": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:Page",
+      "kind": "ui",
+      "doc": "Routed pages (lazy gate onPage:<id>)."
+    },
+    "ui.sidebar": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SidebarItem",
+      "kind": "ui",
+      "doc": "Sidebar navigation items."
+    },
+    "ui.panels": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:Panel",
+      "kind": "ui",
+      "doc": "Agent drawer panels (lazy gate onPanel:<id>)."
+    },
+    "ui.settings_sections": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SettingsSection",
+      "kind": "ui",
+      "doc": "Settings page sections."
+    },
+    "ui.commands": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:Command",
+      "kind": "ui",
+      "doc": "Command-palette commands (lazy gate onCommand:<id>)."
+    },
+    "ui.channels": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:ChannelConfig",
+      "kind": "ui",
+      "doc": "Channel configuration cards on the agent Channels tab."
+    },
+    "ui.message_renderers": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:MessageRenderer",
+      "kind": "ui",
+      "doc": "Chat message renderers matched per message."
+    },
+    "ui.timeline_events": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:TimelineEvent",
+      "kind": "ui",
+      "doc": "Run-timeline event renderers keyed by event type."
+    },
+    "ui.tool_renderers": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:ToolRenderer",
+      "kind": "ui",
+      "doc": "Tool output-row renderers keyed by bare tool name."
+    },
+    "ui.artifact_kinds": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:ArtifactKind",
+      "kind": "ui",
+      "doc": "Artifact kinds: renderer / edit surface / preview per artifact `kind`; a plugin adds kinds the shell does not know (never overrides a builtin one)."
+    },
+    "ui.conversation_kinds": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:ConversationKind",
+      "kind": "ui",
+      "doc": "Conversation kinds (chat, team, ...)."
+    },
+    "ui.chat_header_actions": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SlotAction",
+      "kind": "ui",
+      "doc": "Actions in the chat header."
+    },
+    "ui.composer_extensions": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SlotComponent",
+      "kind": "ui",
+      "doc": "Components next to the message composer."
+    },
+    "ui.message_actions": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SlotAction",
+      "kind": "ui",
+      "doc": "Per-message actions."
+    },
+    "ui.sidebar_sections": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SlotComponent",
+      "kind": "ui",
+      "doc": "Extra sidebar sections."
+    },
+    "ui.agent_card_badges": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SlotComponent",
+      "kind": "ui",
+      "doc": "Badges on agent cards."
+    },
+    "ui.top_bar_items": {
+      "arity": "many",
+      "contract": "narranexus.contracts.ui:SlotComponent",
+      "kind": "ui",
+      "doc": "Items in the top bar."
+    }
+  },
+  "quality": "gold"
+}

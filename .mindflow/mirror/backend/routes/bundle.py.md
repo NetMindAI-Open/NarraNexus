@@ -1,8 +1,154 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-07-13
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #419 review I-2）— 403 按异常类型判，不再嗅探文案
+
+`/export` 改为 `isinstance(e, BundleForbidden)` → 403（类定义在 [[builder.py]]），删掉
+`str(e).startswith("Forbidden")`。原因：改 builder 文案会让 403 静默退回 500，而第三方抛出的
+恰以 "Forbidden" 开头的 ValueError 会被当成授权拒绝、丢掉 traceback。现在普通 ValueError
+无论文案如何都走 500 + `logger.exception`（`test_export_does_not_sniff_forbidden_prose` 钉住）。
+`ValueError("Agent not found…")` 仍是 500（不确认 agent 是否存在）。下面旧条目的"以 Forbidden
+开头的 ValueError 映射 403"已被本条取代。
+
+## 2026-10-28 — 导出时的归属拒绝是 403
+
+`build_bundle` 对不属于导出者的 agent / team 抛 `ValueError("Forbidden: ...")`。`/export`
+原来把所有异常都折成 500；现在以 `Forbidden` 开头的 ValueError 映射 403，detail 固定为
+`Forbidden`（不回显对方的 id），其余异常仍是 500 + 固定文案。
+
+## 2026-10-28 — from-url 上游失败不回显异常
+
+`upstream fetch failed: {e}` 会把连接错误原文（含内网主机名/端口判断依据）带给用户；
+改为固定文案，细节进日志。
+## 2026-10-28 — from-url 云端只收 https + 默认端口
+
+host allowlist 只钉住「哪台主机」；`http://` 或 `:22` / `:8443` 落在白名单主机上照样能借
+这个端点探该主机的其他服务。云端现在在 allowlist 之后再要求 scheme 为 https、端口为空或
+443（`_scheme_and_port_allowed`；非法端口如 `:99999` 也拒），否则 400，下载前就拦。
+本地 / 桌面不加此限制：本地默认 allowlist 本来就为 `http://localhost:3001` 的 dev 网站
+服务。判定用 `settings.is_cloud_mode`，和 allowlist 的模式判定同源。
+## 2026-10-28 — preflight 落盘用固定文件名
+
+`tmpdir / file.filename` 直接用了客户端的 multipart 文件名，Starlette 原样透传，
+`../x` 或绝对路径就决定了写到哪（随后 `unlink`）。改为固定 `upload.nxbundle`，与
+marketplace publish 同一规则。
+
+## 2026-08-18 三审 — 闸口挪进线程
+
+`validate_skill_archive_bytes` 现在走 `await asyncio.to_thread(...)`。
+
+上一版只做到"不解压"就停了，但**解析本身也是 O(条目数)**：`ZipFile()` 构造
+时就把整个中央目录扫完、给每条建一个 `ZipInfo`，`infolist()` 只是返回这个已经
+建好的列表——也就是说 `MAX_SKILL_ARCHIVE_ENTRIES` 这道闸**在代价付完之后才
+判**。实测：33 MB 上传、声明 40 万个空成员 ⇒ `ZipFile()` 构造 **655 ms** 纯
+同步 CPU（`infolist()` 本身 0.00 ms）。50 MB 上限下约 1 秒，且可重复发。
+
+比上一版那个 50 GB 解压小 1~2 个数量级，但**是同一个失败模式**：一个用户的
+请求卡住所有人的帧。所以判据不是"这个检查便宜不便宜"，而是"它是不是同步 CPU
+调用跑在 async 路由上"——是，就该进线程。
+
+（原文里"这条 route 是 async 且没有 to_thread"那句作为不解压的理由，现在不成
+立了，已改：不解压和挪进线程是**两件独立的事**，两件都要做。）
+
+## 2026-08-18 — 归档上传验 zip：坏输入不再跨接口炸成 500
+
+`upload_archive` 此前对 `source_type=zip` 只校验大小和 `skill_name`，**不看
+字节到底是不是 zip**。坏包被原样落盘 + 登记（200），直到 `/export` 在
+[[builder.py]] 的 `scan_zip_for_sensitive` 打开它才抛 `BadZipFile` → **500**，
+错误文案 "Failed to build the export" 既不说哪个 skill 也不说哪份归档。
+
+这是 2026-08-18 在 dev 环境验证 SEC-07 修复时实测撞到的（用假 zip 头的测试
+文件上传成功，随后导出 500）。属**既有缺陷**，不是 SEC-07 引入；也是工单
+#113「BadZipFile 误回 500」在另一条路径上的重现。
+
+现在落盘前调 [[security.py]] 的 `validate_skill_archive_bytes()`，坏包
+→ **400** 且文案告诉用户传什么。校验顺序是**先大小后 zip**：两者都会 fire
+时，"太大了"是更可操作的那条消息。
+
+⚠️ **这道校验只读中央目录，绝不解压**。初版写的是
+`zipfile.ZipFile(io.BytesIO(contents)).testzip()`，那是个**比原 bug 更严重的
+洞**：`testzip()` 会把每个成员完整解压一遍校验 CRC，deflate 压缩比可达
+~1030:1，实测 199 KB 的包解压出 200 MB；`max_upload_bytes` 是 50 MB，也就是
+~50 GB。而且 `upload_archive` 是 `async def`，`testzip()` 是同步 CPU 密集
+调用、没有 `to_thread`，**整个事件循环被独占**——任何登录用户一次上传就能让
+全站请求和 WS 帧排队、正在跑的 agent 流式输出停住。这正是铁律 #16 说的"我们
+自己的 bug 成为打断源"。
+另外 `testzip()` 遇到 CRC 错误**不抛异常**，它 `return zinfo.filename`；初版
+把返回值丢掉了，所以那次最贵的调用实际什么都没挡住。
+
+判据够用的理由：下游那个原本 500 的消费者 `scan_zip_for_sensitive` 也只调
+`infolist()`。**不验 CRC** 是明写的取舍——中央目录完好、数据段损坏的包会被
+放行，那种失败在导入侧按 skill 单独兜住。
+
+> 又是「正确做法已存在但这条 route 没套用」：真正在收到 zip 时验字节的是
+> `skill_module._extract_zip_safely`（500 条目 / 100 MB 上限），**不是**
+> `backend/routes/skills.py`——后者只校验文件名后缀，全文没有一次 `zipfile`
+> 调用。新的共享校验器就是照它那两个上限对齐的。
+> 和 SEC-07 本身同一个模式，所以这次连测试的假数据一起改了——原来的用例用
+> `b"PK\x03\x04payload"` 当 zip，正是这个洞让它能绿。
+
+## 2026-08-17 — SEC-07：两个"客户端字符串决定文件路径"的洞
+
+这条 route 文件里同时存在**写侧**和**读侧**两个同源漏洞，根因是同一句话：
+*把请求里的字符串直接当路径用*。
+
+**写侧 —— `/skills/archives/upload` 的 `skill_name`（已被 QA 实证）**
+
+`skill_name` 是 multipart Form 自由字符串，原先直接拼进
+`skill_archives/{user_id}/{skill_name}.zip`。`skill_name=../x` 跳出用户目录
+（QA 用 `../qa-sec07-oneup-marker` 落到共用父层，dev 库残留 id=20），
+`../{受害者user_id}/x` 就是**跨用户任意文件写**。同 codebase 的
+`skills.py` 早就在用 `file_safety.sanitize_filename()`，这条 route 漏了——
+属于"正确做法已存在但没套用"，和 SEC-01~06 的 IDOR 同模式、不同类型。
+
+现在改走 [[skill_backup.py]] 的 `archive_target()`（唯一合法路径构造点），
+且**先校验再做任何事**：拒绝时不建目录、不写字节、不留 DB 行。
+`ValueError` 是用户可操作的输入校验 → **400**；让它冒成 500 就是把 #113
+的 `BadZipFile` 误报 500 又犯一次。顺手补上 `enforce_max_bytes`
+（`skills.py` 那条路径一直有，这条一直没有，整包进内存）。
+
+"拒绝时不建目录"这句起初是**假的**：`archive_target` 内部会 `mkdir`，所以
+只有非法 `skill_name` 那条真的零副作用，其余 3 条 400 和整个 github 分支都
+会留下空的 `skill_archives/{user_id}/`——而测试参数表刚好只有非法名，绕开
+了唯一出问题的分支。现已把构造点纯化（见 [[skill_backup.py]]），落盘时才
+`ensure_archive_dir`，并给每条 400 补了"目录也不存在"的断言。
+
+`contents` 的绑定与使用原先跨了分支（只在 zip 分支绑定，却在 github 分支
+return 之后无条件使用），仅因为提前排除了第三种 `source_type` 才安全；已把
+写盘 + upsert + return 整体收进 zip 分支内，将来加第三种 source_type 不会
+变成 `NameError` → 500。
+
+**读侧 —— `/export` 的 `skills[].archive_path`（顺带排查出来的，更重）**
+
+`SkillExportSpec` 原先收 `archive_path` / `manual_zip_path`，前端把
+`GET /skills/archives` 拿到的路径原样回传，[[builder.py]] 直接
+`shutil.copy2(src_zip, 包内)` 再流回客户端 —— 任何登录用户传
+`archive_path: "/etc/passwd"` 就能**读走后端进程能读的任意文件**。
+两个字段已从 schema 删除（铁律 #2，不留兼容位），builder 改为自己按
+`user_id` 查 `skill_archives`。客户端只决定 **install_method**，服务端
+决定 **bytes** —— 和 builder 里"内置技能强制 builtin"那道 server-side
+guard 同一立场。
+
+`manual_zip_path` 前端从来没有任何地方赋值过（纯死字段），一并删除。
+
+> 遗留数据不在代码修复范围内：dev 库 id=20 那行带 `../` 的
+> `archive_path` 仍需人工清理（含实体文件
+> `qa-sec07-oneup-marker.zip`）。在清掉之前，靠 [[builder.py]] 的
+> 读侧 `is_within_user_archive_dir` 兜住。
+>
+> **口径修正（2026-08-17 二审）**：初版这里写的是"靠
+> `is_within_archives_root` 兜住"，那是**错的**——id=20 存的字符串是
+> `{root}/{qa_uid}/../qa-sec07-oneup-marker.zip`，`resolve()` 之后落在
+> `{root}/qa-sec07-oneup-marker.zip`，**就在 root 里面**，root 锚点的判据
+> 会放行它。真正兜住它的是 per-user 锚点。写文档时把"我打算实现的边界"
+> 当成了"我实现了的边界"，这类话以后要用测试反证过再写。
+
+## 2026-08-11 — 500 路径错误文案脱敏（安全审计 P2-2）
+
+500 分支 `detail=str(e)` 收敛为固定文案；400/`ValueError`（scheme/allowlist/sha256 等用户可操作校验）保留清晰文案。
 
 ## 2026-07-13 — include_skill_secrets passthrough
 
@@ -36,6 +182,7 @@ review 页"的一键体验。
 |---|---|
 | URL host allowlist | SSRF(Capital One 类:把后端骗去访问 `169.254.169.254/...` 拿 IAM 凭证) |
 | 拒 redirect | 上游 302 → 内网/metadata IP 绕过 allowlist |
+| 云端只收 https + 443(2026-10-28) | 白名单主机上的其他端口/明文服务被借道探测 |
 | size cap(MAX_BUNDLE_BYTES = 500 MB) | 50 GB 文件填满磁盘 |
 | timeout 30s | hang server 占满连接池 |
 | optional sha256 | 上游服务器被攻破后投放替换包 / URL 写错指向旧版本 |

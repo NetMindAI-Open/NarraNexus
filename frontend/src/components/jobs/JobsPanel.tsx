@@ -1,44 +1,46 @@
 /**
- * Jobs Panel - Task management panel
- * Bioluminescent Terminal style - Deep ocean aesthetics
- * Enhanced with Control Center Dashboard design
+ * @file_name: JobsPanel.tsx
+ * @author:
+ * @date: 2026-08-27
+ * @description: Root orchestrator for the Jobs panel (list / graph / timeline).
  *
- * Supports three view modes:
- * 1. List view - Traditional job list
- * 2. Graph view - React Flow dependency visualization
- * 3. Timeline view - Gantt chart style execution timeline
+ * Density contract (2026-08-27 rebuild): a band renders only when the data it
+ * carries is non-empty. The panel used to open with six unconditional bands —
+ * a refresh-only toolbar, a four-tile stat strip, a distribution bar, a view
+ * tab row and an eleven-chip filter row — roughly 354px of chrome above the
+ * first job, of which ~289px was zero-information for a typical agent (four
+ * zeroes, a single-color bar, and ten filters whose only possible outcome was
+ * an empty list). Every "which bands exist" rule now lives in
+ * `lib/jobsPanelModel.ts` so it can be tested.
  */
 
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Clock,
-  Play,
-  Pause,
-  CheckCircle,
-  XCircle,
-  RefreshCw,
   Calendar,
-  Ban,
+  RefreshCw,
   List,
   GitBranch,
   GanttChartSquare,
-  Zap,
-  TrendingUp,
-  AlertCircle,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, StatStrip, ScrollArea, useConfirm } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, ScrollArea, useConfirm } from '@/components/ui';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { BracketEmptyState } from '@/components/nm';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { filterOptions } from '@/lib/jobsPanelModel';
 import { JobDependencyGraph } from './JobDependencyGraph';
 import { JobExecutionTimeline } from './JobExecutionTimeline';
 import { JobDetailPanel } from './JobDetailPanel';
 import { JobExpandedDetail } from './JobExpandedDetail';
 import { JobScheduleEditDialog } from './JobScheduleEditDialog';
-import { StatusDistributionBar } from './StatusDistributionBar';
+import { JobPayloadEditDialog } from './JobPayloadEditDialog';
+import { JobStatusMeter } from './JobStatusMeter';
+import { JobRow } from './JobRow';
+import { statusVisual } from './jobStatusVisuals';
 import type { JobNode, JobNodeStatus } from '@/types/jobComplex';
 import type { Job } from '@/types/api';
 
@@ -54,28 +56,6 @@ interface JobsPanelProps {
    *  bookmark layer resolve a pending 'attention' state for that job. */
   onJobResolved?: (jobId: string) => void;
 }
-
-// Status visual config. The `labelKey` resolves to a `jobs.status.*` i18n key
-// at render time (statuses are also used as filter chips and badges).
-const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor: string; labelKey: string }> = {
-  pending: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', labelKey: 'jobs.status.pending' },
-  active: { icon: Zap, color: 'text-[var(--accent-primary)]', bgColor: 'bg-[var(--accent-glow)]', labelKey: 'jobs.status.active' },
-  running: { icon: Play, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', labelKey: 'jobs.status.running' },
-  paused: { icon: Pause, color: 'text-[var(--accent-secondary)]', bgColor: 'bg-[var(--accent-secondary)]/10', labelKey: 'jobs.status.paused' },
-  // Auto-paused: owner's free quota is exhausted and no own provider configured.
-  // Surfaced here (not via a notification) so users see why a scheduled job
-  // stopped firing; it auto-resumes once quota is restored or a provider added.
-  paused_no_quota: { icon: Pause, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', labelKey: 'jobs.status.pausedNoQuota' },
-  // Transient-failure backoff: auto-retries when the cooldown elapses.
-  cooling: { icon: Clock, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', labelKey: 'jobs.status.cooling' },
-  // Waiting on prerequisite jobs.
-  blocked: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', labelKey: 'jobs.status.blocked' },
-  // A prerequisite job failed and this job's policy is "block".
-  blocked_failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', labelKey: 'jobs.status.blockedFailed' },
-  completed: { icon: CheckCircle, color: 'text-[var(--color-success)]', bgColor: 'bg-[var(--color-success)]/10', labelKey: 'jobs.status.completed' },
-  failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', labelKey: 'jobs.status.failed' },
-  cancelled: { icon: Ban, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', labelKey: 'jobs.status.cancelled' },
-};
 
 // Convert API Job to JobNode format
 function jobToJobNode(job: Job): JobNode {
@@ -107,6 +87,12 @@ function jobToJobNode(job: Job): JobNode {
   };
 }
 
+const VIEW_MODES = [
+  { mode: 'list' as const, icon: List, labelKey: 'jobs.view.list' },
+  { mode: 'graph' as const, icon: GitBranch, labelKey: 'jobs.view.graph' },
+  { mode: 'timeline' as const, icon: GanttChartSquare, labelKey: 'jobs.view.timeline' },
+];
+
 export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = {}) {
   const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -118,6 +104,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   const [pausingJobId, setPausingJobId] = useState<string | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [editingPayloadJob, setEditingPayloadJob] = useState<Job | null>(null);
+  const [savingPayload, setSavingPayload] = useState(false);
   const [failedExpanded, setFailedExpanded] = useState(false);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
@@ -128,10 +116,17 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
     refreshJobs,
   } = usePreloadStore();
 
+  // Chips are derived from the data, so the set changes as jobs finish. If the
+  // selected filter's chip disappears (its last job resolved), fall back to
+  // 'all' rather than stranding the user on an empty list with no visible
+  // filter to clear — derived instead of an effect so there is no flash frame.
+  const options = useMemo(() => filterOptions(allJobs), [allJobs]);
+  const activeFilter = options.some((o) => o.status === statusFilter) ? statusFilter : 'all';
+
   // Filter Jobs
-  const jobs = statusFilter === 'all'
+  const jobs = activeFilter === 'all'
     ? allJobs
-    : allJobs.filter((job) => job.status === statusFilter);
+    : allJobs.filter((job) => job.status === activeFilter);
 
   // Convert to JobNode format (for graph and timeline)
   const jobNodes: JobNode[] = useMemo(() => jobs.map(jobToJobNode), [jobs]);
@@ -147,15 +142,6 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
     () => jobNodes.some((j) => j.depends_on.length > 0),
     [jobNodes]
   );
-
-  // Calculate job metrics
-  const jobMetrics = useMemo(() => {
-    const completed = allJobs.filter((j) => j.status === 'completed').length;
-    const running = allJobs.filter((j) => j.status === 'running' || j.status === 'active').length;
-    const failed = allJobs.filter((j) => j.status === 'failed').length;
-    const successRate = allJobs.length > 0 ? Math.round((completed / (completed + failed || 1)) * 100) : 0;
-    return { completed, running, failed, successRate };
-  }, [allJobs]);
 
   const handleRefresh = () => {
     refreshJobs(agentId, userId);
@@ -203,7 +189,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   };
 
   const canResume = (status: string) => {
-    return ['paused', 'paused_no_quota', 'cooling', 'blocked_failed'].includes(status);
+    return ['paused', 'paused_no_quota', 'paused_spend_cap', 'cooling', 'blocked_failed'].includes(status);
   };
 
   const canPause = (status: string) => {
@@ -239,6 +225,40 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
       });
     } finally {
       setSavingSchedule(false);
+    }
+  };
+
+  const handleEditPayload = (e: React.MouseEvent, job: Job) => {
+    e.stopPropagation();
+    setEditingPayloadJob(job);
+  };
+
+  const handleSavePayload = async (
+    fields: { title?: string; description?: string; payload?: string },
+  ) => {
+    if (!editingPayloadJob) return;
+    setSavingPayload(true);
+    try {
+      const res = await api.updateJob(editingPayloadJob.job_id, editingPayloadJob.agent_id, fields);
+      if (!res.success) {
+        await alert({
+          title: t('jobs.editPayload.failedTitle'),
+          message: res.message || t('jobs.editPayload.failedMessage'),
+          danger: true,
+        });
+        return;
+      }
+      setEditingPayloadJob(null);
+      refreshJobs(agentId, userId);
+    } catch (err) {
+      console.error('Update job payload error:', err);
+      await alert({
+        title: t('jobs.editPayload.failedTitle'),
+        message: err instanceof Error ? err.message : t('jobs.editPayload.failedMessage'),
+        danger: true,
+      });
+    } finally {
+      setSavingPayload(false);
     }
   };
 
@@ -287,6 +307,44 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
     }
   };
 
+  const refreshButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={handleRefresh}
+      disabled={loading}
+      title={t('jobs.refresh')}
+      aria-label={t('jobs.refresh')}
+    >
+      <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+    </Button>
+  );
+
+  const renderJobRow = (job: Job) => (
+    <JobRow
+      key={job.job_id}
+      job={job}
+      expanded={expandedId === job.job_id}
+      onToggle={() => setExpandedId(expandedId === job.job_id ? null : job.job_id)}
+    >
+      <JobExpandedDetail
+        job={job}
+        isCancelling={cancellingJobId === job.job_id}
+        canCancel={canCancel(job.status)}
+        onCancel={handleCancelJob}
+        canResume={canResume(job.status)}
+        isResuming={resumingJobId === job.job_id}
+        onResume={handleResumeJob}
+        canPause={canPause(job.status)}
+        isPausing={pausingJobId === job.job_id}
+        onPause={handlePauseJob}
+        canEdit={canEdit(job.status)}
+        onEdit={handleEditSchedule}
+        onEditPayload={handleEditPayload}
+      />
+    </JobRow>
+  );
+
   const inner = (
     <>
       {confirmDialog}
@@ -299,10 +357,21 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
           onSave={handleSaveSchedule}
         />
       )}
-      {/* Embedded mode drops the duplicate title (the host section already
-          names the panel) but keeps the functional actions. */}
-      <CardHeader className={cn(embedded && 'justify-end py-1')}>
-        {!embedded && (
+      {editingPayloadJob && (
+        <JobPayloadEditDialog
+          job={editingPayloadJob}
+          isOpen={!!editingPayloadJob}
+          saving={savingPayload}
+          onClose={() => setEditingPayloadJob(null)}
+          onSave={handleSavePayload}
+        />
+      )}
+
+      {/* Embedded mode has no header of its own: the drawer shell already names
+          the panel, and the lone refresh action moved into the controls row
+          below (it used to occupy a full band by itself). */}
+      {!embedded && (
+        <CardHeader>
           <CardTitle>
             <Calendar />
             {t('jobs.title')}
@@ -310,263 +379,151 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
               · {allJobs.length}
             </span>
           </CardTitle>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleRefresh}
-          disabled={loading}
-          title={t('jobs.refresh')}
-        >
-          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-        </Button>
-      </CardHeader>
-
-      {/* Stat strip */}
-      {allJobs.length > 0 && (
-        <>
-          <StatStrip
-            items={[
-              { label: t('jobs.metrics.active'), value: jobMetrics.running, icon: Zap, tone: 'warning', pulse: jobMetrics.running > 0 },
-              { label: t('jobs.metrics.success'), value: jobMetrics.completed, icon: CheckCircle, tone: 'success' },
-              { label: t('jobs.metrics.failed'), value: jobMetrics.failed, icon: AlertCircle, tone: jobMetrics.failed > 0 ? 'error' : 'secondary' },
-              { label: t('jobs.metrics.rate'), value: `${jobMetrics.successRate}%`, icon: TrendingUp },
-            ]}
-          />
-          <div className="px-5 py-3">
-            <StatusDistributionBar jobs={allJobs} />
-          </div>
-        </>
+          {refreshButton}
+        </CardHeader>
       )}
 
-      {/* View mode + status filter — one compact row of underline tabs */}
-      <div className="px-5 pt-2 pb-0 flex items-center gap-4 border-t border-[var(--rule)]">
-        <div className="flex gap-4">
-          {[
-            { mode: 'list' as const, icon: List, label: t('jobs.view.list') },
-            { mode: 'graph' as const, icon: GitBranch, label: t('jobs.view.graph') },
-            { mode: 'timeline' as const, icon: GanttChartSquare, label: t('jobs.view.timeline') },
-          ].map(({ mode, icon: Icon, label }) => (
-            <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              className={cn(
-                'flex items-center gap-1.5 py-2 text-[11px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.14em]',
-                'border-b-2 -mb-px transition-colors duration-150',
-                viewMode === mode
-                  ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
-                  : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-              )}
-            >
-              <Icon className="w-3 h-3" />
-              {label}
-            </button>
-          ))}
+      {/* Band B — renders only when there is a distribution worth drawing. */}
+      <JobStatusMeter jobs={allJobs} />
+
+      {/* Band C — status filter + view switch + (embedded) refresh, one row.
+          This row sits OUTSIDE the scroll viewport, so it stays visible for a
+          200-job list without needing sticky positioning. */}
+      <div className="px-3.5 py-1.5 flex items-center gap-2 border-b border-[var(--rule)]">
+        {viewMode === 'list' && options.length > 0 && (
+          <div className="flex flex-wrap items-center gap-0.5 min-w-0">
+            {options.map(({ status, count }) => {
+              const isActive = activeFilter === status;
+              const label = status === 'all'
+                ? t('jobs.filter.all')
+                : t(statusVisual(status).labelKey);
+              return (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status)}
+                  aria-pressed={isActive}
+                  // Without this the label and the count are adjacent inline
+                  // spans, so the computed accessible name is "All3".
+                  aria-label={`${label} ${count}`}
+                  className={cn(
+                    'inline-flex items-baseline gap-1.5 px-1.5 py-1 rounded-[var(--radius-xs)]',
+                    'text-[10px] whitespace-nowrap font-medium font-[family-name:var(--font-mono)]',
+                    'uppercase tracking-[0.11em] transition-colors duration-150',
+                    isActive
+                      ? 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
+                      : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]',
+                  )}
+                >
+                  {label}
+                  <span
+                    className={cn(
+                      'tabular-nums tracking-normal',
+                      isActive ? 'opacity-60' : 'text-[var(--nm-ink30)]',
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="ml-auto shrink-0 flex items-center gap-1">
+          <TooltipProvider delayDuration={200}>
+            <div className="flex gap-px p-0.5 rounded-[var(--radius-sm)] bg-[var(--nm-paper-warm)]">
+              {VIEW_MODES.map(({ mode, icon: Icon, labelKey }) => (
+                <Tooltip key={mode}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setViewMode(mode)}
+                      aria-label={t(labelKey)}
+                      aria-pressed={viewMode === mode}
+                      className={cn(
+                        'w-[25px] h-[21px] flex items-center justify-center',
+                        'rounded-[var(--radius-xs)] transition-colors duration-150',
+                        viewMode === mode
+                          ? 'bg-[var(--nm-raised)] text-[var(--text-primary)] shadow-[var(--nm-elev-1)]'
+                          : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]',
+                      )}
+                    >
+                      <Icon className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t(labelKey)}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          </TooltipProvider>
+          {embedded && refreshButton}
         </div>
       </div>
-
-      {/* Status filter — only in list view.
-          The chips WRAP (they used to be one nowrap row inside a
-          hideScrollbar ScrollArea). All 11 statuses come to ~660px in zh,
-          and the panel's usual home is a 300–440px drawer, so the row cut
-          off after ~7 chips with no scrollbar and no overflow hint — the
-          remaining filters were simply undiscoverable. Two or three wrapped
-          lines cost a few px of height and hide nothing. */}
-      {viewMode === 'list' && (
-        <div className="px-5 py-2 flex flex-wrap gap-1 border-t border-[var(--rule)]">
-          {(['all', 'active', 'running', 'paused', 'paused_no_quota', 'cooling', 'blocked_failed', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
-            const config = status !== 'all' ? statusConfig[status] : null;
-            const isActive = statusFilter === status;
-            return (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
-                className={cn(
-                  'px-2 py-1 text-[10px] whitespace-nowrap font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]',
-                  'transition-colors duration-150',
-                  isActive
-                    ? 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-                )}
-              >
-                {status === 'all' ? t('jobs.filter.all') : (config ? t(config.labelKey) : status)}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       <CardContent className="flex-1 overflow-hidden min-h-0">
         {/* List View */}
         {viewMode === 'list' && (
-          <ScrollArea className="h-full" viewportClassName="py-2"><div className="space-y-3">
+          <ScrollArea className="h-full">
             {jobs.length === 0 ? (
-              <div className="h-full flex items-center justify-center">
-                <div className="text-center p-8">
-                  <div className="w-14 h-14 rounded-2xl bg-[var(--color-warning)]/10 mx-auto mb-4 flex items-center justify-center">
-                    <Calendar className="w-7 h-7 text-[var(--color-warning)]" />
-                  </div>
-                  <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">{t('jobs.empty.list.title')}</p>
-                  <p className="text-[var(--text-tertiary)] text-xs">{t('jobs.empty.list.hint')}</p>
-                </div>
-              </div>
+              <BracketEmptyState
+                label={t('jobs.empty.list.title')}
+                hint={t('jobs.empty.list.hint')}
+              />
             ) : (
               (() => {
                 // In "all" mode, separate failed jobs into a collapsible group at the bottom
-                const isAllMode = statusFilter === 'all';
+                const isAllMode = activeFilter === 'all';
                 const mainJobs = isAllMode ? jobs.filter((j) => j.status !== 'failed') : jobs;
                 const failedJobs = isAllMode ? jobs.filter((j) => j.status === 'failed') : [];
 
-                const renderJobCard = (job: Job) => {
-                  const config = statusConfig[job.status] || statusConfig.pending;
-                  const StatusIcon = config.icon;
-                  const isExpanded = expandedId === job.job_id;
-                  const isCancelling = cancellingJobId === job.job_id;
-
-                  return (
-                    <div
-                      key={job.job_id}
-                      onClick={() => setExpandedId(isExpanded ? null : job.job_id)}
-                      className={cn(
-                        'w-full text-left p-4 transition-colors duration-150 group cursor-pointer',
-                        /* Nested card pattern: parent panel sits on bg-primary,
-                           so each row lifts to bg-elevated and uses a hairline
-                           border-subtle. Same-color nesting (primary on primary)
-                           made the 1px border read as a heavy "double frame".
-                           Hover/expand escalates to border-strong only — no
-                           glow, no status-tinted frames. */
-                        'border bg-[var(--bg-elevated)]',
-                        isExpanded
-                          ? 'border-[var(--border-strong)]'
-                          : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)]',
-                        job.status === 'cancelled' && 'opacity-60'
-                      )}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className={cn(
-                          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300',
-                          config.bgColor,
-                          job.status === 'running' && 'animate-pulse'
-                        )}>
-                          <StatusIcon className={cn('w-4 h-4', config.color)} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={cn(
-                              'text-sm font-semibold truncate transition-colors',
-                              job.status === 'cancelled'
-                                ? 'text-[var(--text-tertiary)] line-through'
-                                : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
-                            )}>
-                              {job.title}
-                            </span>
-                            <Badge
-                              variant={
-                                job.status === 'running'
-                                  ? 'warning'
-                                  : job.status === 'completed'
-                                  ? 'success'
-                                  : job.status === 'failed'
-                                  ? 'error'
-                                  : job.status === 'active'
-                                  ? 'accent'
-                                  : job.status === 'paused_no_quota'
-                                  ? 'warning'
-                                  : job.status === 'paused'
-                                  ? 'outline'
-                                  : 'default'
-                              }
-                              size="sm"
-                              glow={job.status === 'running' || job.status === 'active'}
-                            >
-                              {t(config.labelKey)}
-                            </Badge>
-                          </div>
-
-                          {job.description && (
-                            <p className="text-xs text-[var(--text-tertiary)] mt-1.5 line-clamp-1">
-                              {job.description}
-                            </p>
-                          )}
-
-                          {isExpanded && (
-                            <JobExpandedDetail
-                              job={job}
-                              isCancelling={isCancelling}
-                              canCancel={canCancel(job.status)}
-                              onCancel={handleCancelJob}
-                              canResume={canResume(job.status)}
-                              isResuming={resumingJobId === job.job_id}
-                              onResume={handleResumeJob}
-                              canPause={canPause(job.status)}
-                              isPausing={pausingJobId === job.job_id}
-                              onPause={handlePauseJob}
-                              canEdit={canEdit(job.status)}
-                              onEdit={handleEditSchedule}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                };
-
                 return (
                   <>
-                    {mainJobs.map(renderJobCard)}
+                    {mainJobs.map(renderJobRow)}
 
-                    {/* Failed jobs collapsible group */}
+                    {/* Failed jobs collapsible group. The `Failed n` filter chip
+                        is the second route to the same set — failures are
+                        reachable both by scanning and by filtering, instead of
+                        living only at the bottom of the list. */}
                     {failedJobs.length > 0 && (
-                      <div className="mt-1">
+                      <>
                         <button
                           onClick={() => setFailedExpanded(!failedExpanded)}
+                          aria-expanded={failedExpanded}
                           className={cn(
-                            'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all',
-                            'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]',
+                            'w-full flex items-center gap-1.5 px-3.5 py-2 transition-colors duration-150',
+                            'border-t border-[var(--rule)]',
+                            'text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]',
+                            'text-[var(--color-error)] hover:bg-[var(--nm-row-hover)]',
                           )}
                         >
                           {failedExpanded ? (
-                            <ChevronDown className="w-3.5 h-3.5" />
+                            <ChevronDown className="w-3 h-3" />
                           ) : (
-                            <ChevronRight className="w-3.5 h-3.5" />
+                            <ChevronRight className="w-3 h-3" />
                           )}
-                          <XCircle className="w-3.5 h-3.5 text-[var(--color-error)]" />
-                          <span className="text-xs font-medium">
-                            {t('jobs.failedGroup', { count: failedJobs.length })}
-                          </span>
+                          {t('jobs.failedGroup', { count: failedJobs.length })}
                         </button>
-                        {failedExpanded && (
-                          <div className="space-y-3 mt-2">
-                            {failedJobs.map(renderJobCard)}
-                          </div>
-                        )}
-                      </div>
+                        {failedExpanded && failedJobs.map(renderJobRow)}
+                      </>
                     )}
                   </>
                 );
               })()
             )}
-          </div></ScrollArea>
+          </ScrollArea>
         )}
 
         {/* Graph View */}
         {viewMode === 'graph' && (
           <div className="h-full flex flex-col">
             {!hasJobsWithDependencies ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-                <div className="w-16 h-16 rounded-2xl bg-[var(--accent-secondary)]/10 mx-auto mb-4 flex items-center justify-center">
-                  <GitBranch className="w-8 h-8 text-[var(--accent-secondary)]" />
-                </div>
-                <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">
-                  {t('jobs.empty.graph.title')}
-                </p>
-                <p className="text-[var(--text-tertiary)] text-xs">
-                  {t('jobs.empty.graph.hint')}
-                </p>
-              </div>
+              <BracketEmptyState
+                className="flex-1"
+                label={t('jobs.empty.graph.title')}
+                hint={t('jobs.empty.graph.hint')}
+              />
             ) : (
               <>
-                <div className="flex-1 min-h-[300px] rounded-xl overflow-hidden border border-[var(--border-subtle)]">
+                <div className="flex-1 min-h-[300px] rounded-[var(--radius-md)] overflow-hidden border border-[var(--border-subtle)]">
                   <JobDependencyGraph
                     jobs={jobNodes}
                     onNodeClick={setSelectedJobId}
@@ -590,15 +547,11 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         {viewMode === 'timeline' && (
           <div className="h-full flex flex-col">
             {jobs.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center p-8">
-                  <div className="w-16 h-16 rounded-2xl bg-[var(--accent-primary)]/10 mx-auto mb-4 flex items-center justify-center">
-                    <GanttChartSquare className="w-8 h-8 text-[var(--accent-primary)]" />
-                  </div>
-                  <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">{t('jobs.empty.timeline.title')}</p>
-                  <p className="text-[var(--text-tertiary)] text-xs">{t('jobs.empty.timeline.hint')}</p>
-                </div>
-              </div>
+              <BracketEmptyState
+                className="flex-1"
+                label={t('jobs.empty.timeline.title')}
+                hint={t('jobs.empty.timeline.hint')}
+              />
             ) : (
               <>
                 <ScrollArea className="flex-1" viewportClassName="p-2">

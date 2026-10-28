@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers import registry as registry_mod
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers import registry as registry_mod
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService,
 )
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     ProviderProtocol,
     ProviderSource,
@@ -52,8 +52,9 @@ class _ExplodingDB:
 async def test_test_provider_config_delegates_to_registry(monkeypatch):
     captured = {}
 
-    async def _fake_test(prov):
+    async def _fake_test(prov, *, stored_source=None):
         captured["prov"] = prov
+        captured["stored_source"] = stored_source
         return True, "Connected successfully"
 
     monkeypatch.setattr(
@@ -75,6 +76,8 @@ async def test_test_provider_config_delegates_to_registry(monkeypatch):
     assert prov.protocol == ProviderProtocol.OPENAI
     assert prov.auth_type == AuthType.API_KEY
     assert prov.source == ProviderSource.USER
+    # Raw form values are user input: the egress gate is decided as USER.
+    assert captured["stored_source"] == ProviderSource.USER.value
     assert prov.api_key == "sk-test"
     assert prov.base_url == "https://proxy.example/v1"
     assert prov.models == ["gpt-x", "gpt-y"]
@@ -84,8 +87,9 @@ async def test_test_provider_config_delegates_to_registry(monkeypatch):
 async def test_test_provider_config_maps_anthropic_bearer(monkeypatch):
     captured = {}
 
-    async def _fake_test(prov):
+    async def _fake_test(prov, *, stored_source=None):
         captured["prov"] = prov
+        captured["stored_source"] = stored_source
         return False, "Authentication failed (invalid API key)"
 
     monkeypatch.setattr(

@@ -30,13 +30,13 @@ from uuid import uuid4
 
 from loguru import logger
 
-from xyz_agent_context.settings import settings
+from narranexus.platform.settings import settings
 from backend.integrations.arena.arena_onboarding import (
     ArenaCredentials,
     ArenaOnboarder,
     arena_auth_directive,
 )
-from xyz_agent_context.bootstrap.profiles import (
+from narranexus.platform.bootstrap.profiles import (
     BootstrapProfile,
     BootstrapContext,
     WelcomeArtifact,
@@ -44,7 +44,7 @@ from xyz_agent_context.bootstrap.profiles import (
     get_profile,
     register_profile,
 )
-from xyz_agent_context.bootstrap.welcome_templates import bilingual_html, feature_card
+from narranexus.platform.bootstrap.welcome_templates import bilingual_html, feature_card
 
 # ── Per-agent content (铁律 #4: the Arena scenario lives in these templates,
 # not in any generic module/prompt) ─────────────────────────────────────────
@@ -325,7 +325,7 @@ class ArenaProvisioningService:
         email is optional, so a missing token or a bind failure never blocks
         provisioning.
         """
-        from xyz_agent_context.repository.agent_repository import AgentRepository
+        from narranexus.platform.repository.agent_repository import AgentRepository
 
         t_start = perf_counter()
         agent_repo = AgentRepository(self.db)
@@ -409,7 +409,7 @@ class ArenaProvisioningService:
 
             # 3. Default agent-level instances (idempotent).
             t = perf_counter()
-            from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
+            from narranexus.platform.module_system._module_impl.instance_factory import InstanceFactory
 
             await InstanceFactory(self.db).create_agent_level_instances(agent_id)
             timings["instances"] = round((perf_counter() - t) * 1000, 1)
@@ -430,7 +430,7 @@ class ArenaProvisioningService:
             # + claim_token are written here (credentials.json + skill env) — the
             # only place they live on our side.
             t = perf_counter()
-            from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+            from narranexus.platform.utils.workspace_paths import agent_workspace_path
             workspace = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
             onboarder.install_skill(
                 workspace / "skills", creds, owner_user_id=user_id
@@ -494,7 +494,7 @@ class ArenaProvisioningService:
         agent_metadata. Best-effort: any failure returns a status string and
         leaves provisioning unaffected.
         """
-        from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+        from narranexus.platform.utils.workspace_paths import agent_workspace_path
 
         prior = metadata.get("arena_owner_bind")
         try:
@@ -533,30 +533,33 @@ class ArenaProvisioningService:
             return prior or "error"
 
     async def _set_awareness(self, agent_id: str, awareness_text: str) -> None:
-        from xyz_agent_context.repository.instance_repository import InstanceRepository
-        from xyz_agent_context.repository.instance_awareness_repository import (
+        from narranexus.platform.repository.instance_repository import InstanceRepository
+        from narranexus.platform.repository.instance_awareness_repository import (
             InstanceAwarenessRepository,
         )
 
+        from narranexus.platform.module_system import module_by_role
+
+        awareness_module = module_by_role("awareness")
         rows = await InstanceRepository(self.db).get_by_agent(
-            agent_id, module_class="AwarenessModule", is_public=True
-        )
+            agent_id, module_class=awareness_module, is_public=True
+        ) if awareness_module else []
         if not rows:
-            raise RuntimeError(f"no AwarenessModule instance for {agent_id}")
+            raise RuntimeError(f"no awareness module instance for {agent_id}")
         await InstanceAwarenessRepository(self.db).upsert(rows[0].instance_id, awareness_text)
 
     async def _create_paused_jobs(self, agent_id: str, user_id: str) -> list:
         """Create the routines, then pause each. create→PENDING→pause→PAUSED."""
-        from xyz_agent_context.module.job_module.job_service import JobInstanceService
-        from xyz_agent_context.repository.job_repository import JobRepository
-        from xyz_agent_context.repository.user_repository import UserRepository
+        from narranexus.platform.repository.job_repository import JobRepository
+        from narranexus.platform.repository.user_repository import UserRepository
+        from narranexus.platform.utils.plugin_services import job_instances
 
         # Schedules display/fire in the creator's timezone (the cron 08:00 job
         # especially); fall back to UTC if the user has no timezone set.
         user = await UserRepository(self.db).get_user(user_id)
         tz = (user.timezone if user and getattr(user, "timezone", None) else "UTC")
 
-        job_service = JobInstanceService(self.db)
+        job_service = job_instances(self.db)
         job_repo = JobRepository(self.db)
         created = []
         for spec in ARENA_JOBS:

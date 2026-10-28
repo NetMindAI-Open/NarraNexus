@@ -1,0 +1,59 @@
+{
+  "id": "narranexus.minimal",
+  "displayName": "NarraNexus Minimal",
+  "description": "The smallest useful distribution: single-agent chat with the NexusPower framework and local auth — the base a custom distribution starts from.",
+  "engine": ">=1.15 <2",
+  "plugins": {
+    "builtin.chat": "^1.0",
+    "builtin.basic_info": "^1.0",
+    "builtin.awareness": "^1.0",
+    "builtin.providers": "^1.0",
+    "builtin.frameworks.nexus_power": "^1.0",
+    "builtin.turn": "^1.0",
+    "builtin.llm_clients": "^1.0",
+    "builtin.memory_kinds": "^1.0",
+    "builtin.common_tools": "^1.0",
+    "builtin.auth.local": "^1.0",
+    "builtin.prompts": "^1.0",
+    "builtin.ui": "^1.0"
+  },
+  "excludes": [
+    "builtin.frameworks.claude_code",
+    "builtin.frameworks.codex_cli",
+    "builtin.nexus_plugins_module",
+    "builtin.social_network",
+    "builtin.job",
+    "builtin.skills",
+    "builtin.message_bus",
+    "builtin.general_memory",
+    "builtin.browser",
+    "builtin.home_assistant",
+    "builtin.channels.lark",
+    "builtin.channels.slack",
+    "builtin.channels.telegram",
+    "builtin.channels.wechat",
+    "builtin.channels.narramessenger",
+    "builtin.channels.discord",
+    "builtin.teams",
+    "builtin.auth.netmind"
+  ],
+  "branding": {
+    "name": "NarraNexus Minimal",
+    "logo": "",
+    "theme": ""
+  },
+  "auth": "builtin.auth.local",
+  "defaults": {
+    "pipelineProfile": "default",
+    "agentSpec": "",
+    "locale": "en"
+  },
+  "runtime": {
+    "userPlugins": true,
+    "deployment": "desktop"
+  },
+  "targets": [
+    "desktop",
+    "wheel"
+  ]
+}

@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.message_bus import _bus_activity as act
+from narranexus.platform.message_bus import _bus_activity as act
 
 
 async def _row(db, agent_id="agent_a", channel_id="ch_1"):
@@ -174,3 +174,39 @@ async def test_get_channel_activity_scopes_by_channel(db_client):
         pass
     rows = await act.get_channel_activity(db_client, "ch_1")
     assert {r["agent_id"] for r in rows} == {"agent_a", "agent_b"}
+
+
+@pytest.mark.asyncio
+async def test_note_silent_turn_appends_a_final_step(db_client):
+    async with act.turn(db_client, "agent_s", "ch_s") as t:
+        await t.on_progress("thinking")
+    await act.note_silent_turn(db_client, "agent_s", "ch_s")
+
+    row = (await act.get_channel_activity(db_client, "ch_s"))[0]
+    assert row["state"] == "idle"
+    phases = [s["phase"] for s in act.parse_steps(row)["items"]]
+    assert phases[-1] == act.SILENT_PHASE
+    assert phases[:-1] == ["starting", "thinking"], "the turn's own timeline is kept"
+    assert act.last_turn_was_silent(row) is True
+
+
+@pytest.mark.asyncio
+async def test_the_next_turn_clears_the_silent_mark(db_client):
+    await act.note_silent_turn(db_client, "agent_s", "ch_s")
+    async with act.turn(db_client, "agent_s", "ch_s"):
+        pass
+    row = (await act.get_channel_activity(db_client, "ch_s"))[0]
+    assert act.last_turn_was_silent(row) is False
+
+
+@pytest.mark.asyncio
+async def test_note_silent_turn_without_a_row_creates_one_and_never_raises(db_client):
+    await act.note_silent_turn(db_client, "agent_new", "ch_s")
+    row = (await act.get_channel_activity(db_client, "ch_s"))[0]
+    assert act.last_turn_was_silent(row) is True
+
+
+def test_last_turn_was_silent_on_junk_rows():
+    assert act.last_turn_was_silent(None) is False
+    assert act.last_turn_was_silent({"steps": "not json"}) is False
+    assert act.last_turn_was_silent({"steps": '{"items": []}'}) is False

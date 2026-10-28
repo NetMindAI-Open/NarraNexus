@@ -16,6 +16,18 @@ export function money(v?: string | number | null): string {
   return Number.isFinite(n) ? n.toFixed(2) : '—';
 }
 
+// Same rounding as `money`, but ABSENT instead of "—". Callers that fold the
+// amount into a label ("Recharge ¥73.00") need to drop the whole label when
+// there is no number — a button reading "Recharge ¥—" is worse than one that
+// just says "Recharge". Both live here so the guard exists once: upstream types
+// every FxQuote field as optional and does not validate its own 200s, so a
+// missing field is a shape we must survive, not a bug we can assume away.
+export function moneyOrNull(v?: string | number | null): string | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : null;
+}
+
 // The free-tier wallet needs more precision than a balance does. A real agent
 // turn on it costs a fraction of a cent (~$0.0027), so at two decimals a whole
 // session of use rounds away and the grant looks frozen at "10.00" — which is

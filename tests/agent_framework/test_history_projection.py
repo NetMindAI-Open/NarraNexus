@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.agent_framework.loop.history_projection import (
+from narranexus.platform.agent_framework.loop.history_projection import (
     fold_event_log_to_messages,
 )
 

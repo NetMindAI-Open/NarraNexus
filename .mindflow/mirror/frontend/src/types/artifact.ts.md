@@ -1,8 +1,36 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-07-22
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 注释指向 `ARTIFACT_KINDS` 注册表
+
+`registerArtifactKind` 已退役。
+
+## 2026-09-03 — `ArtifactKind` 放开
+
+`BuiltinArtifactKind` 是壳自带渲染器的种类；`ArtifactKind = BuiltinArtifactKind | (string & {})`，
+因为插件可注册新种类、更新的后端也可能发本构建不认识的种类（`downloadExtFor` 早已防御）。
+
+## 2026-08-20 — `content_hash?: string | null`
+
+镜像后端新列(上次提交点时 entry 的 sha256)。**Gotcha:编辑器不拿它
+当乐观锁基准**——锁基准永远是编辑器**加载到的字节**的 hash(盘是真身,
+表指纹可能落后于外部写);它的用途是 `PUT /content` 的响应把新指纹
+带回来,保存成功后 re-base([[useArtifactEditor.ts]] 的 doSave),以及
+HtmlRenderer 的自回声判定(自己提交引发的 updated_at bump 不重挂
+iframe)。可选字段:事件 payload 携带,普通 list 响应也带,但存量行为
+null——消费方必须容 null。
+
+## 2026-08-07 — `Artifact.team_id` + 新增导出 `TeamFile`
+
+`team_id: string | null` 镜像后端新增列（见 [[artifact_schema.py]]）。**null 就是私有**，
+也涵盖所有存量数据——前端不需要「未设置」的第三态判断。
+
+新增 `TeamFile`：团队共享目录的一行（`GET /api/teams/{id}/files`）。它**不是** artifact——
+磁盘名是 `file_id`，`original_name` 是唯一保留人类可读名字的地方，`shared_by_agent_id` 用于
+面板归因。消费者见 [[TeamWorkspacePanel.tsx]]。
 
 ## 2026-07-22 — URL-tab types
 

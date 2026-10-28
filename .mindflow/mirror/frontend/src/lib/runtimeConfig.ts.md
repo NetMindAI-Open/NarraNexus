@@ -1,10 +1,67 @@
 ---
 code_file: frontend/src/lib/runtimeConfig.ts
-last_verified: 2026-07-13
+last_verified: 2026-09-11
 stub: false
 ---
 
 # runtimeConfig.ts — runtime deploy-time config, injected via /config.js
+
+## 2026-09-09 — B-40: production bundles fall back to PROD NetMind, never protago-dev
+
+`getNetmindConfig()`'s last-resort fallback now depends on the build kind:
+`import.meta.env.DEV` (the `vite` dev server) keeps the protago-dev defaults
+(`_DEV_NETMIND`); any `vite build` output (DMG, cloud image) uses
+`_PROD_NETMIND` (auth-api / accounts .netmind.ai). The dev literals are dead
+code in a production build and get stripped — verified: the pre-fix `vite build`
+bundle contained `protago-dev`, the post-fix one does not, and
+`scripts/release/check_desktop_netmind_env.sh bundle` asserts that for the DMG.
+Precedence is unchanged (injected /config.js → VITE_* → fallback); cloud prod
+and dev both inject all four keys (checked their live /config.js), so they are
+unaffected.
+
+Why: upstream NetMindAI-Open/NarraNexus#90 ("Sign in with GitHub" on the local
+version opened "Netmind AI Test by protagohhz" → accounts.protago-dev.com). The
+DMG was not the leak (its build logs show the prod VITE_* reached vite); the
+source-run local version was — run.sh → dev-local.sh enabled Power login on
+protago-dev and exported no `VITE_NETMIND_*`, so the vite dev server used these
+dev fallbacks. That path now exports explicit PROD values
+(`scripts/dev/netmind_env.sh`); this change closes the same hole for every
+built bundle. Tests: `runtimeConfig.netmind.test.ts` (DEV → protago-dev,
+PROD → netmind.ai with no protago-dev string, VITE_* beats both).
+
+Guard for the cloud dev stack (PR#403 review I2): before this change the
+fallback happened to equal the dev stack's target, so a dev host `.env` missing
+`NETMIND_AUTH_API_URL` / `NETMIND_ACCOUNTS_URL` was harmless; now it would land
+on PROD NetMind while the dev backend validates against protago-dev. The bundle
+cannot tell which stack it is on, so `getNetmindConfig()` in forced-cloud mode
+`console.error`s once per missing injected `authApi` / `accountsUrl`, naming the
+`.env` key to set (`_reportUninjectedCloudNetmind`). Desktop/local builds are
+silent (they use VITE_*). The fail-fast half belongs to the deploy repo
+(compose `${NETMIND_AUTH_API_URL:?...}` / `${NETMIND_ACCOUNTS_URL:?...}`,
+tracked as a follow-up there; `NETMIND_REGISTER_URL` stays optional). Tests:
+logs once per key when cloud injects empty values, silent with both injected,
+silent outside cloud.
+
+
+## 2026-08-12 — Web-analytics id (GTM), host-gated
+
+Added `WebAnalyticsConfig` + `getWebAnalyticsConfig()` (`gtmId` only). Precedence:
+injected `/config.js` `gtmId` key present (even `""` = kill-switch) → `VITE_GTM_ID`
+→ compiled-in default **only on an official production host**
+(`_OFFICIAL_ANALYTICS_HOSTS` = `agent.narra.nexus`) → `""`.
+
+**The gate is the real hostname, NOT `isForcedCloud()`** — this is the crux. The
+deploy stack defaults `NARRANEXUS_FORCE_MODE=cloud`, so mode-based gating would
+be true for every self-host and would leak their users' data into our container.
+Two intentionally-diverging empty-string semantics live in this file now: `pick`
+for analytics treats an injected `""` as "force off" (branches on `key in
+injected`), whereas `_str`/netmind treats `""` as "unset, fall through" — the
+docstring calls this out so a future field-adder doesn't copy the wrong half.
+Sole consumer is `lib/analytics/webAnalytics.ts` (adds `isTauri()` + opt-out
+gates). Clarity is deliberately not wired (session replay would capture chat).
+The injected-key / VITE steps are **latent** — no deploy injects `gtmId` and no
+build sets `VITE_GTM_ID` today, so production's only live source is the host +
+constant; the immediate off-switch is the GTM console, not a redeploy.
 
 ## 2026-07-13 — Power-login availability + compiled-in dev NetMind defaults
 

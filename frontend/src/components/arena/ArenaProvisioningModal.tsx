@@ -31,7 +31,7 @@ export function ArenaProvisioningModal() {
       role="status"
       aria-live="polite"
     >
-      <div className="pointer-events-auto flex items-center gap-3 rounded-lg border border-[var(--border-subtle,#2a2a2a)] bg-[var(--bg-elevated,#1a1a1a)] px-4 py-3 shadow-lg max-w-[90vw]">
+      <div className="pointer-events-auto flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle,#2a2a2a)] bg-[var(--bg-elevated,#1a1a1a)] px-4 py-3 shadow-lg max-w-[90vw]">
         {status === 'provisioning' && (
           <>
             <div className="w-4 h-4 shrink-0 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />

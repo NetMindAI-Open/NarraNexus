@@ -43,8 +43,7 @@ import type {
   CostResponse,
   DashboardResponse,
   ApiResponse,
-  LarkCredentialResponse,
-  LarkBindResponse,
+  ChannelCredentialView,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
 } from '@/types';
@@ -262,6 +261,16 @@ export const mockApi = {
           tool_input: { candidates: 12, method: 'weighted_citation' },
           tool_output: '[{"id":"chen-2026","score":0.94},{"id":"volkov-2026","score":0.87}]',
         },
+        {
+          // Claude Code shape: metadata JSON + image descriptor (the pixels went to the model).
+          tool_name: 'mcp__browser_module__browser_look',
+          tool_input: { agent_id: 'mock', selector: '#citation-chart', scale: 2 },
+          tool_output:
+            '{"ok": true, "outcome": "OK", "observation_id": "view_mock", "url": "https://arxiv.org/abs/2604.01234", ' +
+            '"title": "Chen 2026 — Scalable oversight", "viewport": {"width": 1280, "height": 800}, ' +
+            '"region": {"x": 320, "y": 180, "width": 640, "height": 360}, "image": {"width": 1280, "height": 720, "mime_type": "image/png"}}' +
+            '{"type": "image", "mime_type": "image/png", "base64_chars": 412233}',
+        },
       ],
     });
   },
@@ -311,6 +320,7 @@ export const mockApi = {
         description: agentDescription,
         created_by: createdBy,
         created_at: new Date().toISOString(),
+        bound_channels: [],
       },
     });
   },
@@ -440,13 +450,20 @@ export const mockApi = {
   async useSubscription(): Promise<{ success: boolean; provider_ids?: string[] }> {
     return { success: true, provider_ids: [] };
   },
-  /* ─ Lark (stub) ─ */
-  async getLarkCredential(): Promise<LarkCredentialResponse> {
+  /* ─ Channels (stub): the generic /api/channels methods every channel config uses ─ */
+  async channelCredential(): Promise<ApiResponse & { data?: ChannelCredentialView | null }> {
     return ok({ success: true, data: null });
   },
-  async bindLarkBot(): Promise<LarkBindResponse> {
+  async channelBind(): Promise<ApiResponse> {
     return ok({ success: true });
   },
+  async channelUnbind(): Promise<ApiResponse> {
+    return ok({ success: true });
+  },
+  async channelSetActive(): Promise<ApiResponse & { enabled?: boolean }> {
+    return ok({ success: true });
+  },
+  /* ─ Lark OAuth (stub) ─ */
   async larkAuthLogin(): Promise<LarkAuthLoginResponse> {
     return ok({ success: true, data: {} });
   },
@@ -454,12 +471,6 @@ export const mockApi = {
     return ok({ success: true, data: {} });
   },
   async getLarkAuthStatus(): Promise<ApiResponse> {
-    return ok({ success: true });
-  },
-  async testLarkConnection(): Promise<ApiResponse> {
-    return ok({ success: true });
-  },
-  async unbindLarkBot(): Promise<ApiResponse> {
     return ok({ success: true });
   },
 };

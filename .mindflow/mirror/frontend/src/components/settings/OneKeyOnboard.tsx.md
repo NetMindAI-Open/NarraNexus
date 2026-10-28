@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/settings/OneKeyOnboard.tsx
-last_verified: 2026-07-21
+last_verified: 2026-08-28
 stub: false
 ---
+
+## 2026-08-28 — 默认选中 NetMind,列表 NetMind 置顶(Owner 走查决定)
+
+`providerType` 初始值 anthropic → netmind,`ONE_KEY_PROVIDERS` 顺序
+netmind 提到首位——组件头注释一直写着 "NetMind recommended",默认值却是
+anthropic,Owner 走查时点名。连带更新的测试:default 断言、Get Key link
+断言(先 NetMind 后切 anthropic)、OpenAI-key nudge 测试需先显式
+`selectProvider('anthropic')`(当时 nudge 谓词对 netmind+openai 组合不成立)。review 第 2 轮跟进:
+NetMind 成为默认后,"默认不动、粘 sk-proj key"成了最常见误操作,谓词
+加入 `providerType === 'netmind'`(NetMind 真实 key 是 32 位 hex、无
+sk- 前缀,prod 库核过实样)。**yunwu/openrouter 刻意不进谓词**——它们
+的合法 key 本就 sk- 开头,进了就会误报每一把好 key。测试:
+`OpenAI-looking key under the NetMind default shows the switch nudge`。
+
 ## 2026-07-21 — one-key setup follows the active locale
 
 All instructional, validation, confirmation, progress, and success copy now
@@ -75,7 +89,7 @@ onComplete navigates to chat.
 
 ## Upstream / downstream
 
-- **Rendered by**: `pages/SetupPage.tsx` as the primary surface
+- **Rendered by**: `components/welcome/StepModel.tsx` (step 1 of the first-run flow, with `hideHeader` + `bare`)
   (ProviderSettings lives behind the page's "Advanced setup"
   disclosure).
 - **Calls**: `api.onboard(key, providerType?)` — providerType is only
@@ -106,3 +120,21 @@ call shape, success → onComplete, error surfacing, disabled state.
 替换？"；确认则以 `replace=true` 重发 onboard，后端原子切换两个槽位到新 key。用户 ~30s
 完成换 key，无需理解 provider 概念。本组件仍全英文字面量（未接 i18n），确认文案沿用英文
 以匹配周边风格。
+
+## 2026-08-27 — shared with the first-run flow, and renamed rows
+
+- `hideHeader` + `bare` let [[StepModel]] embed this card inside
+  [[WelcomeStepFrame]] without a second heading or a card-inside-a-card
+  (design_system §2.5). Settings passes neither and looks unchanged.
+- The two official-key rows are named after **what they switch the agent to**,
+  not after the vendor: `Claude Code SDK` / `Codex SDK` (Owner decision). An
+  anthropic-protocol key runs `claude_code`, a pure OpenAI key runs `codex_cli`
+  (see `providers/user_service.py`) — "Anthropic (official)" told the user
+  nothing about that consequence. i18n keys renamed to match
+  (`claudeCodeSdk*` / `codexSdk*`).
+- The provider picker is a list of **radio rows carrying each vendor's real
+  mark** rather than a `<select>` (Owner-approved first-run design). Every
+  option's one-line consequence is visible at the same time, which a dropdown
+  hides — and it's the same list Settings shows, so the two can't drift.
+  Marks follow design_system §5.1: real ones where they exist, a neutral
+  lettermark for the two aggregators, `--nm-ink` refill for OpenAI's black.

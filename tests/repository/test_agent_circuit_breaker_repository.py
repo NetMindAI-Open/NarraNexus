@@ -7,11 +7,11 @@
 
 import pytest
 
-from xyz_agent_context.repository.agent_circuit_breaker_repository import (
+from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
-from xyz_agent_context.schema import CbStatus, ErrorCategory, PausedReason
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.schema import CbStatus, ErrorCategory, PausedReason
+from narranexus.platform.utils.timezone import utc_now
 
 
 @pytest.mark.asyncio

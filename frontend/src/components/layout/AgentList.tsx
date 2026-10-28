@@ -2,9 +2,15 @@
  * @file_name: AgentList.tsx
  * @author:
  * @date: 2026-06-10
- * @description: Agent selection, creation, editing, and management.
- * Shows agents grouped by team with collapsible sections. Running
- * indicators and completion badges support multi-agent concurrent chat.
+ * @description: The sidebar's Chats list — team rows + a flat agent list
+ * with collapsible sections, unread + running indicators. Each owned agent
+ * row has a ⋯ menu — Rename / Model & framework / Delete — an OWNER-REQUIRED
+ * entry reinstated 2026-09-11 after #383 moved every agent action to the
+ * profile page; the profile page stays a second door (and the only one for
+ * Clear data / description). Rename and delete run through the same
+ * `useAgentActions` hook as the profile page; Model & framework opens the
+ * same AgentLlmConfigPanel. Team rows keep their own ⋮ menu. Creation, import
+ * and export moved to the sidebar's global nav (Chat UI v4).
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -13,50 +19,19 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   RefreshCw,
   Plus,
-  ListChecks,
-  Bot,
-  Users2,
-  Download,
+  Search,
+  ChevronRight,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { BracketSectionLabel, BracketEmptyState, GroupAvatar } from '@/components/nm';
-import { useConfigStore, useChatStore, useTeamsStore, useRuntimeStore } from '@/stores';
-import { useCreateAgent, useAgentImported } from '@/hooks';
-import { api } from '@/lib/api';
+import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
+import { useConfigStore, useChatStore, useTeamsStore, useUIStore } from '@/stores';
+import { useCreateAgent, useAgentActions } from '@/hooks';
+import { AgentLlmConfigPanel } from '@/components/chat/AgentLlmConfigPanel';
 import { cn, formatChatTimestamp } from '@/lib/utils';
-import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
-import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
+import { getLastReadMs, markAgentRead, countUnread, latestMessageMs, markTeamRead } from '@/lib/unread';
+import { AgentGroupSection, type AgentRowActions } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
-import { ClearAgentDataDialog } from './ClearAgentDataDialog';
-import { EditAgentDialog } from './EditAgentDialog';
-import { ClearTeamDataDialog } from '../teams/ClearTeamDataDialog';
-import { AgentsHeaderMenu } from './AgentsHeaderMenu';
-import { CreateMenu } from './CreateMenu';
-import { ImportAgentModal } from './ImportAgentModal';
 import { TeamChatRow } from './TeamChatRow';
-import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
-
-interface AgentListProps {
-  collapsed: boolean;
-}
-
-/**
- * Feature flag — temporary, 2026-05-18.
- * Hides the "set agent public/private" toggle button in the sidebar
- * while the public-agent feature is paused for product redesign.
- *
- * Scope of the flag:
- *  - HIDES: the per-agent Globe/Lock toggle button (set-public entry point)
- *  - KEEPS: the read-only Globe badge that marks other users' already-public
- *           agents, and the dashboard's PublicCard for displaying them —
- *           these aren't user-actionable controls, they're status indicators
- *           for legacy `is_public=1` rows that may still exist.
- *  - KEEPS: the backend endpoint and the `handleTogglePublic` function so
- *           re-enabling is a one-line flip when the feature ships again.
- *
- * Flip this to `true` to bring the toggle back. */
-const SHOW_AGENT_PUBLIC_TOGGLE = false;
 
 /** Small collapsible category header (TEAMS / AGENTS) in the sidebar list. */
 function CategoryHeader({
@@ -85,37 +60,24 @@ function CategoryHeader({
       <span className="text-[10px] font-mono shrink-0" style={{ color: 'var(--nm-ink30)' }}>
         {count}
       </span>
-      <span
+      {/* Lucide chevron, not a glyph — same linear icon language as the
+          team-row toggle (design_system.md §5: no solid/linear mixing). */}
+      <ChevronRight
         className={cn(
-          'text-[10px] shrink-0 transition-transform duration-150',
-          collapsed ? 'rotate-0' : 'rotate-90',
+          'h-3 w-3 shrink-0 transition-transform duration-150',
+          !collapsed && 'rotate-90',
         )}
         style={{ color: 'var(--nm-ink30)' }}
         aria-hidden
-      >
-        ▶
-      </span>
+      />
     </button>
   );
 }
 
-export function AgentList({ collapsed }: AgentListProps) {
+export function AgentList() {
   const { t } = useTranslation();
   const [loadingAgents, setLoadingAgents] = useState(false);
   const { createAgent, creating: creatingAgent } = useCreateAgent();
-  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
-  const [savingName, setSavingName] = useState(false);
-  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
-  const [clearTarget, setClearTarget] = useState<typeof rawAgents[0] | null>(null);
-  const [clearBusy, setClearBusy] = useState(false);
-  const [editTarget, setEditTarget] = useState<typeof rawAgents[0] | null>(null);
-  const [editBusy, setEditBusy] = useState(false);
-  const [clearTeamTarget, setClearTeamTarget] = useState<{ team_id: string; name: string } | null>(null);
-  const [clearTeamBusy, setClearTeamBusy] = useState(false);
-  const [openMgmt, setOpenMgmt] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [collapsedCreateOpen, setCollapsedCreateOpen] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
   const [teamsCollapsed, setTeamsCollapsed] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_teams') === '1',
@@ -133,8 +95,9 @@ export function AgentList({ collapsed }: AgentListProps) {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { userId, agentId, agents: rawAgents, setAgentId, setAgents, refreshAgents } = useConfigStore();
-  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds, requestHistoryRefresh } = useChatStore();
+  const { userId, agentId, agents: rawAgents, setAgentId, refreshAgents } = useConfigStore();
+  const { setActiveAgent, isAgentStreaming, completedAgentIds } =
+    useChatStore();
   const agentSessions = useChatStore((s) => s.agentSessions);
   const teams = useTeamsStore((s) => s.teams);
   const teamsLoaded = useTeamsStore((s) => s.loaded);
@@ -142,6 +105,25 @@ export function AgentList({ collapsed }: AgentListProps) {
   const teamsUpdate = useTeamsStore((s) => s.updateTeam);
   const teamsDelete = useTeamsStore((s) => s.deleteTeam);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
+  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
+  const { renameAgent, deleteAgent } = useAgentActions({ confirm, alert });
+  // The agent whose model & framework panel is open from its row's ⋯ menu.
+  const [configAgentId, setConfigAgentId] = useState<string | null>(null);
+
+  const rowActions: AgentRowActions = {
+    onRename: (id, name) => { void renameAgent(id, name); },
+    onOpenModelConfig: setConfigAgentId,
+    onDelete: (id) => {
+      void (async () => {
+        const target = rawAgents.find((a) => a.agent_id === id);
+        const { deleted, wasActive } = await deleteAgent(id, target?.name || id);
+        // Same landing as the profile page's delete: the view that showed the
+        // deleted agent is gone, so go to the Dashboard (its default tab).
+        // Deleting some OTHER agent leaves the current view alone.
+        if (deleted && wasActive) navigate('/app/dashboard');
+      })();
+    },
+  };
 
   // Ensure teams are loaded so grouping is accurate.
   useEffect(() => {
@@ -267,235 +249,22 @@ export function AgentList({ collapsed }: AgentListProps) {
     }
   };
 
-  const handleCreateAgent = async () => {
-    await createAgent();
+  // Zero-agent empty state. Routed through the creation studio's fork, not
+  // straight into a blank agent: this is the first-run user the fork exists
+  // for. Team-scoped creation below stays direct — that flow already has a
+  // destination and a reason.
+  const handleCreateAgent = () => {
+    navigate('/app/agents/new');
   };
 
-  // Import-from-other-source is local-only: the scanner reads the user's
-  // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
-  const isLocalMode = useRuntimeStore((s) => s.mode) === 'local';
-
-  // After a successful migrate/apply: refresh the agent list + select the new
-  // agent. Shared with the guided-flow entry point so they can't drift.
-  const handleImportApplied = useAgentImported();
-
-  // #43: create a new agent already assigned to this team, then open the
-  // team's group chat so the membership change is immediately visible. The
-  // entry point now lives in the TEAMS-row ⋮ menu (TeamRowMenu) since the old
-  // AgentGroupSection-header "+" no longer exists in the TEAMS/AGENTS layout.
+  // #43: create a new agent already assigned to this team; useCreateAgent
+  // opens the team's group chat so the membership change is immediately
+  // visible. The entry point now lives in the TEAMS-row ⋮ menu (TeamRowMenu)
+  // since the old AgentGroupSection-header "+" no longer exists in the
+  // TEAMS/AGENTS layout.
   const handleCreateAgentInTeam = async (teamId: string) => {
-    const id = await createAgent({ teamId });
-    if (id) navigate(`/app/teams/${teamId}/chat`);
+    await createAgent({ teamId });
   };
-
-  const handleTogglePublic = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newIsPublic = !agent.is_public;
-    try {
-      const res = await api.updateAgent(agent.agent_id, undefined, undefined, newIsPublic);
-      if (res.success) {
-        setAgents(rawAgents.map(a =>
-          a.agent_id === agent.agent_id ? { ...a, is_public: newIsPublic } : a
-        ));
-      } else {
-        console.error('Failed to toggle public:', res.error);
-      }
-    } catch (err) {
-      console.error('Error toggling public:', err);
-    }
-  };
-
-  const handleStartEdit = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingAgentId(agent.agent_id);
-    setEditingName(agent.name || agent.agent_id);
-  };
-
-  const handleEditAgent = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditTarget(agent);
-  };
-
-  const doEditAgent = async (name: string, description: string) => {
-    if (!editTarget) return;
-    setEditBusy(true);
-    try {
-      const res = await api.updateAgent(editTarget.agent_id, name, description);
-      if (res.success && res.agent) {
-        setAgents(rawAgents.map(a =>
-          a.agent_id === editTarget.agent_id
-            ? { ...a, name: res.agent?.name, description: res.agent?.description }
-            : a
-        ));
-        setEditTarget(null);
-      } else {
-        await alert({
-          title: t('layout.editAgentDialog.saveFailedTitle'),
-          message: res.error || 'Failed to update agent',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      await alert({
-        title: t('layout.editAgentDialog.saveFailedTitle'),
-        message: String(err),
-        danger: true,
-      });
-    } finally {
-      setEditBusy(false);
-    }
-  };
-
-  const handleCancelEdit = (e: React.SyntheticEvent) => {
-    e.stopPropagation();
-    setEditingAgentId(null);
-    setEditingName('');
-  };
-
-  const handleSaveEdit = async (targetAgentId: string, e: React.SyntheticEvent) => {
-    e.stopPropagation();
-    if (!editingName.trim()) return;
-
-    setSavingName(true);
-    try {
-      const res = await api.updateAgent(targetAgentId, editingName.trim());
-      if (res.success && res.agent) {
-        setAgents(rawAgents.map(a =>
-          a.agent_id === targetAgentId
-            ? { ...a, name: res.agent?.name }
-            : a
-        ));
-        setEditingAgentId(null);
-        setEditingName('');
-      } else {
-        console.error('Failed to update agent:', res.error);
-      }
-    } catch (err) {
-      console.error('Error updating agent:', err);
-    } finally {
-      setSavingName(false);
-    }
-  };
-
-  const handleDeleteAgent = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    const ok = await confirm({
-      title: t('layout.agentList.deleteAgentTitle'),
-      message: t('layout.agentList.deleteAgentMessage', { name: agent.name || agent.agent_id }),
-      confirmText: t('layout.agentList.deleteAction'),
-      danger: true,
-    });
-    if (!ok) return;
-
-    setDeletingAgentId(agent.agent_id);
-    try {
-      const res = await api.deleteAgent(agent.agent_id);
-      if (res.success) {
-        const remaining = rawAgents.filter(a => a.agent_id !== agent.agent_id);
-        setAgents(remaining);
-        clearAgent(agent.agent_id);
-        if (agentId === agent.agent_id) {
-          if (remaining.length > 0) {
-            setAgentId(remaining[0].agent_id);
-            setActiveAgent(remaining[0].agent_id);
-          } else {
-            setAgentId('');
-          }
-        }
-      } else {
-        console.error('Failed to delete agent:', res.error);
-        await alert({
-          title: t('layout.agentList.deleteFailedTitle'),
-          message: t('layout.agentList.deleteAgentFailedMessage', { error: res.error }),
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error deleting agent:', err);
-      await alert({
-        title: t('layout.agentList.deleteFailedTitle'),
-        message: t('layout.agentList.deleteAgentError'),
-        danger: true,
-      });
-    } finally {
-      setDeletingAgentId(null);
-    }
-  };
-
-  const handleClearData = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
-    e.stopPropagation();
-    setClearTarget(agent);
-  };
-
-  const doClearData = async (scopes: { conversations: boolean; memory: boolean }) => {
-    if (!clearTarget) return;
-    setClearBusy(true);
-    try {
-      const res = await api.clearHistory(clearTarget.agent_id, scopes);
-      if (res.success) {
-        // Drop the in-memory session AND force any mounted ChatPanel to
-        // re-fetch server history (which is now empty) so the view doesn't
-        // keep showing stale messages without a manual refresh.
-        if (scopes.conversations) {
-          clearAgent(clearTarget.agent_id);
-          requestHistoryRefresh();
-        }
-        if (res.disk_errors?.length) {
-          await alert({
-            title: t('layout.clearAgentData.title', { name: clearTarget.name || clearTarget.agent_id }),
-            message: t('layout.clearAgentData.toastDiskWarn', { count: res.disk_errors.length }),
-            danger: true,
-          });
-        }
-      } else {
-        await alert({
-          title: t('layout.agentList.deleteFailedTitle'),
-          message: res.error || 'Failed to clear agent data',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error clearing agent data:', err);
-      await alert({
-        title: t('layout.agentList.deleteFailedTitle'),
-        message: String(err),
-        danger: true,
-      });
-    } finally {
-      setClearBusy(false);
-      setClearTarget(null);
-    }
-  };
-
-  const doClearTeamData = async (scopes: { chat: boolean; files: boolean }) => {
-    if (!clearTeamTarget) return;
-    setClearTeamBusy(true);
-    try {
-      const res = await api.clearTeamData(clearTeamTarget.team_id, scopes);
-      if (res.success) {
-        if (scopes.chat) requestHistoryRefresh();
-      } else {
-        await alert({
-          title: t('layout.agentList.deleteFailedTitle'),
-          message: res.error || 'Failed to clear team data',
-          danger: true,
-        });
-      }
-    } catch (err) {
-      console.error('Error clearing team data:', err);
-      await alert({ title: t('layout.agentList.deleteFailedTitle'), message: String(err), danger: true });
-    } finally {
-      setClearTeamBusy(false);
-      setClearTeamTarget(null);
-    }
-  };
-
-  const handleImport = () => navigate('/app/bundle/import');
-  const handleExport = () => {
-    // Pre-fill export wizard with agents if a team context is relevant.
-    navigate('/app/bundle/export');
-  };
-  const handleManageTeams = () => setOpenMgmt(true);
 
   const handleDeleteTeam = async (teamId: string) => {
     const team = teams.find((x) => x.team.team_id === teamId);
@@ -526,180 +295,34 @@ export function AgentList({ collapsed }: AgentListProps) {
   const teamChatMatch = location.pathname.match(/^\/app\/teams\/([^/]+)\/chat$/);
   const activeTeamChatId = teamChatMatch ? teamChatMatch[1] : null;
 
-  // Collapsed mode: avatar rail — EVERY agent across all groups (spec §11.2;
-  // the old rail silently capped at 4). The rail's job is fast agent
-  // switching: RingAvatar + unread badge, hairline divider between teams,
-  // no team chips / filter glyphs.
-  if (collapsed) {
-    return (
-      <div className="p-2 flex flex-col items-center gap-2">
-        {/* Create — a portal dropdown (Agent / Team) so it escapes the rail's
-            scroll clip; trigger is sized to match the agent avatars below. */}
-        <Popover open={collapsedCreateOpen} onOpenChange={setCollapsedCreateOpen}>
-          <PopoverTrigger asChild>
-            <button
-              disabled={creatingAgent}
-              className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center transition-all',
-                'text-[var(--accent-primary)] border border-dashed border-[var(--accent-primary)]/40',
-                'hover:bg-[var(--bg-elevated)]',
-                creatingAgent && 'opacity-50 cursor-not-allowed',
-              )}
-              title={t('layout.agentList.createAgentOrTeam')}
-              aria-label={t('layout.agentList.createAgentOrTeam')}
-            >
-              <Plus className={cn('w-4 h-4', creatingAgent && 'animate-pulse')} />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent side="right" align="start" sideOffset={8} className="w-auto min-w-[150px] p-1">
-            <CollapsedCreateItem
-              icon={<Bot className="w-3.5 h-3.5" />}
-              label={t('layout.agentList.createAgent')}
-              onClick={() => { setCollapsedCreateOpen(false); handleCreateAgent(); }}
-            />
-            <CollapsedCreateItem
-              icon={<Users2 className="w-3.5 h-3.5" />}
-              label={t('layout.agentList.createTeam')}
-              onClick={() => { setCollapsedCreateOpen(false); setOpenMgmt(true); }}
-            />
-            {isLocalMode && (
-              <CollapsedCreateItem
-                icon={<Download className="w-3.5 h-3.5" />}
-                label={t('layout.createMenu.importAgent')}
-                onClick={() => { setCollapsedCreateOpen(false); setImportOpen(true); }}
-              />
-            )}
-          </PopoverContent>
-        </Popover>
+  // Opening a room clears its mark DURABLY: the watermark goes to localStorage,
+  // so it stays cleared after navigating away (dev's team-unread logic, merged
+  // 2026-08-18). The v4 team row currently shows no unread dot — Owner ruling
+  // kept the v4 row layout — but the watermark is maintained so wiring a dot
+  // back is a one-prop change, and the panel's own advancing stays monotonic
+  // with this one.
+  const activeTeamLastMessageAt =
+    teams.find((t) => t.team.team_id === activeTeamChatId)?.last_message_at ?? null;
+  useEffect(() => {
+    if (!activeTeamChatId || !activeTeamLastMessageAt) return;
+    // An unparseable timestamp is NaN, which markTeamRead already refuses.
+    markTeamRead(activeTeamChatId, Date.parse(activeTeamLastMessageAt));
+  }, [activeTeamChatId, activeTeamLastMessageAt]);
 
-        {/* Manage agents — same 32px circular footprint as the avatars. */}
-        <button
-          onClick={() => navigate('/app/manage-agents')}
-          className="w-8 h-8 rounded-full flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] transition-colors"
-          title={t('layout.agentList.manageAgentsTitle')}
-          aria-label={t('layout.agentList.manageAgents')}
-        >
-          <ListChecks className="w-3.5 h-3.5" />
-        </button>
-
-        {/* TEAMS — two-colour group avatars open the group chat. */}
-        {teams.length > 0 && (
-          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
-        )}
-        {teams.map((team) => {
-          const initials = team.team.name
-            .split(/\s+/)
-            .filter(Boolean)
-            .map((w) => w[0])
-            .join('')
-            .slice(0, 2)
-            .toUpperCase();
-          const active = activeTeamChatId === team.team.team_id;
-          return (
-            <button
-              key={team.team.team_id}
-              onClick={() => navigate(`/app/teams/${team.team.team_id}/chat`)}
-              className={cn(
-                'p-0.5 rounded-full transition-colors duration-150',
-                active ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]',
-              )}
-              title={t('layout.agentList.teamGroupChatTitle', { name: team.team.name })}
-              aria-label={t('layout.agentList.teamGroupChatAria', { name: team.team.name })}
-              aria-current={active ? 'true' : undefined}
-            >
-              <GroupAvatar size="sm" members={[{ species: 'carbon' }, { species: 'silicon' }]} label={initials} />
-            </button>
-          );
-        })}
-
-        {/* AGENTS — flat & deduped (every agent once), matching the expanded
-            list; the old per-team grouping duplicated agents in two teams.
-            Same recent-activity order as the expanded list so the rail doesn't
-            flip back to creation order when the sidebar is collapsed. */}
-        {teams.length > 0 && sortedAgents.length > 0 && (
-          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
-        )}
-        {sortedAgents.map((agent) => {
-          const isSelected = activeTeamChatId ? false : agentId === agent.agent_id;
-          const completed = completedAgentIds.includes(agent.agent_id);
-          const label = (agent.name || agent.agent_id).slice(0, 2);
-          const streaming = isAgentStreaming(agent.agent_id) || !!agent.active_run;
-          const { unread } = getRowMeta(agent.agent_id);
-          return (
-            <div key={agent.agent_id} className="relative flex justify-center">
-              <button
-                onClick={() => handleSelectAgent(agent.agent_id)}
-                className={cn(
-                  'p-1.5 rounded-full transition-colors duration-150',
-                  isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
-                )}
-                title={agent.name || agent.agent_id}
-                aria-label={agent.name || agent.agent_id}
-                aria-current={isSelected ? 'true' : undefined}
-              >
-                <AvatarWithStreaming label={label} streaming={streaming} size="sm" />
-              </button>
-              {unread > 0 && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-[8px] flex items-center justify-center text-[9px] font-mono"
-                  style={{
-                    background: 'var(--nm-card)',
-                    border: '1px solid var(--nm-ink30)',
-                    color: 'var(--nm-ink70)',
-                  }}
-                >
-                  {unread > 9 ? '9+' : unread}
-                </span>
-              )}
-              {completed && !isSelected && unread === 0 && (
-                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // Expanded mode: grouped agent list
   return (
     <div>
       {confirmDialog}
-      {clearTarget && (
-        <ClearAgentDataDialog
-          agentName={clearTarget.name || clearTarget.agent_id}
-          busy={clearBusy}
-          onCancel={() => setClearTarget(null)}
-          onConfirm={doClearData}
+      {configAgentId && (
+        <AgentLlmConfigPanel
+          agentId={configAgentId}
+          isOpen
+          onClose={() => setConfigAgentId(null)}
+          onSaved={() => void refreshAgents()}
         />
       )}
-      {editTarget && (
-        <EditAgentDialog
-          initialName={editTarget.name || ''}
-          initialDescription={editTarget.description || ''}
-          busy={editBusy}
-          onCancel={() => setEditTarget(null)}
-          onSave={doEditAgent}
-        />
-      )}
-      {clearTeamTarget && (
-        <ClearTeamDataDialog
-          teamName={clearTeamTarget.name}
-          busy={clearTeamBusy}
-          onCancel={() => setClearTeamTarget(null)}
-          onConfirm={doClearTeamData}
-        />
-      )}
-      <TeamManagementModal open={openMgmt} onClose={() => setOpenMgmt(false)} />
-      {importOpen && (
-        <ImportAgentModal
-          onClose={() => setImportOpen(false)}
-          onApplied={handleImportApplied}
-        />
-      )}
-
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-3 pb-2">
+      {/* Header — v4: label + count with search (⌘K palette) and refresh.
+          Creation / import / export moved to the sidebar's global nav. */}
+      <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-2.5 pb-1.5">
         <div className="flex items-center justify-between px-1 gap-2">
           <span data-help-id="sidebar.agent-list">
             <BracketSectionLabel
@@ -709,26 +332,16 @@ export function AgentList({ collapsed }: AgentListProps) {
             </BracketSectionLabel>
           </span>
           <div className="flex items-center gap-1 shrink-0">
-            <span data-help-id="sidebar.create-agent">
-              <CreateMenu
-                onCreateAgent={handleCreateAgent}
-                onCreateTeam={() => setOpenMgmt(true)}
-                onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
-                disabled={creatingAgent}
-              />
-            </span>
-            <span data-help-id="sidebar.manage-agents">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate('/app/manage-agents')}
-                className="w-7 h-7"
-                title={t('layout.agentList.manageAgentsTitle')}
-                aria-label={t('layout.agentList.manageAgents')}
-              >
-                <ListChecks className="w-3.5 h-3.5" />
-              </Button>
-            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setPaletteOpen(true)}
+              className="w-7 h-7"
+              title={t('sidebar.searchChatsTitle')}
+              aria-label={t('sidebar.searchChatsTitle')}
+            >
+              <Search className="w-3.5 h-3.5" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -739,13 +352,6 @@ export function AgentList({ collapsed }: AgentListProps) {
             >
               <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
             </Button>
-            <span data-help-id="sidebar.agents-menu">
-              <AgentsHeaderMenu
-                onImport={handleImport}
-                onExport={handleExport}
-                onManageTeams={handleManageTeams}
-              />
-            </span>
           </div>
         </div>
       </div>
@@ -788,10 +394,15 @@ export function AgentList({ collapsed }: AgentListProps) {
                         teamName={t.team.name}
                         agentCount={t.member_agent_ids.length}
                         active={activeTeamChatId === t.team.team_id}
+                        members={t.member_agent_ids.map((aid) => ({
+                          agentId: aid,
+                          name: rawAgents.find((a) => a.agent_id === aid)?.name || aid,
+                        }))}
+                        activeAgentId={activeTeamChatId ? null : agentId}
+                        onSelectMember={handleSelectAgent}
                         onOpen={(tid) => navigate(`/app/teams/${tid}/chat`)}
                         onRename={(tid, name) => { void teamsUpdate(tid, { name }); }}
                         onDelete={handleDeleteTeam}
-                        onClearData={(tid) => setClearTeamTarget({ team_id: tid, name: t.team.name })}
                         onAddAgent={handleCreateAgentInTeam}
                         addingAgent={creatingAgent}
                       />
@@ -830,19 +441,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                     getIsStreaming={getIsStreaming}
                     completedAgentIds={completedAgentIds}
                     currentUserId={userId}
-                    showPublicToggle={SHOW_AGENT_PUBLIC_TOGGLE}
-                    editingAgentId={editingAgentId}
-                    editingName={editingName}
-                    onEditNameChange={setEditingName}
-                    onSaveEdit={handleSaveEdit}
-                    onCancelEdit={handleCancelEdit}
-                    savingName={savingName}
-                    onStartEdit={handleStartEdit}
-                    onEditAgent={handleEditAgent}
-                    onClearData={handleClearData}
-                    onDelete={handleDeleteAgent}
-                    onTogglePublic={handleTogglePublic}
-                    deletingAgentId={deletingAgentId}
+                    rowActions={rowActions}
                   />
                 )
               )}
@@ -852,30 +451,5 @@ export function AgentList({ collapsed }: AgentListProps) {
       </div>
 
     </div>
-  );
-}
-
-/** A row in the collapsed rail's "+" create popover (Agent / Team). */
-function CollapsedCreateItem({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-xs text-left',
-        'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)] transition-colors',
-      )}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }

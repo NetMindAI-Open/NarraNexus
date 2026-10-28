@@ -29,7 +29,7 @@ from loguru import logger
 from . import Migration
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
 async def _load_known_user_ids(db: "AsyncDatabaseClient") -> set[str]:
@@ -50,8 +50,8 @@ async def _load_known_user_ids(db: "AsyncDatabaseClient") -> set[str]:
 async def _apply(db: "AsyncDatabaseClient") -> Dict:
     import os
 
-    from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.workspace_paths import migrate_flat_to_nested
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils.workspace_paths import migrate_flat_to_nested
 
     base = settings.base_working_path
     if not os.path.isdir(base):

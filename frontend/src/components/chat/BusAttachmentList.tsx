@@ -56,7 +56,7 @@ function BusAttachmentChip({ att }: { att: BusAttachment }) {
       type="button"
       onClick={() => downloadBusAttachment(att).catch(() => {})}
       title={t('chat.attachments.downloadTitle', { name: att.original_name })}
-      className="flex max-w-[280px] items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 text-left hover:bg-[var(--bg-tertiary)]/70"
+      className="flex max-w-[280px] items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 text-left hover:bg-[var(--nm-paper-warm)]"
     >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[var(--bg-secondary)]">
         {att.category === 'image' ? (

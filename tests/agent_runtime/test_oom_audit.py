@@ -13,10 +13,10 @@ Covers the two executor-infra fatals:
 """
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _record_executor_infra_event,
 )
-from xyz_agent_context.repository.executor_audit_repository import (
+from narranexus.platform.repository.executor_audit_repository import (
     ExecutorAuditRepository,
 )
 

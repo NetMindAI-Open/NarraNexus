@@ -41,6 +41,16 @@ describe('TopBar Find Us entry', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noreferrer'));
   });
 
+  it('the hamburger button keeps its own size instead of shrinking with the breadcrumb (GitHub #129)', () => {
+    // The left cluster (hamburger + binding dot + truncating breadcrumb) is
+    // a flex row; without shrink-0 the hamburger shrinks alongside the
+    // breadcrumb text on a narrow viewport instead of the breadcrumb
+    // absorbing all of the squeeze, down to ~15px reported on GitHub #129.
+    renderTopBar();
+    const menuButton = screen.getByRole('button', { name: /menu/i });
+    expect(menuButton.className.split(/\s+/)).toContain('shrink-0');
+  });
+
   it('sits to the left of the runtime (LOCAL/CLOUD) label', () => {
     renderTopBar();
     const link = screen.getByRole('link', { name: /find us/i });

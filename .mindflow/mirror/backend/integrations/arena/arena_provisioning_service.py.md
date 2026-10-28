@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/arena/arena_provisioning_service.py
-last_verified: 2026-08-04
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -124,3 +124,11 @@ network to Arena); everything else is sub-200ms. Total cold provision ≈ 0.7s.
   `InstanceFactory` must run before it.
 - The welcome artifact (`_arena_welcome_en` / `_arena_welcome_zh`) foot links
   the official site `https://arena42.ai` (2026-06-16).
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`_create_paused_jobs` obtains `JobInstanceService` through the `jobs.instances` service.
+
+## 2026-09-04 · awareness by role (batch 5d)
+
+`_set_awareness` targets the module declaring role "awareness".

@@ -16,11 +16,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.agent_framework.llm.transcription import resolver as R
-from xyz_agent_context.agent_framework.llm.transcription.credential import (
+from narranexus.platform.agent_framework.llm.transcription import resolver as R
+from narranexus.platform.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
 )
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -75,18 +75,18 @@ def _patch_user_providers(monkeypatch, *providers):
     fake_db_module.get_db_client = AsyncMock(return_value=MagicMock())
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.user_service.UserProviderService",
+        "narranexus.platform.agent_framework.providers.user_service.UserProviderService",
         fake_module.UserProviderService,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client",
+        "narranexus.platform.utils.db.db_factory.get_db_client",
         fake_db_module.get_db_client,
     )
 
 
 def _patch_local_mode(monkeypatch, is_cloud: bool):
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode",
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode",
         lambda: is_cloud,
     )
 
@@ -111,7 +111,7 @@ def _patch_free_tier(
     so nothing upstream can refuse it — without this check an exhausted account
     would keep burning the operator's STT key after its LLM path is blocked.
     """
-    from xyz_agent_context.integrations.free_tier import wallet_client as wc
+    from narranexus.platform.integrations.free_tier import wallet_client as wc
 
     if not wallet_configured:
         monkeypatch.setattr(

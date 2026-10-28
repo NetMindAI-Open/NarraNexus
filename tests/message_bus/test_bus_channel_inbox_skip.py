@@ -15,28 +15,60 @@ fabricated wechat_send context_tokens and sent bogus platform DMs
 
 The skip set is now derived from MessageSourceRegistry: any handler that
 declares ``dedicated_trigger=True`` owns its ``{name}_`` inbox prefix. The
-filesystem is the guard's source of truth — every ``run_<name>_trigger.py``
-channel entrypoint must have a registered dedicated-trigger handler.
+filesystem is the guard's source of truth — every ``*_module/`` package with a
+``ChannelTriggerBase`` subclass must have a registered dedicated-trigger
+handler.
+
+Batch 6 moved every channel module from ``src/narranexus/platform/module_system``
+to ``plugins/builtin.channels.*/src/narranexus_plugins/<name>_module/`` — and
+the trigger file itself is no longer named ``run_<name>_trigger.py`` (e.g.
+NarraMessenger's is ``matrix_trigger.py``, not ``run_narramessenger_trigger.py``).
+So the channel name has to come from the *module directory* (``<name>_module``)
+that contains a ``ChannelTriggerBase`` subclass, not from the trigger
+filename, and the scan has to cover every plugin's ``src/`` (see
+``tests/_paths.py``).
 """
 
-from pathlib import Path
+import re
 
 # Importing the module package registers every module's MessageSourceHandler
-# (module/__init__.py builds MODULE_MAP by importing all module packages).
-import xyz_agent_context.module  # noqa: F401
-from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
-from xyz_agent_context.message_bus.message_bus_trigger import im_channel_prefixes
+# (module/__init__.py builds module_registry by importing all module packages).
+import narranexus.platform.module_system  # noqa: F401
+from narranexus.platform.channel.message_source_handler import MessageSourceRegistry
+from narranexus.platform.message_bus.message_bus_trigger import im_channel_prefixes
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-MODULE_DIR = REPO_ROOT / "src" / "xyz_agent_context" / "module"
+from tests._paths import engine_source_roots
+
+# ``class Foo(ChannelTriggerBase):`` — on-disk source of truth for "this
+# module directory owns a channel trigger" (mirrors test_trigger_startup_alignment.py).
+_SUBCLASS_RE = re.compile(r"class\s+\w+\s*\(\s*ChannelTriggerBase\s*\)")
 
 
 def _channel_names_from_entrypoints() -> list[str]:
-    """``run_<name>_trigger.py`` → ``<name>`` for every channel module."""
-    return sorted(
-        path.stem[len("run_"):-len("_trigger")]
-        for path in MODULE_DIR.glob("*_module/run_*_trigger.py")
-    )
+    """``<name>_module/`` → ``<name>`` for every module dir owning a
+    ``ChannelTriggerBase`` subclass, across every plugin's ``src/``."""
+    names: set[str] = set()
+    for root in engine_source_roots():
+        for path in root.glob("narranexus_plugins/*_module/*_trigger.py"):
+            if "__pycache__" in path.parts:
+                continue
+            if not _SUBCLASS_RE.search(path.read_text(encoding="utf-8")):
+                continue
+            module_dir = path.parent.name  # "<name>_module"
+            names.add(module_dir[: -len("_module")])
+    return sorted(names)
+
+
+def test_channel_name_discovery_finds_the_known_channels():
+    """Sanity: the filesystem scan finds the known channels (guards the glob).
+
+    Without this, a rename that breaks the glob silently shrinks the scan to
+    zero and both real guards below start passing for the wrong reason.
+    """
+    names = _channel_names_from_entrypoints()
+    assert "lark" in names
+    assert "wechat" in names
+    assert len(names) >= 6
 
 
 def test_every_channel_trigger_declares_dedicated_handler():

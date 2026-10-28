@@ -54,6 +54,12 @@ echo "=== NarraNexus Desktop Build ==="
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
+# NetMind ("Power") login endpoints are baked from THIS shell's env (vite
+# reads VITE_*, cargo reads the backend vars via option_env!). Refuse a
+# half-configured or non-prod set before spending ~20 minutes on a build that
+# would ship the protago-dev OAuth app. See check_desktop_netmind_env.sh.
+bash "$SCRIPT_DIR/check_desktop_netmind_env.sh" env
+
 # Step 0: Clean previous build artifacts
 echo "--- Step 0: Cleaning previous build ---"
 rm -rf "$PYTHON_DIR"
@@ -103,6 +109,9 @@ echo "--- Step 1: Building frontend ---"
 cd "$PROJECT_ROOT/frontend"
 npm ci
 npm run build
+# A production bundle must carry no protago-dev endpoint (runtimeConfig.ts
+# only compiles the dev fallback into `vite` dev-server builds).
+bash "$SCRIPT_DIR/check_desktop_netmind_env.sh" bundle "$PROJECT_ROOT/frontend/dist"
 echo "Frontend build complete"
 
 # Step 2: Download standalone Python
@@ -132,49 +141,137 @@ echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 
 # Step 3: Install Python dependencies directly into standalone Python
 #
-# NON-editable install (`pip install .` — no `-e`).
+# FROM THE LOCK (`uv export --locked` -> `uv pip install -r`), never from the
+# pyproject version ranges.
 #
-# Editable installs drop a `.pth` / `__editable__` file into site-packages whose
-# contents are the ABSOLUTE path to the build machine's source tree
-# (e.g. /Users/builder/NarraNexus/src). When the dmg is installed on another
-# machine at /Applications/NarraNexus.app/Contents/..., that path no longer
-# exists and every `import xyz_agent_context` / `import backend` blows up
-# with ModuleNotFoundError. We saw this on fresh-machine installs.
+# 2026-09-10 incident: this step used to be a plain `uv pip install
+# "$PROJECT_ROOT"`, which RE-RESOLVES every dependency from the ranges in
+# pyproject.toml and IGNORES uv.lock — the dmg shipped whatever PyPI happened
+# to hold on build day. That day it held `mcp` 2.2.0 (the lock says 1.24.0),
+# which renamed `streamablehttp_client` -> `streamable_http_client` and deleted
+# `mcp.client.websocket`; utils/mcp_executor.py imports both, so EVERY sidecar
+# service died at import ("ImportError: cannot import name
+# 'streamablehttp_client'") and the app could not start. Diffing the two
+# resolutions that day: 99 of 176 packages differed from the lock — starlette
+# 0.50->1.6, anthropic 0.72->1.4, fastmcp 2.14->4.0, openai, pydantic-core,
+# fastapi. The dmg was running a dependency graph nobody had ever tested.
+# Cloud images were never affected: docker/Dockerfile.manyfold goes through
+# `uv sync --frozen`. This was the only path in the repo that RE-RESOLVED from
+# the ranges AND handed the result to users — run.sh and deploy-cloud.sh do read
+# the lock, though their `uv sync` may refresh it, and run.sh's venv-rebuild
+# fallback (`uv pip install -e` without --no-deps) does re-resolve, into a local
+# dev venv only.
 #
-# A wheel install copies the real files into site-packages, so the bundle is
+# uv, not pip: this project's dependency list names 30 workspace members
+# (narranexus-contracts, narranexus-sdk, 28 narranexus-plugin-*) that exist
+# only in this repo and are resolved through `[tool.uv.sources]` — a uv-only
+# table. pip ignores it, looks the names up on PyPI, and the build dies with
+# "No matching distribution found for narranexus-contracts".
+# tests/release/test_desktop_build_uses_lock.py keeps this path classified.
+#
+# `--no-editable` (on the export AND the install): editable installs drop a `.pth` /
+# `__editable__` file into site-packages whose contents are the ABSOLUTE path
+# to the build machine's source tree (e.g. /Users/builder/NarraNexus/src). When
+# the dmg is installed on another machine at /Applications/NarraNexus.app/...,
+# that path no longer exists and every `import narranexus` / `import backend`
+# blows up with ModuleNotFoundError. We saw this on fresh-machine installs. A
+# wheel install copies the real files into site-packages, so the bundle is
 # fully relocatable — move the .app anywhere and the imports still resolve.
-echo ""
-echo "--- Step 3: Installing Python dependencies ---"
-# --timeout/--retries: ride through transient network stalls instead of hanging
+#
+# `--no-dev`, and NO `--extra plugins`: the desktop build stays the LIGHT one —
+# the coding-agent SDKs (~186 MB claude-agent-sdk) are installed on demand by
+# the Settings -> Plugins installer, not baked into the bundle.
+# tests/backend/test_plugins_extra_lockstep.py classifies that choice.
+#
+# UV_HTTP_TIMEOUT: ride through transient network stalls instead of hanging
 # forever on one wedged socket. Output streamed (not `| tail`) so a stall is
 # visible in the log rather than silent.
-"$PYTHON_DIR/bin/python3" -m pip install --no-cache-dir --timeout 30 --retries 10 "$PROJECT_ROOT"
+echo ""
+echo "--- Step 3: Installing Python dependencies (from uv.lock) ---"
+# `.XXXXXX` template: BSD mktemp(1) treats `-t` as a prefix, GNU requires the
+# Xs — spelling both keeps this runnable off a macOS runner too.
+REQ_TXT="$(mktemp -t narranexus-desktop-req.XXXXXX)"
+trap 'rm -f "${REQ_TXT:-}"' EXIT
+# `--locked`, NOT `--frozen`. The two are easy to mix up and only one of them
+# gives us what this step needs: `--frozen` means "do not update the lock
+# before exporting", which SILENTLY exports a lock that is out of date with
+# pyproject.toml; `--locked` asserts the lock would not change and exits
+# non-zero when it would. So the day someone adds a dependency and forgets
+# `uv lock`, this build fails here instead of shipping a bundle missing that
+# dependency — a different trigger for the same user-visible ImportError.
+# (verify_release_artifacts.sh deliberately uses `--frozen` for the opposite
+# reason: it only wants to PARSE the lock, and must not fail on lock-format
+# skew between a local uv and CI's.)
+# The workspace members are emitted as paths RELATIVE to the export directory,
+# so both commands run from $PROJECT_ROOT.
+(cd "$PROJECT_ROOT" && uv export \
+    --locked --no-dev --no-editable \
+    --format requirements-txt \
+    -o "$REQ_TXT")
+echo "  lock exported: $(grep -c '^[a-zA-Z0-9.]' "$REQ_TXT") requirement lines"
+# `--no-editable` HERE TOO, not only on the export. The export writes the 30
+# workspace members as bare relative paths, and `uv pip install -r` still
+# installs those as EDITABLE unless told otherwise: each becomes an
+# `_editable_impl_*.pth` holding the build machine's absolute source path
+# (/Users/runner/work/...). That is exactly the relocation bug described above,
+# and v1.21.3 shipped it — `No module named 'narranexus.contracts'` on every
+# user's machine, while the build and its smoke test (which run on the build
+# machine, where those paths exist) were green. Step 3.1 now checks for it.
+(cd "$PROJECT_ROOT" && UV_HTTP_TIMEOUT=30 uv pip install \
+    --python "$PYTHON_DIR/bin/python3" \
+    --no-cache --no-editable \
+    -r "$REQ_TXT")
 echo "Python dependencies installed"
+
+# Step 3.1: Import smoke test of the interpreter we just populated.
+#
+# The 2026-09-10 mcp-2.x breakage described above was a pure ImportError — the
+# wheels installed fine, the build went green, the dmg was signed, notarized,
+# shipped, and only died when a USER double-clicked the app and every sidecar
+# exited at startup. The build never once tried to import the code it was
+# packaging. It does now: bundle_import_smoke.py imports every sidecar
+# entrypoint from state.rs with the bundled interpreter and fails the
+# build on ANY exception — a dependency that jumped a major usually surfaces as
+# TypeError/AttributeError, not ImportError. It can afford to be that strict
+# because it first points HOME, the plugin home, DATABASE_URL and NARRA_SURFACE
+# at a scratch dir, so the verdict does not depend on the build machine (see
+# bundle_import_smoke.py). Cheap (seconds) and it fails exactly where the
+# failure was invisible before.
+echo ""
+echo "--- Step 3.1: Bundle import smoke test ---"
+# Invoked by PATH, not as `-m`: `python <path>` puts only the SCRIPT's directory
+# on sys.path, so the cwd is irrelevant and the imports resolve against the
+# bundle's site-packages — which is the whole point. Switching this to
+# `-m scripts.release.bundle_import_smoke` would put the cwd on sys.path and,
+# from $PROJECT_ROOT, verify the SOURCE tree instead of the bundle.
+"$PYTHON_DIR/bin/python3" "$PROJECT_ROOT/scripts/release/bundle_import_smoke.py"
 
 # Step 3.5: Bundle Node.js + CLI runtime dependencies.
 #
-# Why bundled, not user-installed:
-#   claude_agent_sdk (our hard Python dep) spawns the `claude` CLI as a
-#   subprocess — which is a Node.js script shipped via npm. A Mac end-user may
-#   not have Node.js at all, and even if they do, Finder-launched .app
-#   subprocesses get the launchd minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`)
-#   that usually doesn't include ~/.npm-global/bin, /opt/homebrew/bin, etc.
-#   The only robust answer is to ship node + the CLIs inside the app bundle
-#   and have process_manager.rs prepend their directories to PATH for every
-#   spawned Python service.
+# Why node is bundled (even though claude-code no longer is):
+#   lark-cli / narra-cli are Node.js scripts shipped via npm, and the Settings
+#   → Plugins installer runs `npm install --prefix ~/.narranexus/plugins/nodejs`
+#   to fetch Claude Code on demand. A Mac end-user may not have Node.js at all,
+#   and even if they do, Finder-launched .app subprocesses get the launchd
+#   minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) that usually doesn't include
+#   ~/.npm-global/bin, /opt/homebrew/bin, etc. The only robust answer is to ship
+#   node inside the app bundle and have process_manager.rs prepend its directory
+#   to PATH for every spawned Python service (so the plugin `npm install` works).
 #
-# lark-cli is shipped the same way — previously run.sh did a best-effort
-# `npm install -g @larksuite/cli`, which again required node on the user
-# machine. Bundling it eliminates that dependency too.
+# Claude Code itself is NOT bundled anymore — it is an optional plugin. Keeping
+# claude-agent-sdk (its ~186 MB bundled CLI) and openai-codex out of step 3's
+# install above (they live in the `plugins` extra, which it does not export) is
+# the bulk of the local slim-down.
 #
 # Bundle layout:
 #   resources/nodejs/
 #     bin/node                    ← interpreter for shebangs
 #     bin/npm                     ← (only used at build time)
 #     lib/node_modules/           ← node's own stdlib
-#     node_modules/               ← our installed packages (claude-code, lark-cli)
-#     node_modules/.bin/claude    ← shim exposed on PATH
+#     node_modules/               ← our installed packages (lark-cli, narra-cli)
 #     node_modules/.bin/lark-cli  ← shim exposed on PATH
+#   (claude-code is NOT bundled — optional plugin, installed on demand into
+#    ~/.narranexus/plugins/nodejs)
 echo ""
 echo "--- Step 3.5: Downloading Node.js $NODE_VERSION ---"
 if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
@@ -264,7 +361,13 @@ done
 "$NODE_DIR/bin/npx" --version > /dev/null
 echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$NODE_DIR/bin/npx" --version)"
 
-# Step 3.6: Install bundled CLIs (claude-code + lark-cli + narra-cli) into $NODE_DIR
+# Step 3.6: Install bundled CLIs (lark-cli + narra-cli) into $NODE_DIR
+#
+# Claude Code is NO LONGER bundled — on the lightweight build it is an optional
+# plugin the user installs on demand into ~/.narranexus/plugins (see
+# backend/integrations/plugins/). Node itself stays bundled here because
+# lark-cli / narra-cli still need it, AND because the plugin install runs
+# `npm install --prefix ...` which needs this bundled node on PATH.
 #
 # We install as *local* packages (no `-g`) so everything lives inside
 # $NODE_DIR/node_modules/ and the shim binaries end up at
@@ -275,7 +378,7 @@ echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$N
 # user's global prefix (e.g. ~/.npm-global) and picking up / clobbering their
 # installs during build.
 echo ""
-echo "--- Step 3.6: Installing bundled CLIs (claude-code + lark-cli + narra-cli) ---"
+echo "--- Step 3.6: Installing bundled CLIs (lark-cli + narra-cli) ---"
 # Use the committed package.json + package-lock.json so the build is
 # reproducible. Anything under scripts/desktop-bundle/ is the SOURCE OF
 # TRUTH for the bundled CLI versions — to bump:
@@ -312,7 +415,7 @@ cp "$BUNDLE_MANIFEST_DIR/package-lock.json" "$NODE_DIR/package-lock.json"
 # Sanity-check: the shims must exist at the path process_manager.rs will
 # prepend to PATH at runtime. If either is missing the build is broken — fail
 # loudly here rather than ship a half-working dmg.
-for bin in claude lark-cli narra-cli; do
+for bin in lark-cli narra-cli; do
     if [ ! -x "$NODE_DIR/node_modules/.bin/$bin" ]; then
         echo "ERROR: bundled CLI shim missing: $NODE_DIR/node_modules/.bin/$bin"
         echo "       npm install step above likely failed; re-run with verbose logging."
@@ -502,7 +605,6 @@ chmod +x "$NODE_DIR/node_modules/.bin/lark-cli"
 # Verify both CLIs can actually execute. --version is a safe smoke test
 # that forces the shim / binary to run and print something recognizable.
 echo "Bundled CLIs installed:"
-echo "  claude:   $("$NODE_DIR/node_modules/.bin/claude" --version 2>&1 | head -1 || echo '(version check failed)')"
 _lark_ver=$("$NODE_DIR/node_modules/.bin/lark-cli" --version 2>&1 | head -1 || true)
 if echo "$_lark_ver" | grep -qi "cannot find\|module_not_found\|Error:"; then
     echo "  lark-cli: ❌ native binary not working — output:"

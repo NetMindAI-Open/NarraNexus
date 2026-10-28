@@ -7,9 +7,9 @@ row booked at $0 across 2254 calls), and mispriced the one model it did list.
 
 import pytest
 
-from xyz_agent_context.utils import model_pricing
-from xyz_agent_context.utils.cost_tracker import calculate_cost
-from xyz_agent_context.utils.model_pricing import price_for
+from narranexus.platform.utils import model_pricing
+from narranexus.platform.utils.cost_tracker import calculate_cost
+from narranexus.platform.utils.model_pricing import price_for
 
 
 @pytest.fixture(autouse=True)
@@ -132,10 +132,10 @@ def test_unpriced_cache_falls_back_to_input_rate_not_to_free(monkeypatch):
     Booking it at 0 would make "we turned caching on" look like it cut cost to
     nothing — the exact false win this change is meant to prevent.
     """
-    from xyz_agent_context.utils.model_pricing import ModelPrice
+    from narranexus.platform.utils.model_pricing import ModelPrice
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.model_pricing.price_for",
+        "narranexus.platform.utils.model_pricing.price_for",
         lambda _m: ModelPrice(
             input_per_token=1e-6, output_per_token=2e-6,
             cache_write_per_token=None, cache_read_per_token=None,
@@ -273,7 +273,7 @@ def test_nexus_power_prices_through_this_module(fake_table):
     Asserted behaviourally rather than by inspecting imports: the two used to
     disagree on ids, and agreeing on THIS id is what the merge bought.
     """
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (  # noqa: E501
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (  # noqa: E501
         Usage,
         price_usage,
     )
@@ -286,7 +286,7 @@ def test_nexus_power_prices_through_this_module(fake_table):
 
 def test_an_unknown_model_is_unknown_on_both_ledgers(fake_table):
     """The other direction of the same agreement."""
-    from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (  # noqa: E501
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (  # noqa: E501
         Usage,
         price_usage,
     )

@@ -1,0 +1,18 @@
+{
+  "loaded_channels": [
+    "discord",
+    "lark",
+    "narramessenger",
+    "slack",
+    "telegram",
+    "wechat"
+  ],
+  "registered_class_names": [
+    "DiscordTrigger",
+    "LarkTrigger",
+    "MatrixTrigger",
+    "SlackTrigger",
+    "TelegramTrigger",
+    "WeChatTrigger"
+  ]
+}

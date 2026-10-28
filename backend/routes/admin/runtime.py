@@ -13,6 +13,9 @@ endpoint:
     is configured or it is unreachable).
   - audit_counts: recent instance_executor_audit event counts (last hour),
     for spotting OOM / cull / orphan-reap spikes.
+  - executor_reaper: last idle-cull pass. Culling stopping ENTIRELY looks
+    exactly like nothing needing to be culled, so the counts here (not the
+    audit rows) are what tells the two apart — see reaper_status.
 """
 from __future__ import annotations
 
@@ -22,27 +25,32 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends
 
-from xyz_agent_context.settings import settings
-
-from xyz_agent_context.agent_framework.loop.broker_client import broker_url
-from xyz_agent_context.agent_runtime.admission import get_admission_controller
-from xyz_agent_context.repository.executor_audit_repository import (
+from narranexus.platform.agent_framework.loop.broker_client import broker_url
+from narranexus.platform.agent_runtime.admission import get_admission_controller
+from narranexus.platform.agent_runtime.executor_reaper import reaper_status
+from narranexus.platform.repository.executor_audit_repository import (
     ExecutorAuditRepository,
 )
-from xyz_agent_context.repository.service_audit_repository import (
+from narranexus.platform.repository.service_audit_repository import (
     EVENT_STARTED,
     ServiceAuditRepository,
 )
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
+# Re-exported so tests can override the admin secret via ``mod.settings``; the
+# shared ``require_admin_secret`` helper reads the same ``settings`` singleton.
+from narranexus.platform.settings import settings  # noqa: F401
+
+from ._admin_secret import admin_secret_dependency
+from ._staff import require_staff_in_cloud
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/runtime", tags=["admin", "runtime"])
 
 # The consolidated worker supervisor's ServiceAuditor service name (see
-# xyz_agent_context/module/run_worker_supervisor.py). Its heartbeat `detail`
+# narranexus/platform/module_system/run_worker_supervisor.py). Its heartbeat `detail`
 # carries the per-worker liveness snapshot the System page's Workers card wants.
 _WORKER_SUPERVISOR_SERVICE = "worker_supervisor"
 
@@ -71,21 +79,9 @@ async def _get_audit_counts() -> dict:
     return await ExecutorAuditRepository(db).counts_since(since)
 
 
-def _require_admin_secret(provided: str) -> None:
-    """Self-credentialed machine access (same pattern as migrate-identity):
-    the deploy-side alert watcher polls this without a user JWT. No configured
-    secret is a misconfiguration, not an open door — refuse rather than allow."""
-    expected = (settings.admin_secret_key or "").strip()
-    if not expected:
-        raise HTTPException(status_code=503, detail="admin secret not configured")
-    if not provided or provided.strip() != expected:
-        raise HTTPException(status_code=403, detail="invalid admin secret")
-
-
 @router.get("/status")
-async def runtime_status(x_admin_secret: str = Header(default="")) -> dict:
+async def runtime_status(_: None = Depends(admin_secret_dependency)) -> dict:
     """Live scheduling/resource state. Read-only; never 500s on a sub-section."""
-    _require_admin_secret(x_admin_secret)
     try:
         executors = await _get_executor_list()
     except Exception as e:  # noqa: BLE001
@@ -102,6 +98,7 @@ async def runtime_status(x_admin_secret: str = Header(default="")) -> dict:
         "admission": get_admission_controller().snapshot(),
         "executors": executors,
         "audit_counts": audit_counts,
+        "executor_reaper": reaper_status(),
     }
 
 
@@ -195,7 +192,7 @@ async def _get_worker_snapshot() -> dict:
     }
 
 
-@router.get("/workers")
+@router.get("/workers", dependencies=[Depends(require_staff_in_cloud)])
 async def worker_status() -> dict:
     """Per-worker liveness of the consolidated worker supervisor.
 
@@ -204,6 +201,9 @@ async def worker_status() -> dict:
     so the process-level card cannot tell which sub-worker is flapping — this
     surfaces each one's state + cumulative restart_count. Never 500s: an
     unreachable DB or an absent supervisor yields ``available: false``.
+
+    Staff-only in cloud (``last_error`` carries worker exception text); open in
+    local mode, where the desktop System page shows it — see ``_staff``.
     """
     try:
         return await _get_worker_snapshot()

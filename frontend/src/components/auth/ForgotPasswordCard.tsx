@@ -4,12 +4,23 @@
  * passwords, so we drive NetMind's own reset directly (sendCode type=2 ->
  * resetPassword) — no backend involved. One modal, two steps: email -> code,
  * then code + new password -> done.
+ *
+ * The new password is validated client-side against the shared PASSWORD_RULES
+ * BEFORE submit. That is load-bearing for the anti-enumeration masking in
+ * useNetmindAuth.resetPassword: because a policy-violating password can never
+ * reach NetMind, the generic "code invalid" message resetPassword falls back to
+ * can only ever mean a bad code / unknown email — it can't silently hide a
+ * fixable weak password (which used to trap the user in a reset dead-loop).
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Check } from 'lucide-react';
 import { Button, FormField, TextInput } from '@/components/nm';
 import { useNetmindAuth } from '@/lib/netmindAuth/useNetmindAuth';
+import { PASSWORD_RULES, failedPasswordRules } from '@/lib/netmindAuth/passwordPolicy';
 
 export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -17,8 +28,18 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
   const [done, setDone] = useState(false);
   const netmind = useNetmindAuth();
 
+  const failedRules = useMemo(() => failedPasswordRules(newPassword), [newPassword]);
+  const canReset = code.trim().length > 0 && failedRules.length === 0 && !netmind.loading;
+
   const sendCode = async () => {
     if (await netmind.sendResetCode(email.trim())) setCodeSent(true);
+  };
+  // Go back to the email step to fix a typo'd address (the flow always advances
+  // for anti-enumeration, so a wrong email otherwise strands the user here).
+  const changeEmail = () => {
+    setCodeSent(false);
+    setCode('');
+    setNewPassword('');
   };
   const reset = async () => {
     if (await netmind.resetPassword(email.trim(), code.trim(), newPassword)) {
@@ -45,25 +66,27 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
         {done ? (
           <>
             <h2 className="text-lg font-semibold" style={{ color: 'var(--nm-ink)' }}>
-              Password updated
+              {t('pages.login.resetPasswordDone')}
             </h2>
             <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
-              You can now sign in with your new password.
+              {t('pages.login.resetPasswordDoneBody')}
             </p>
             <Button variant="primary" onClick={onClose} className="w-full">
-              Back to sign in
+              {t('pages.login.backToSignIn')}
             </Button>
           </>
         ) : (
           <>
             <h2 className="text-lg font-semibold" style={{ color: 'var(--nm-ink)' }}>
-              Reset password
+              {t('pages.login.resetPasswordTitle')}
             </h2>
             <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
-              We&apos;ll email a verification code to your NetMind account.
+              {codeSent
+                ? t('pages.login.forgotCodeSentHint')
+                : t('pages.login.forgotResetIntro')}
             </p>
 
-            <FormField label="Email">
+            <FormField label={t('pages.login.emailLabel')}>
               <TextInput
                 type="email"
                 value={email}
@@ -76,25 +99,52 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
 
             {codeSent && (
               <>
-                <FormField label="Verification code">
+                <div className="flex justify-end -mt-2">
+                  <button
+                    type="button"
+                    onClick={changeEmail}
+                    disabled={netmind.loading}
+                    className="text-xs underline opacity-70 hover:opacity-100 disabled:opacity-40"
+                  >
+                    {t('pages.login.useDifferentEmail')}
+                  </button>
+                </div>
+                <FormField label={t('pages.login.verificationCodeLabel')}>
                   <TextInput
                     value={code}
-                    placeholder="Verification code"
+                    placeholder={t('pages.login.verificationCodeLabel')}
                     onChange={(e) => setCode(e.target.value)}
                     disabled={netmind.loading}
                     className="h-11"
                   />
                 </FormField>
-                <FormField label="New password">
+                <FormField label={t('pages.login.newPasswordLabel')}>
                   <TextInput
                     type="password"
                     value={newPassword}
-                    placeholder="New password"
+                    placeholder={t('pages.login.newPasswordLabel')}
                     onChange={(e) => setNewPassword(e.target.value)}
                     disabled={netmind.loading}
                     className="h-11"
                   />
                 </FormField>
+                {/* Live policy checklist — a policy-failing password must not be
+                    submittable (see file header + resetPassword masking). */}
+                <ul className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  {PASSWORD_RULES.map((rule) => {
+                    const ok = rule.test(newPassword);
+                    return (
+                      <li
+                        key={rule.id}
+                        className="flex items-center gap-1.5 text-[11px]"
+                        style={{ color: ok ? 'var(--color-success)' : 'var(--nm-ink50)' }}
+                      >
+                        {ok ? <Check className="w-3 h-3" /> : <span className="w-3" />}
+                        {t(`pages.signup.rule.${rule.id}`)}
+                      </li>
+                    );
+                  })}
+                </ul>
               </>
             )}
 
@@ -115,7 +165,7 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
                 disabled={netmind.loading}
                 className="flex-1"
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               {!codeSent ? (
                 <Button
@@ -125,17 +175,17 @@ export function ForgotPasswordCard({ onClose }: { onClose: () => void }) {
                   loading={netmind.loading}
                   className="flex-1"
                 >
-                  Send code
+                  {t('pages.login.sendCode')}
                 </Button>
               ) : (
                 <Button
                   variant="primary"
                   onClick={() => void reset()}
-                  disabled={!code.trim() || !newPassword || netmind.loading}
+                  disabled={!canReset}
                   loading={netmind.loading}
                   className="flex-1"
                 >
-                  Reset password
+                  {t('pages.login.resetPasswordTitle')}
                 </Button>
               )}
             </div>

@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/layout/ClearAgentDataDialog.tsx
-last_verified: 2026-07-10
+last_verified: 2026-08-27
 stub: false
 ---
+
+## 2026-08-27 — 宿主换成 AgentProfilePage
+
+侧边栏 agent 行的 ⋮ 被删除(见 [[AgentList.tsx]] 同日条目),这个弹窗的
+唯一入口改为 [[../../pages/AgentProfilePage.tsx]] 头部 ⋮ 里的
+"Clear data"(排在 Delete 上面)。组件本身没改:仍然是 `{条件 && <Dialog/>}`
+条件挂载 → `onConfirm({conversations, memory})` → `api.clearHistory`,
+宿主持有 busy 状态。
 
 # ClearAgentDataDialog.tsx — scoped "clear data" confirm dialog
 

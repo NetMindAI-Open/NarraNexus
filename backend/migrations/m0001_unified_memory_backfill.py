@@ -32,11 +32,11 @@ from loguru import logger
 from . import Migration
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
 async def _apply(db: "AsyncDatabaseClient") -> Dict:
-    from xyz_agent_context.memory.backfill import (
+    from narranexus.platform.memory.backfill import (
         backfill_agent_search_indexes,
         migrate_legacy_entities,
     )

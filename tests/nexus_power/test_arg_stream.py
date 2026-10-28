@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.arg_stream import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
     StreamingArgExtractor,
 )
 
@@ -101,3 +101,80 @@ def test_abort_stops_emission():
     ex.abort()
     assert ex.feed('llo"}') == []
     assert ex.finalize({"content": "hello"}) == []
+
+
+# -- astral chars (emoji) from ASCII-escaping providers ----------------
+# MiniMax streams tool arguments ensure_ascii-style, so every emoji arrives
+# as a UTF-16 surrogate-pair escape (``👋``). Decoding each
+# escape alone produced two lone surrogates; the NDJSON event log then
+# raised "'utf-8' codec can't encode ... surrogates not allowed" and the
+# NarraMessenger turn died without sending its reply (prod 2026-09-11).
+
+
+@pytest.mark.parametrize("chunk", [1, 2, 3, 5, 6, 7, 13, 1000])
+def test_emoji_surrogate_pair_joins_across_any_split(chunk):
+    value = "👋 你好，我是知识导航 🚀🎉 done"
+    raw = json.dumps({"content": value}, ensure_ascii=True)
+    assert "\\ud83d" in raw  # the provider shape under test
+    got = _stream(raw, chunk=chunk)
+    assert got == value
+    got.encode("utf-8")  # strictly encodable, never a lone surrogate
+
+
+def test_unpaired_surrogates_become_replacement_char():
+    raw = '{"content": "a\\ud83d b \\udc4b c \\ud83d\\ud83d\\udc4b \\ud83d"}'
+    got = _stream(raw)
+    assert got == "a� b � c �👋 �"
+    got.encode("utf-8")
+
+
+def test_streamed_equals_scrubbed_final_with_emoji():
+    payload = {"content": "前缀 🙂 后缀"}
+    raw = json.dumps(payload, ensure_ascii=True)
+    for cut in range(len(raw) + 1):
+        ex = StreamingArgExtractor(0, ("content",))
+        got = "".join(d.text for d in ex.feed(raw[:cut]))
+        got += "".join(d.text for d in ex.finalize(json.loads(raw)))
+        assert got == payload["content"], cut
+
+
+def test_scrub_surrogates():
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+        scrub_surrogates,
+    )
+
+    assert scrub_surrogates("plain 中文 👋") == "plain 中文 👋"
+    assert scrub_surrogates("👋") == "👋"
+    assert scrub_surrogates("x\ud83dy\udc4bz") == "x�y�z"
+
+
+def test_finalize_reconciles_against_scrubbed_final_with_lone_halves():
+    # A provider sending an unpaired half: the complete args (json.loads)
+    # still carry the lone surrogate; finalize must never re-emit it.
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+        scrub_surrogates,
+    )
+
+    raw = '{"content": "a\\ud83d b \\udc4b c \\ud83d\\ude80 end"}'
+    final = json.loads(raw)
+    assert "\ud83d" in final["content"]  # json.loads keeps the lone half
+    expected = scrub_surrogates(final["content"])
+    for cut in range(len(raw) + 1):
+        ex = StreamingArgExtractor(0, ("content",))
+        got = "".join(d.text for d in ex.feed(raw[:cut]))
+        got += "".join(d.text for d in ex.finalize(final))
+        assert got == expected, cut
+        got.encode("utf-8")
+
+
+def test_parse_args_scrubs_lone_surrogates_everywhere():
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (
+        _parse_args,
+    )
+
+    args, err, truncated = _parse_args(
+        '{"text": "hi \\ud83d\\udc4b \\ud83d", "nested": {"k\\udc4b": ["x\\ud83d"]}, "n": 1}'
+    )
+    assert err is None and truncated is False
+    assert args == {"text": "hi 👋 �", "nested": {"k�": ["x�"]}, "n": 1}
+    json.dumps(args, ensure_ascii=False).encode("utf-8")

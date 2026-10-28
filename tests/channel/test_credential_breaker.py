@@ -36,15 +36,15 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_HEARTBEAT,
     EVENT_SUBSCRIBER_BREAKER_CLEARED,
     EVENT_SUBSCRIBER_BREAKER_TRIPPED,
     EVENT_SUBSCRIBER_UNSTARTABLE,
 )
-from xyz_agent_context.channel.channel_health_server import _snapshot_one
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.hook_schema import WorkingSource
+from narranexus.platform.channel.channel_health_server import _snapshot_one
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.hook_schema import WorkingSource
 
 
 @dataclass
@@ -426,10 +426,10 @@ async def test_unstartable_credential_is_never_started_and_audited_once():
 @pytest.mark.asyncio
 async def test_lark_pre_flight_rejects_cleared_secret():
     """The exact prod condition: App Secret cleared → zero restarts."""
-    from xyz_agent_context.module.lark_module._lark_credential_manager import (
+    from narranexus_plugins.lark_module._lark_credential_manager import (
         LarkCredential,
     )
-    from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+    from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
     trigger = LarkTrigger()
     base = dict(
@@ -496,7 +496,7 @@ async def test_startable_again_clears_the_unstartable_mark_while_isolated(db_cli
 
 @pytest.mark.asyncio
 async def test_matrix_excludes_since_token_from_fingerprint():
-    from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+    from narranexus_plugins.narramessenger_module.matrix_trigger import (
         MatrixTrigger,
     )
 
@@ -530,7 +530,23 @@ async def test_heartbeat_carries_isolation_counts():
     await _kill_until_tripped(trigger, cred)
     trigger._unstartable_fingerprint["bot2"] = "fp"
 
-    trigger._last_heartbeat_monotonic = 0.0
+    # Relative to now, not 0.0. `_maybe_heartbeat` gates on
+    # `now - _last_heartbeat_monotonic < HEARTBEAT_INTERVAL_SECONDS` (600), and
+    # `time.monotonic()` on Linux counts from BOOT — so 0.0 means "due" only on a
+    # host that has been up longer than ten minutes. Every developer machine
+    # qualifies; a fresh CI runner does not, and there the heartbeat was silently
+    # skipped and the assertion below indexed an empty list. Caught by the first
+    # CI run that executed pytest at all (2026-08-17). The rest of this file
+    # already backdates the same way — see the BREAKER_FAST_DEATH_SECONDS uses.
+    #
+    # As of the same day the constructor's own mark is `float("-inf")`, so the
+    # first beat is unconditionally due and this line is now DEFENSIVE rather
+    # than required. Keep it: it stops this test from silently depending on that
+    # sentinel, which keeps its failure distinguishable from
+    # `test_first_cycle_on_a_fresh_host.py`'s.
+    trigger._last_heartbeat_monotonic = (
+        time.monotonic() - trigger.HEARTBEAT_INTERVAL_SECONDS - 1
+    )
     await trigger._maybe_heartbeat()
 
     details = trigger._audit_repo.details_for(EVENT_HEARTBEAT)[-1]

@@ -2,7 +2,7 @@
  * 工具「一检测到就显示」：名字先到（pending），参数齐了覆盖同一条。
  *
  * 为什么必须原地替换而不是各记一条：`currentToolCalls` 是回复提取的数据源
- * （stopStreaming 从里面挑 send_message_to_user_directly 的 content），
+ * （stopStreaming 从里面挑 reply_owner 的 content），
  * 一条参数为空的重复条目会注入一段空回复。
  */
 import { describe, it, expect, beforeEach } from 'vitest';

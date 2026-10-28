@@ -9,7 +9,7 @@ made bus the only real 400 source in prod.
 """
 from __future__ import annotations
 
-from xyz_agent_context.message_bus.message_bus_trigger import build_bus_anchor
+from narranexus.platform.message_bus.message_bus_trigger import build_bus_anchor
 
 
 class _Msg:

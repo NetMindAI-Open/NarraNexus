@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from loguru import logger
 
+import backend.routes._client_ip as client_ip_mod
 import backend.routes.auth as auth_mod
 from backend.integrations.netmind.netmind_auth_client import (
     NetmindAuthClient,
@@ -46,12 +47,15 @@ def log_lines():
 def client(monkeypatch):
     monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: True)
     from backend.routes._rate_limiter import SlidingWindowRateLimiter
-    monkeypatch.setattr(auth_mod, "_funnel_report_limiter",
-                        SlidingWindowRateLimiter(limit=10, window_sec=60.0))
-    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter",
-                        SlidingWindowRateLimiter(limit=30, window_sec=60.0))
-    monkeypatch.setattr(auth_mod, "_funnel_report_global_limiter",
-                        SlidingWindowRateLimiter(limit=120, window_sec=60.0))
+    # Fresh buckets at the production sizes (the named constants), so the
+    # tests exercise the shipped limits rather than a hand-copied set.
+    window = auth_mod.FUNNEL_REPORT_WINDOW_SECONDS
+    monkeypatch.setattr(auth_mod, "_funnel_report_limiter", SlidingWindowRateLimiter(
+        limit=auth_mod.FUNNEL_REPORT_PER_EMAIL_LIMIT, window_sec=window))
+    monkeypatch.setattr(auth_mod, "_funnel_report_ip_limiter", SlidingWindowRateLimiter(
+        limit=auth_mod.FUNNEL_REPORT_PER_IP_LIMIT, window_sec=window))
+    monkeypatch.setattr(auth_mod, "_funnel_report_global_limiter", SlidingWindowRateLimiter(
+        limit=auth_mod.FUNNEL_REPORT_GLOBAL_LIMIT, window_sec=window))
     from time import monotonic as _mono
     monkeypatch.setattr(auth_mod, "_funnel_dropped",
                         {"count": 0, "last_log": _mono()})
@@ -171,6 +175,25 @@ def test_funnel_report_rejects_unknown_stages(client):
     assert r.status_code == 400
 
 
+def test_all_known_funnel_stages_are_accepted(client, log_lines):
+    """Reverse guard: every currently-used stage must be accepted (200) AND
+    actually logged. This catches the backend dropping/renaming a stage the
+    frontend still emits. The forward guard (frontend adds a stage the backend
+    lacks) is the `AuthFunnelStage` union in frontend/src/lib/api.ts + tsc —
+    the two are complementary, neither replaces the other."""
+    for stage in (
+        "netmind_email_login_failed",
+        "netmind_oauth_failed",
+        "signup_send_code_failed",
+        "netmind_reset_code_failed",
+        "netmind_reset_password_failed",
+    ):
+        r = client.post("/api/auth/funnel-report",
+                        json={"stage": stage, "email": "a@b.com", "detail": "x"})
+        assert r.status_code == 200, f"stage {stage} was rejected"
+        assert f"[login-funnel] client stage={stage}" in "\n".join(log_lines)
+
+
 def test_funnel_report_is_404_in_local_mode(client, monkeypatch):
     monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: False)
     r = client.post("/api/auth/funnel-report",
@@ -278,7 +301,7 @@ def test_trusted_proxy_hops_parsing_is_clamped_and_forgiving():
     """hops=0 would make parts[-0] == parts[0] (the caller-written entry)
     and disable the short-chain fallback; empty/garbage env values must
     not crash the module import."""
-    parse = auth_mod._parse_trusted_proxy_hops
+    parse = client_ip_mod._parse_trusted_proxy_hops
     assert parse(None) == 2      # unset
     assert parse("") == 2        # FUNNEL_TRUSTED_PROXY_HOPS= (empty)
     assert parse("0") == 1       # clamped: never index from the left
@@ -296,15 +319,15 @@ def test_client_ip_is_counted_from_the_right_of_xff():
             self.client = type("C", (), {"host": "10.0.0.9"})()
 
     # forged, real (appended by caddy), caddy container (appended by nginx)
-    assert auth_mod._funnel_client_ip(_Req("6.6.6.6, 51.0.0.7, 172.18.0.5")) == "51.0.0.7"
+    assert client_ip_mod.client_ip(_Req("6.6.6.6, 51.0.0.7, 172.18.0.5")) == "51.0.0.7"
     # No forgery: real + caddy hop.
-    assert auth_mod._funnel_client_ip(_Req("51.0.0.7, 172.18.0.5")) == "51.0.0.7"
+    assert client_ip_mod.client_ip(_Req("51.0.0.7, 172.18.0.5")) == "51.0.0.7"
     # Rotating the forged FIRST entry does not move the answer.
-    assert auth_mod._funnel_client_ip(_Req("7.7.7.7, 51.0.0.7, 172.18.0.5")) == "51.0.0.7"
+    assert client_ip_mod.client_ip(_Req("7.7.7.7, 51.0.0.7, 172.18.0.5")) == "51.0.0.7"
     # Shorter-than-expected chain (a directly forged single entry): fall
     # back to the socket peer, never trust caller text.
-    assert auth_mod._funnel_client_ip(_Req("6.6.6.6")) == "10.0.0.9"
-    assert auth_mod._funnel_client_ip(_Req(None)) == "10.0.0.9"
+    assert client_ip_mod.client_ip(_Req("6.6.6.6")) == "10.0.0.9"
+    assert client_ip_mod.client_ip(_Req(None)) == "10.0.0.9"
 
 
 def test_funnel_report_email_rotation_cannot_dodge_the_ip_bucket(client, monkeypatch, log_lines):

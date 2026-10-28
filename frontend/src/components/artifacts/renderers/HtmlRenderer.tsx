@@ -34,12 +34,15 @@
  *   making multi-file artifacts actually work.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useArtifactHeal } from '@/hooks/useArtifactHeal';
-import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
+import { artifactsApi, fetchArtifactBlobUrl, ArtifactEditConflictError } from '@/services/artifactsApi';
 import { isTauri, fetchArtifactViaTauri } from '@/lib/tauri';
+import { applyBridgeEdit, type BridgeEdit } from '@/lib/artifactEditing/htmlAnchorReplace';
+import { sha256Hex } from '@/lib/sha256';
 import ArtifactHealModal from '../ArtifactHealModal';
 
 interface Props {
@@ -50,16 +53,40 @@ function isWorkspaceRootEntry(filePath: string): boolean {
   return filePath.split('/').filter(Boolean).length <= 2;
 }
 
+/** The entry URL with the per-element edit bridge injected (spec A §3.3). */
+function withEditBridge(url: string): string {
+  return url + (url.includes('?') ? '&' : '?') + 'edit_bridge=1';
+}
+
 export default function HtmlRenderer({ artifact }: Props) {
-  // refreshKey = updated_at — when the agent re-registers via
-  // target_artifact_id, the row's updated_at bumps, our store upserts the
-  // new row, this hook re-mints a token, and the iframe `src` changes so
-  // the document and its sibling assets reload fresh.
+  const { t } = useTranslation();
+  // refreshKey — when the agent re-registers via target_artifact_id the
+  // row's updated_at bumps and the iframe reloads fresh. EXCEPT when the
+  // bump is the echo of OUR OWN per-element commit (the event's
+  // content_hash matches what we just saved): reloading then would blank
+  // the user's scroll/cursor for a document that already shows the edit.
+  // Render-time state adjustment (no refs during render).
+  const [seedState, setSeedState] = useState({
+    seen: artifact.updated_at,
+    seed: artifact.updated_at,
+    selfHash: null as string | null,
+  });
+  if (artifact.updated_at !== seedState.seen) {
+    const isSelfEcho =
+      artifact.content_hash != null && artifact.content_hash === seedState.selfHash;
+    setSeedState({
+      seen: artifact.updated_at,
+      seed: isSelfEcho ? seedState.seed : artifact.updated_at,
+      selfHash: seedState.selfHash,
+    });
+  }
   const { url, error, reload } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
-    artifact.updated_at,
+    seedState.seed,
   );
+  const [editNotice, setEditNotice] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [blobError, setBlobError] = useState<string | null>(null);
@@ -136,12 +163,15 @@ export default function HtmlRenderer({ artifact }: Props) {
         // any future IPC regression).
         let source: 'tauri-ipc' | 'http-fetch' | null = null;
         let out: string | null = null;
+        // The blob is built from the BRIDGED entry so per-element editing
+        // works on the blob path too (postMessage crosses blob origins fine).
+        const bridgedUrl = withEditBridge(url);
         if (isTauri()) {
-          out = await fetchArtifactViaTauri(url);
+          out = await fetchArtifactViaTauri(bridgedUrl);
           if (out) source = 'tauri-ipc';
         }
         if (!out) {
-          out = await fetchArtifactBlobUrl(url);
+          out = await fetchArtifactBlobUrl(bridgedUrl);
           if (out) source = 'http-fetch';
         }
         if (!cancelled && out) {
@@ -160,20 +190,99 @@ export default function HtmlRenderer({ artifact }: Props) {
     };
   }, [url, useBlobIframe]);
 
-  const iframeSrc = useBlobIframe ? blobUrl : url;
+  // Per-element edit commit (spec A §3.2): fetch the CLEAN source (no
+  // bridge), anchor-replace locally, PUT with the fetched bytes' hash. On a
+  // 409 the source moved underneath us — retry ONCE against the fresh
+  // source (the anchor often still resolves); a second failure surfaces the
+  // conflict notice. Anchor failures degrade to the AI notice and never
+  // write anywhere.
+  const commitBridgeEdit = useCallback(
+    async (edit: BridgeEdit) => {
+      if (!url) return;
+      setEditNotice(null);
+      const attempt = async (): Promise<'ok' | 'conflict' | 'anchor-failed'> => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
+        const buf = await r.arrayBuffer();
+        // fatal: a non-UTF-8 source must degrade to the AI channel, never be
+        // decoded lossily and PUT back (review #334 I4 — the lock hashes the
+        // fetched bytes, so it cannot catch decode corruption).
+        let source: string;
+        try {
+          source = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+        } catch {
+          return 'anchor-failed';
+        }
+        const replaced = applyBridgeEdit(source, edit);
+        if (!replaced.ok) {
+          return replaced.reason === 'no-change' ? 'ok' : 'anchor-failed';
+        }
+        try {
+          const updated = await artifactsApi.putContent(artifact.agent_id, artifact.artifact_id, {
+            content: replaced.result,
+            base_hash: await sha256Hex(buf),
+          });
+          setSeedState((s) => ({ ...s, selfHash: updated.content_hash ?? null }));
+          return 'ok';
+        } catch (e) {
+          if (e instanceof ArtifactEditConflictError) return 'conflict';
+          throw e;
+        }
+      };
+      try {
+        let outcome = await attempt();
+        if (outcome === 'conflict') outcome = await attempt();
+        if (outcome === 'anchor-failed') {
+          setEditNotice(t('artifacts.editor.htmlAnchorFailed'));
+        } else if (outcome === 'conflict') {
+          setEditNotice(t('artifacts.editor.htmlEditConflict'));
+        }
+      } catch (e) {
+        console.error('html per-element edit failed', e);
+        setEditNotice(t('artifacts.editor.editFailed'));
+      }
+    },
+    [url, artifact.agent_id, artifact.artifact_id, t],
+  );
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { type?: string } & BridgeEdit;
+      if (data?.type !== 'narra-edit-bridge:edit') return;
+      // Only OUR OWN iframe may drive edits — any other window (including
+      // another artifact tab's iframe) is ignored.
+      const frame = iframeRef.current;
+      if (!frame || e.source !== frame.contentWindow) return;
+      void commitBridgeEdit(data);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [commitBridgeEdit]);
+
+  const iframeSrc = useBlobIframe ? blobUrl : url ? withEditBridge(url) : null;
 
   return (
     <div className="relative w-full h-full">
+      {editNotice && (
+        <div className="absolute top-0 left-0 right-0 z-20 px-3 py-1.5 text-xs bg-amber-500/90 text-black flex items-center gap-2">
+          <span className="flex-1">{editNotice}</span>
+          <button onClick={() => setEditNotice(null)} className="px-1 font-semibold">
+            ×
+          </button>
+        </div>
+      )}
       {error || blobError ? (
         <div className="p-4 text-red-400">Failed to load: {error || blobError}</div>
       ) : !url || !iframeSrc ? (
         <div className="p-4 opacity-60">Loading…</div>
       ) : (
-        // Belt-and-braces: keying the iframe on updated_at forces React to
+        // Belt-and-braces: keying the iframe on the url seed forces React to
         // remount it even if the `src` somehow doesn't change (e.g. expired
-        // token re-mint that lands on the same string).
+        // token re-mint that lands on the same string). The seed — not raw
+        // updated_at — so our own per-element commits don't remount it.
         <iframe
-          key={`${artifact.updated_at}-${heal.recoveryVersion}`}
+          ref={iframeRef}
+          key={`${seedState.seed}-${heal.recoveryVersion}`}
           title={artifact.title}
           sandbox="allow-scripts"
           src={iframeSrc}

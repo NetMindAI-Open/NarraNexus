@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/netmindAuth/useNetmindAuth.ts
-last_verified: 2026-08-05
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — 登录失败模糊文案（防账户枚举，Mark item 2）
+
+`emailLogin` 的第一段（浏览器直连 NetMind `/user/emailLogin`）catch 里,**区分两类失败**（复审 item 1）:只有**上游明确拒绝**（`e instanceof NetmindApiError`,即信封 `success:false`,见 [[request.ts]]）才遮成 `i18n.t('pages.login.invalidCredentials')`——它对「user not found」vs「wrong password」给不同文案可枚举邮箱;而**传输失败**（断网/DNS/502 网关页,裸 `TypeError`/`SyntaxError`）走 `connectionFailed`,不能把「服务挂了」误报成「你密码错了」。**真实上游 message 两类都照旧进 `api.reportAuthFunnel`**。⚠ 根因在 NetMind 侧（文案是它给的）;这里是客户端遮蔽。MS OAuth 过多 scope（item 4）属 NetMind auth.html 构造,本仓改不了,未动。`useNetmindAuth.test`/`useNetmindAuth.emailLogin.test.ts` 覆盖两分支（credential 遮蔽 + transport 显 connectionFailed + 漏斗拿到原文）。
+
+**复审三轮 item 3——忘记密码枚举收口（遮文案不够,还得遮"结果"）**:`sendResetCode` 改**恒定成功语义**——上游拒绝(`NetmindApiError`,如"email not registered")也 `return true`+清 error 让 UI 照常推进到验证码步骤,只有**传输失败**才 `return false`+`connectionFailed`；否则"是否推进到下一步"这个布尔比文案更好自动化枚举。`resetPassword` 的上游拒绝**一律遮成同一句** `pages.login.resetCodeInvalid`（"验证码无效/过期,请重取"——把"wrong code"与"email not registered"抹成同一句,可行动又不泄存在性）,transport→`connectionFailed`。`handleAuthCallback`/`submitBind` 保 transport 分流。`exchange`(自家后端)原样。funnel 仍留痕(`netmind_reset_code_failed`,后端白名单已在同 PR 补,见 [[auth]]）。**残留**:攻击者直连 NetMind 端点仍可枚举——那是 NetMind/后端统一响应的活,与 send-code follow-up 同批。`resetCodeInvalid` 新键 10 locale 齐。
+
+**复审三轮修正**:①`resetPassword` 的一刀切遮蔽会连「密码不符策略」也抹成「验证码无效」→重置死循环;修法是 [[ForgotPasswordCard.tsx]] 提交前客户端校验密码([[passwordPolicy.ts]]),于是到 `resetPassword` 的上游拒绝只剩码错/邮箱不存在,`resetCodeInvalid` 遮蔽才诚实;并补 `api.reportAuthFunnel('netmind_reset_password_failed', …)`(这一步原本零留痕)。②`!data.loginToken` 两处(emailLogin/submitBind)**改回裸 `Error`**(不是上轮的 `NetmindApiError`)——协议破损走 `connectionFailed`(「重试」),而非 `invalidCredentials`(会把用户推去改没错的密码,正好撞死循环)或裸英文 `Bind failed`。判据:`NetmindApiError` 只表示「信封 success:false 的上游拒绝」,协议破损不是。
 
 ## 2026-07-13 — desktop OAuth path (Tauri bridge + poll)
 

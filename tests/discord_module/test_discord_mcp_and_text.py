@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.discord_module import _discord_mcp_tools as mcp_mod
-from xyz_agent_context.module.discord_module._discord_credential_manager import (
+from narranexus_plugins.discord_module import _discord_mcp_tools as mcp_mod
+from narranexus_plugins.discord_module._discord_credential_manager import (
     DiscordCredential,
 )
-from xyz_agent_context.module.discord_module._discord_text_sanitizer import (
+from narranexus_plugins.discord_module._discord_text_sanitizer import (
     DISCORD_MESSAGE_LIMIT,
     split_discord_message,
 )
-from xyz_agent_context.module.discord_module.discord_module import _extract_discord_reply
+from narranexus_plugins.discord_module.discord_module import _extract_discord_reply
 
 
 # ── text sanitizer ─────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ def test_extract_reply_from_discord_reply():
 
 
 def test_extract_reply_from_generic_chat_tool():
-    assert _extract_discord_reply("send_message_to_user_directly", {"content": "c"}) == "c"
+    assert _extract_discord_reply("notify_owner", {"content": "c"}) == "c"
 
 
 def test_extract_reply_none_for_history_tool():
@@ -212,11 +212,15 @@ async def test_discord_list_channels_filters_to_postable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_discord_unbind_delegates(monkeypatch):
-    class _FakeMgr:
-        async def unbind(self, agent_id):
-            return True
+    # discord_unbind now routes through the ChannelCredentialStore seam
+    # (DirectStore local / HttpStore -> /api/discord/unbind in cloud); the tool
+    # just relays the seam's {success, data:{unbound}} envelope.
+    class _FakeStore:
+        async def unbind(self, channel, agent_id):
+            assert channel == "discord"
+            return {"success": True, "data": {"unbound": True}}
 
-    monkeypatch.setattr(mcp_mod, "_get_manager", lambda: _async(_FakeMgr()))
+    monkeypatch.setattr(mcp_mod, "get_channel_credential_store", lambda: _FakeStore())
     mcp = _register()
     res = await mcp.tools["discord_unbind"]("a")
     assert res["success"] is True

@@ -2,18 +2,18 @@
 @file_name: test_slack_module.py
 @date: 2026-05-08
 @description: Tests for SlackModule — config metadata, prompt branching,
-extra_data shape, and registration in MODULE_MAP.
+extra_data shape, and registration in module_registry.
 """
 from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import MODULE_MAP
-from xyz_agent_context.module.slack_module._slack_credential_manager import (
+from narranexus.platform.module_system import module_registry
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredential,
 )
-from xyz_agent_context.module.slack_module.slack_module import SlackModule
-from xyz_agent_context.schema import ContextData, ModuleConfig
+from narranexus_plugins.slack_module.slack_module import SlackModule
+from narranexus.platform.schema import ContextData, ModuleConfig
 
 
 def _ctx(extra: dict | None = None) -> ContextData:
@@ -54,8 +54,8 @@ def test_get_config_returns_capability_module_with_priority_six():
 
 
 def test_module_map_registers_slack_module():
-    assert "SlackModule" in MODULE_MAP
-    assert MODULE_MAP["SlackModule"] is SlackModule
+    assert "SlackModule" in module_registry
+    assert module_registry["SlackModule"] is SlackModule
 
 
 def test_class_level_channel_metadata():
@@ -63,7 +63,6 @@ def test_class_level_channel_metadata():
     assert SlackModule.brand_display == "Slack"
     assert SlackModule.ctx_data_key == "slack_info"
     assert SlackModule.mcp_server_name == "slack_module"
-    assert SlackModule.mcp_port == 7831
 
 
 # ── build_extra_data ───────────────────────────────────────────────────
@@ -87,7 +86,7 @@ async def test_build_extra_data_shape():
     }
 
 
-# ── get_instructions branching ────────────────────────────────────────
+# ── contribute_instructions branching ────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -97,7 +96,7 @@ async def test_get_instructions_returns_setup_line_when_unbound():
     guide is served on demand by slack_bind() with no arguments."""
     module = _make_module()
     module._bound_cache = False  # deterministic: no DB in unit tests
-    text = await module.get_instructions(_ctx(extra=None))
+    text = await module.contribute_instructions(_ctx(extra=None))
 
     assert "slack_bind" in text
     assert "not connected" in text
@@ -119,7 +118,7 @@ async def test_no_bot_block_clarifies_manifest_name_fields_are_editable():
     Setup-residency note (2026-07-24): the walkthrough left the per-turn
     prompt; it is served by slack_bind() with no arguments. The wording
     guards below now assert against the constant it returns."""
-    from xyz_agent_context.module.slack_module.slack_module import (
+    from narranexus_plugins.slack_module.slack_module import (
         _NO_BOT_INSTRUCTION,
     )
     text = _NO_BOT_INSTRUCTION
@@ -150,7 +149,7 @@ async def test_get_instructions_returns_full_block_when_slack_info_present():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "Acme Workspace" in text
     assert "U0BOT" in text
@@ -166,7 +165,7 @@ async def test_get_instructions_returns_full_block_when_slack_info_present():
 async def test_get_instructions_uses_unknown_workspace_when_team_name_missing():
     module = _make_module()
     ctx = _ctx(extra={"slack_info": {"bot_user_id": "U0BOT"}})
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
     assert "(unknown workspace)" in text
 
 
@@ -181,7 +180,7 @@ async def test_iron_rules_enforce_at_mention_only_in_channels():
     Setup-residency note (2026-07-24): iron rules only matter for BOUND
     agents now (unbound ones get a one-liner), so assert against the
     constants directly."""
-    from xyz_agent_context.module.slack_module.slack_module import (
+    from narranexus_plugins.slack_module.slack_module import (
         _NO_BOT_INSTRUCTION,
         _SLACK_IRON_RULES,
     )

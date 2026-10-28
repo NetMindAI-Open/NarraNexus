@@ -32,7 +32,7 @@ a second maintainer review:
   registrations)
 - Auth / identity (`backend/auth.py`,
   `backend/routes/auth.py`, anything around `request.state.user_id`)
-- Bundle export / import (`src/xyz_agent_context/bundle/`)
+- Bundle export / import (`src/narranexus/platform/bundle/`)
 - Release tooling (`.github/workflows/build-desktop.yml`,
   `pyproject.toml` version, `tauri/src-tauri/`)
 

@@ -22,24 +22,28 @@ Mirrors the test scaffold from ``test_mock_channel_trigger_integration.py``
 """
 from __future__ import annotations
 
+import json
+
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
 )
-from xyz_agent_context.channel.channel_context_builder_base import (
+from narranexus.platform.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.attachment_schema import Attachment, AttachmentCategory
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.attachment_schema import Attachment, AttachmentCategory
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.parsed_message import (
     MessageContentType,
     ParsedMessage,
 )
@@ -169,21 +173,21 @@ class _FakeAttachmentTrigger(ChannelTriggerBase):
 # ────────────────────────────────────────────────────────────────────
 
 
-async def _wait_for_messages(db_client, channel_id, count, timeout=5.0):
+async def _wait_for_messages(db_client, thread_id, count, timeout=5.0):
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
-        rows = await db_client.get("bus_messages", {"channel_id": channel_id})
+        rows = await db_client.get("inbox_thread_messages", {"thread_id": thread_id})
         if len(rows) >= count:
             return rows
         await asyncio.sleep(0.05)
-    return await db_client.get("bus_messages", {"channel_id": channel_id})
+    return await db_client.get("inbox_thread_messages", {"thread_id": thread_id})
 
 
 @pytest.fixture
 def isolated_workspace(monkeypatch, tmp_path: Path) -> Path:
     """Redirect ``base_working_path`` so test attachments don't pollute
     ``~/.nexusagent/workspaces``. Returns the tmp root."""
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
 
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)
@@ -243,8 +247,8 @@ async def test_attachment_persisted_to_disk_and_forwarded_to_agent(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -272,12 +276,12 @@ async def test_attachment_persisted_to_disk_and_forwarded_to_agent(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "fake_C1", count=2, timeout=5.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=5.0
         )
     finally:
         await trigger.stop()
 
-    # 2 bus_messages rows: 1 inbound (user message) + 1 outbound (agent reply).
+    # 2 inbox rows: 1 inbound (user message) + 1 outbound (agent reply).
     assert len(rows) == 2
 
     # Attachments injected into trigger_extra_data exactly as WS route does.
@@ -348,8 +352,8 @@ async def test_no_attachments_emits_no_attachments_key(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -361,7 +365,7 @@ async def test_no_attachments_emits_no_attachments_key(
     trigger = _FakeAttachmentTrigger(scripted, cred, {})
     await trigger.start(db_client)
     try:
-        await _wait_for_messages(db_client, "fake_C1", count=2, timeout=4.0)
+        await _wait_for_messages(db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0)
     finally:
         await trigger.stop()
 
@@ -381,7 +385,7 @@ async def test_fetch_attachments_raise_degrades_gracefully(
     """If ``fetch_attachments`` raises (broken SDK, network down), the
     base catches it, audits ``EVENT_ATTACHMENT_FETCH_FAILED``, and the
     agent still runs with text-only content. Never-raise contract."""
-    from xyz_agent_context.channel.channel_audit_events import (
+    from narranexus.platform.channel.channel_audit_events import (
         EVENT_ATTACHMENT_FETCH_FAILED,
     )
 
@@ -394,7 +398,11 @@ async def test_fetch_attachments_raise_degrades_gracefully(
 
     class _BrokenFetchTrigger(_FakeAttachmentTrigger):
         async def fetch_attachments(self, message, credential):  # type: ignore[override]
-            raise RuntimeError("simulated SDK failure")
+            # Quote a credential-bearing URL the way a download SDK might:
+            # the audit row must carry the sanitised text (PR #388 M6).
+            raise RuntimeError(
+                "simulated SDK failure fetching https://api.example.test/file/bot7981632450:AAHsecretsecretsecretsecret/x.pdf"
+            )
 
     captured: dict = {}
 
@@ -418,8 +426,8 @@ async def test_fetch_attachments_raise_degrades_gracefully(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -441,7 +449,7 @@ async def test_fetch_attachments_raise_degrades_gracefully(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "fake_C1", count=2, timeout=4.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=4.0
         )
     finally:
         await trigger.stop()
@@ -457,6 +465,11 @@ async def test_fetch_attachments_raise_degrades_gracefully(
         {"channel": "fake", "event_type": EVENT_ATTACHMENT_FETCH_FAILED},
     )
     assert len(fails) == 1
+    details = fails[0]["details"]
+    details = json.loads(details) if isinstance(details, str) else details
+    assert details["error"].startswith("RuntimeError: simulated SDK failure")
+    assert "7981632450:AAH" not in details["error"] and "api.example.test" not in details["error"]
+    assert "<url>" in details["error"]
 
 
 @pytest.mark.asyncio
@@ -505,8 +518,8 @@ async def test_caption_less_file_upload_still_processed(
         def __init__(self, *a, **kw):
             pass
 
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeAgentRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -536,7 +549,7 @@ async def test_caption_less_file_upload_still_processed(
     await trigger.start(db_client)
     try:
         rows = await _wait_for_messages(
-            db_client, "fake_C1", count=2, timeout=5.0
+            db_client, im_thread_id("fake", "agent_a", "C1"), count=2, timeout=5.0
         )
     finally:
         await trigger.stop()
@@ -553,3 +566,35 @@ async def test_caption_less_file_upload_still_processed(
     workspace = isolated_workspace / agent_workspace_relpath("agent_a", "user_owner") / "user_upload_files"
     pdfs = list(workspace.rglob("att_*.pdf"))
     assert len(pdfs) == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_content_no_refs_drop_is_audited(db_client):
+    """The inverse of the caption-less case: NEITHER text NOR
+    attachment_refs → the guard drops the message, and the drop must be
+    AUDITED. The guard used to be a bare ``return`` with zero trace —
+    the same audit blind spot class as ``ingress_dropped_unparsed``
+    (lessons #3/#5). Live incident 2026-08-06 on the Lark override."""
+    from narranexus.platform.channel.channel_audit_events import (
+        EVENT_INGRESS_DROPPED_EMPTY,
+    )
+    from narranexus.platform.repository.channel_trigger_audit_repository import (
+        ChannelTriggerAuditRepository,
+    )
+
+    cred = _FakeCredential()
+    trigger = _FakeAttachmentTrigger([], cred, {})
+    trigger._audit_repo = ChannelTriggerAuditRepository("fake", db_client)
+    trigger._subscriber_creds[cred.app_id] = cred
+
+    message = trigger.parse_event(
+        {"id": "m_empty", "from": "u_alice", "content": "", "ts_ms": 1}
+    )
+    await trigger._process_message(cred, message)
+
+    rows = await db_client.get(
+        "channel_trigger_audit",
+        {"channel": "fake", "event_type": EVENT_INGRESS_DROPPED_EMPTY},
+    )
+    assert len(rows) == 1
+    assert rows[0]["message_id"] == "m_empty"

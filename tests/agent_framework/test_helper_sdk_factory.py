@@ -18,8 +18,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers import driver as provider_driver
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.providers import driver as provider_driver
+from narranexus.platform.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
     CodexConfig,
@@ -32,8 +32,8 @@ from xyz_agent_context.agent_framework.api_config import (
     clear_user_config,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -79,7 +79,7 @@ def test_factory_returns_anthropic_when_helper_config_set():
         ClaudeConfig(), OpenAIConfig(), CodexConfig(),
         AnthropicHelperConfig(api_key="sk-ant", model="claude-haiku-4-5"),
     )
-    from xyz_agent_context.agent_framework.llm.anthropic_helper import (
+    from narranexus_plugins.llm_clients.anthropic_helper import (
         AnthropicHelperSDK,
     )
     assert isinstance(get_helper_sdk(), AnthropicHelperSDK)
@@ -87,7 +87,7 @@ def test_factory_returns_anthropic_when_helper_config_set():
 
 def test_factory_returns_openai_by_default():
     set_user_config(ClaudeConfig(), OpenAIConfig(api_key="sk", model="gpt-x"))
-    from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+    from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
     assert isinstance(get_helper_sdk(), OpenAIAgentsSDK)
 
 
@@ -116,8 +116,8 @@ async def test_resolve_and_set_wires_anthropic_helper(monkeypatch):
     must route an anthropic-protocol helper to AnthropicHelperSDK. Before the
     fix it dropped anthropic_helper (2-arg set_user_config) → OpenAIAgentsSDK
     against anthropic creds."""
-    from xyz_agent_context.agent_framework.providers.resolver import ProviderResolver
-    from xyz_agent_context.agent_framework.llm.anthropic_helper import (
+    from narranexus.platform.agent_framework.providers.resolver import ProviderResolver
+    from narranexus_plugins.llm_clients.anthropic_helper import (
         AnthropicHelperSDK,
     )
 
@@ -138,7 +138,7 @@ async def test_resolve_and_set_wires_anthropic_helper(monkeypatch):
     user_svc.get_user_config = AsyncMock(return_value=_complete_cfg())
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: True
     )
     await ProviderResolver(user_svc).resolve_and_set("u")
 

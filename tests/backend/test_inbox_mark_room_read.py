@@ -75,12 +75,17 @@ def test_mark_room_read_happy_path_advances_cursor():
     # The UPDATE was called with the right WHERE clause + the only-advance guard
     assert db.execute.await_count == 1
     sql, params = db.execute.await_args.args
-    assert "UPDATE bus_channel_members SET last_read_at" in sql
+    # The cursor lives on the inbox's own thread row now. What this
+    # guards is unchanged: the endpoint advances a READ cursor, and it is
+    # the one the panel owns — not the trigger's bookmark, and not anything
+    # the agent's turn context is gated on.
+    assert "UPDATE inbox_threads SET last_read_at" in sql
     assert "last_read_at < %s" in sql, "guard clause must prevent backwards motion"
-    # params: (now_iso, channel_id, agent_id, now_iso_guard)
+    # params: (now_iso, thread_id, now_iso_guard). No agent_id — ownership is
+    # verified by the thread lookup ABOVE the update, so a silent zero-row
+    # UPDATE can no longer be mistaken for a successful click.
     assert params[1] == "ch_lark_room42"
-    assert params[2] == "agent_alice"
-    assert params[0] == params[3], "cursor target and guard threshold are the same NOW"
+    assert params[0] == params[2], "cursor target and guard threshold are the same NOW"
 
 
 # ── Agent not a member ──────────────────────────────────────────────────
@@ -168,16 +173,27 @@ def test_mark_room_read_db_error_returns_failure_not_500():
     assert r.status_code == 200
     body = r.json()
     assert body["success"] is False
-    assert "conn reset" in body["error"]
+    # The raw exception text must NOT leak to the client (desensitized);
+    # the detail lives in the server log instead.
+    assert "conn reset" not in body["error"]
+    assert body["error"] == "Failed to mark room read."
 
 
 # ── Server-time format ─────────────────────────────────────────────────
 
 
-def test_mark_room_read_uses_iso_with_tz():
-    """`last_read_at` cursor comparison is lexicographic (per `_to_iso`),
-    so the timestamp we write MUST be ISO 8601 with timezone offset to
-    sort correctly against ALL backend types (str / datetime / NULL)."""
+def test_mark_room_read_writes_naive_utc():
+    """The cursor MUST be written offset-FREE (naive UTC) — the opposite of what
+    this test asserted before.
+
+    `last_read_at` is `DATETIME(6)` on MySQL, where an offset literal (`+00:00`)
+    is shifted by the session `time_zone` and a naive one is not; `created_at`
+    and `mark_message_read`'s cursor read back naive there, so a `+00:00` room
+    cursor lands on a different wall clock under any non-UTC session and the
+    only-advances guard silently wedges (or new messages stay unread). On SQLite
+    the reads re-normalise to UTC-aware so it is consistent either way — the fix
+    is for MySQL. Reverting to `...isoformat()` with the offset turns this red.
+    """
     db = MagicMock()
     db.get_one = AsyncMock(return_value={
         "channel_id": "c", "agent_id": "a", "last_read_at": None,
@@ -187,12 +203,12 @@ def test_mark_room_read_uses_iso_with_tz():
 
     r = client.post("/api/agent-inbox/rooms/c/read?agent_id=a")
     ts = r.json()["last_read_at"]
-    # Must be ISO 8601 with timezone info
     parsed = datetime.fromisoformat(ts)
-    assert parsed.tzinfo is not None
-    # Must be very recent (within last 60s)
-    delta = abs((datetime.now(timezone.utc) - parsed).total_seconds())
-    assert delta < 60.0
+    assert parsed.tzinfo is None, f"cursor must be naive UTC, got {ts!r}"
+    assert "+" not in ts and not ts.endswith("Z"), ts
+    # Must be very recent (within last 60s) — compare naive-to-naive.
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs((now_naive - parsed).total_seconds()) < 60.0
 
 
 # ── Pytest-asyncio noop (the routes themselves are async) ──────────────

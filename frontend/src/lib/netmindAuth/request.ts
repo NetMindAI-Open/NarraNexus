@@ -7,6 +7,20 @@
  */
 import { getNetmindConfig } from '@/lib/runtimeConfig';
 
+/**
+ * The upstream deliberately REJECTED the request (envelope `success:false`) —
+ * as opposed to a transport failure (offline / DNS / a 502 HTML gateway page
+ * that isn't even JSON). Callers use this to tell "your credentials were
+ * refused" apart from "the service is unreachable", so a NetMind outage doesn't
+ * get shown to every user as "wrong password".
+ */
+export class NetmindApiError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NetmindApiError';
+  }
+}
+
 function encodeForm(data: Record<string, unknown>): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(data)) {
@@ -33,7 +47,9 @@ export async function netmindPost<T = unknown>(
   });
   const json = (await resp.json()) as { success?: boolean; data?: T; msg?: string };
   if (json?.success === false) {
-    throw new Error(json.msg || 'NetMind request failed');
+    // A real rejection from the upstream (bad credentials, etc.) — mark it so
+    // callers can mask it without also masking transport failures above.
+    throw new NetmindApiError(json.msg || 'NetMind request failed');
   }
   return json.data as T;
 }

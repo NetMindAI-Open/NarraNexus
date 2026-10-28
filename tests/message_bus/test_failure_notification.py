@@ -24,10 +24,10 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
-from xyz_agent_context.message_bus.schemas import BusMessage
-from xyz_agent_context.schema.inbox_schema import InboxMessageType
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.schemas import BusMessage
+from narranexus.platform.schema.inbox_schema import InboxMessageType
 
 
 def _patch_db_factory(monkeypatch, db_client):
@@ -35,7 +35,7 @@ def _patch_db_factory(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
+        "narranexus.platform.utils.db.db_factory.get_db_client", _async_db
     )
 
 
@@ -254,7 +254,7 @@ async def test_cooldown_not_armed_when_inbox_write_fails(db_client, monkeypatch)
     bus = LocalMessageBus(backend=db_client._backend)
     trigger = MessageBusTrigger(bus=bus)
 
-    from xyz_agent_context.repository.inbox_repository import InboxRepository
+    from narranexus.platform.repository.inbox_repository import InboxRepository
 
     original_create = InboxRepository.create_message
     calls = {"n": 0}
@@ -267,22 +267,18 @@ async def test_cooldown_not_armed_when_inbox_write_fails(db_client, monkeypatch)
 
     monkeypatch.setattr(InboxRepository, "create_message", _flaky_create_message)
 
-    msg1 = BusMessage(message_id="m9", channel_id="ch1", from_agent="peer", content="hi")
     await trigger._notify_permanent_failure(
         agent_id="agent_a",
         channel_id="ch1",
-        trigger_message=msg1,
         error="OpenAI API key invalid (401 Unauthorized)",
     )
     # First attempt's write raised → nothing persisted.
     rows = await db_client.get("inbox_table", {"user_id": "user_x"})
     assert rows == []
 
-    msg2 = BusMessage(message_id="m10", channel_id="ch1", from_agent="peer", content="hi")
     await trigger._notify_permanent_failure(
         agent_id="agent_a",
         channel_id="ch1",
-        trigger_message=msg2,
         error="OpenAI API key invalid (401 Unauthorized)",
     )
     # Second attempt (same category) must NOT be suppressed by a cooldown
@@ -356,3 +352,59 @@ async def test_notify_permanent_failure_never_leaks_raw_secret_into_inbox(
     assert secret not in rows[0]["content"]
     # Still classified + hinted as a provider/credential issue.
     assert "provider" in rows[0]["content"].lower()
+
+
+# ── 2026-09-09: the cooldown is per (agent, channel, category) and persisted ──
+
+
+@pytest.mark.asyncio
+async def test_cooldown_is_per_channel_not_per_category(db_client, monkeypatch):
+    """A permanent failure on channel ch1 must NOT silence the notice for an
+    unrelated permanent failure on channel ch2. Before 2026-09-09 the key was
+    `agent:category`, so one broken hand-off hid every other one for 30 min."""
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+
+    bus = LocalMessageBus(backend=db_client._backend)
+    trigger = MessageBusTrigger(bus=bus)
+    monkeypatch.setattr(trigger, "_invoke_runtime", _boom("agent workspace disk full"))
+
+    for channel, mid in (("ch1", "m8"), ("ch2", "m9")):
+        msg = BusMessage(message_id=mid, channel_id=channel, from_agent="peer", content="hi")
+        for _ in range(3):
+            await trigger._handle_channel_batch(
+                "agent_a", channel, [msg], msg, channel_owner="peer"
+            )
+
+    rows = await db_client.get("inbox_table", {"user_id": "user_x"})
+    assert sorted(r["content"].count("ch1") + r["content"].count("ch2") for r in rows) == [1, 1]
+    assert len(rows) == 2, rows
+
+
+@pytest.mark.asyncio
+async def test_cooldown_survives_a_trigger_restart(db_client, monkeypatch):
+    """A second trigger instance over the same database (a restart, or a
+    second container) must honour the window the first one opened — the old
+    in-process dict re-notified on the first poll after every deploy."""
+    _patch_db_factory(monkeypatch, db_client)
+    await _seed_agent(db_client)
+
+    bus = LocalMessageBus(backend=db_client._backend)
+    first = MessageBusTrigger(bus=bus)
+    monkeypatch.setattr(first, "_invoke_runtime", _boom("agent workspace disk full"))
+    msg1 = BusMessage(message_id="m10", channel_id="ch1", from_agent="peer", content="hi")
+    for _ in range(3):
+        await first._handle_channel_batch("agent_a", "ch1", [msg1], msg1, channel_owner="peer")
+
+    second = MessageBusTrigger(bus=LocalMessageBus(backend=db_client._backend))
+    monkeypatch.setattr(second, "_invoke_runtime", _boom("agent workspace disk full"))
+    msg2 = BusMessage(message_id="m11", channel_id="ch1", from_agent="peer", content="yo")
+    for _ in range(3):
+        await second._handle_channel_batch("agent_a", "ch1", [msg2], msg2, channel_owner="peer")
+
+    rows = await db_client.get("inbox_table", {"user_id": "user_x"})
+    assert len(rows) == 1, rows
+    cooldown_rows = await db_client.get(
+        "owner_notice_cooldowns", {"agent_id": "agent_a", "category": "generic"}
+    )
+    assert [(r["target"], r["category"]) for r in cooldown_rows] == [("ch1", "generic")]

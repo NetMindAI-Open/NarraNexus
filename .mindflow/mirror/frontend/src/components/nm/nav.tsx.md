@@ -27,7 +27,7 @@ nav uses ink, never Carbon/Silicon) + Axiom #7 (mono labels for nav).
 - **Downstream**:
   - `layout/Sidebar` (M3) — wraps SidebarNavItem rows for routing
   - `chat/ChatPanel` filter bar — TabBar for all/human/ai filter
-  - `pages/SetupPage` (M4) — StepIndicator for wizard steps
+  - `pages/WelcomePage` (M4) — StepIndicator for wizard steps
   - Mobile responsive Phase 1.5 — BottomNavBar replaces Sidebar at <768px
   - Pages with nested routes — Breadcrumb in header
 

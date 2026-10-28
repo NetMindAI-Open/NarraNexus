@@ -1,7 +1,11 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-07-27
+last_verified: 2026-09-04
 ---
+
+## 2026-09-03（批 2f.1）— `REQUIRED_PORTS` 加 7811（NexusPluginsModule）
+
+`tests/module/test_port_preflight_ports_sync.py` 钉住 Rust 数组与 `CORE_MODULE_PORTS` 同步。
 
 ## 2026-07-27 — REQUIRED_PORTS 补齐 4 个漏检端口 + Python 防腐化闸门
 
@@ -26,7 +30,7 @@ trigger markers（那次把它们并进 `run_worker_supervisor` 时没更新测�
 ## 2026-07-22 — SIDECAR_MARKERS updated for the worker supervisor
 
 `SIDECAR_MARKERS` (orphan-classification whitelist for `is_narranexus_sidecar_cmdline`)
-now lists `xyz_agent_context.module.run_worker_supervisor` (the consolidated
+now lists `narranexus.platform.module_system.run_worker_supervisor` (the consolidated
 worker process — see [[run_worker_supervisor.py]]) and keeps
 `…run_channel_triggers` (still launchable standalone via cloud `--only channels`).
 The stale per-channel markers (`…lark_module.run_lark_trigger`, slack/telegram/
@@ -81,8 +85,8 @@ API changes:
 
 Classifier heuristic (`is_narranexus_sidecar_cmdline`): cmdline
 contains one of the curated module-launch markers (e.g.
-`backend.main`, `xyz_agent_context.utils.sqlite_proxy`,
-`xyz_agent_context.module.module_runner`, lark/slack/telegram
+`backend.main`, `narranexus.platform.utils.sqlite_proxy`,
+`narranexus.platform.module_system.module_runner`, lark/slack/telegram
 trigger modules) OR the bundled-python bundle-path
 (`NarraNexus.app/Contents/Resources/resources/python`). Anything
 outside this whitelist is treated as third-party.
@@ -151,3 +155,11 @@ Entry #1 in a 3-step plan recorded in the Lark Base TODO tracker:
 - **Depends on:** system `lsof` (optional, improves error message),
   `osascript` (always present on macOS)
 - **On conflict:** calls `std::process::exit(1)` — no recovery path by design
+
+## 2026-09-04 · REQUIRED_PORTS shrinks to four (batch 5a)
+
+8000 / 8100 / 7801 (the module MCP host — every module server mounted by path, so a plugin adds no port) / 47831. `tests/module/test_port_preflight_ports_sync.py` now asserts equality with the Python side in both directions.
+
+## 2026-09-04 · orphan markers for both package names (batch 6a)
+
+Sidecars launch by the new `narranexus.platform.*` module paths; the old `xyz_agent_context.*` markers stay so an orphan from the previous release is still recognised as ours.

@@ -13,7 +13,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from xyz_agent_context.artifact._artifact_impl.embed_probe import (
+from narranexus.platform.artifact._artifact_impl.embed_probe import (
     classify_embeddability,
     probe_url,
 )

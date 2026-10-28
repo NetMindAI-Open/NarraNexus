@@ -35,7 +35,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from xyz_agent_context.bundle.id_schema import ID_KINDS, build_all_id_regex
+from narranexus.platform.bundle.id_schema import ID_KINDS, build_all_id_regex
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
 
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
     # `Path.home()` reads HOME at call time on POSIX; envvar swap is enough.
@@ -67,14 +67,14 @@ async def db_client(tmp_db_path, monkeypatch):
     import time, so setenv alone is not enough) and clears the per-loop
     client cache so we get a brand-new client tied to this test's DB.
     """
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
 
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
     db_factory._clients_by_loop.clear()
 
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -141,7 +141,7 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
         "is_public": 0,
         "status": "active",
     })
-    from xyz_agent_context.repository import SocialNetworkRepository
+    from narranexus.platform.repository import SocialNetworkRepository
     await SocialNetworkRepository(db, agent_id).add_entity(
         entity_id="external_user_42",
         entity_type="user",
@@ -155,7 +155,7 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
 @pytest.mark.asyncio
 async def test_id_kinds_registry_consistent():
     """Every kind in ID_KINDS must produce a regex that matches its own gen_new_id."""
-    from xyz_agent_context.bundle.id_field_map import gen_new_id, ID_KIND_PREFIXES
+    from narranexus.platform.bundle.id_field_map import gen_new_id, ID_KIND_PREFIXES
     for kind in ID_KIND_PREFIXES:
         sample = gen_new_id(kind)
         pattern = ID_KINDS[kind]
@@ -180,8 +180,8 @@ async def test_all_id_regex_compiles():
 @pytest.mark.asyncio
 async def test_full_roundtrip(db_client, tmp_workspace_root):
     """Seed an agent, export, import, assert all IDs were rewritten coherently."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     orig_agent_id = "agent_aaaa0001bbbb"
@@ -254,7 +254,7 @@ async def test_full_roundtrip(db_client, tmp_workspace_root):
     assert new_inst != "inst_aaaa0001bbbb"  # original derived from agent_id suffix
     assert re.fullmatch(ID_KINDS["instance"], new_inst)
 
-    from xyz_agent_context.repository import SocialNetworkRepository
+    from narranexus.platform.repository import SocialNetworkRepository
     se_rows = await SocialNetworkRepository(db_client).get_all_entities(new_inst)
     assert len(se_rows) == 1
     # entity_type='user' so entity_id is NOT an agent — should be untouched
@@ -263,7 +263,7 @@ async def test_full_roundtrip(db_client, tmp_workspace_root):
     assert se_rows[0].instance_id == new_inst
 
     # Workspace tar was extracted to canonical path (layout-agnostic via helper)
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
     new_ws = tmp_workspace_root / agent_workspace_relpath(new_aid, user_id)
     assert new_ws.is_dir(), f"workspace not extracted to {new_ws}"
     notes_after = (new_ws / "notes.md").read_text(encoding="utf-8")
@@ -275,8 +275,8 @@ async def test_full_roundtrip(db_client, tmp_workspace_root):
 @pytest.mark.asyncio
 async def test_no_dangling_references(db_client, tmp_workspace_root):
     """Bundle import must produce a graph with no agent_id references outside the imported set."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     await _seed_agent(db_client, "agent_aaaaaa11", "Alpha", user_id)
@@ -321,8 +321,8 @@ async def test_jobs_preserve_timestamps_on_import(db_client, tmp_workspace_root)
     datetime, so job_trigger blows up on first poll. See importer.py jobs
     section: we must keep the bundle's timestamps (and only backfill if
     missing)."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     aid = "agent_jobttsmm00"
@@ -380,8 +380,8 @@ async def test_unknown_module_class_skipped_with_warning(db_client, tmp_workspac
     runtime would log "Unknown module type X, skipping" against forever.
     The module_instances row is dropped, its dependent instance_jobs cascade
     out, and a manifest warning is emitted."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     aid = "agent_unkclas000"
@@ -391,7 +391,7 @@ async def test_unknown_module_class_skipped_with_warning(db_client, tmp_workspac
     rogue_inst = "matrix_unkclasinst"
     await db_client.insert("module_instances", {
         "instance_id": rogue_inst,
-        "module_class": "MatrixModule",  # NOT in MODULE_MAP
+        "module_class": "MatrixModule",  # NOT in module_registry
         "agent_id": aid,
         "user_id": user_id,
         "is_public": 0,
@@ -438,8 +438,8 @@ async def test_artifacts_roundtrip_strips_and_restores_prefix(db_client, tmp_wor
     (always starts with `{aid}_{user_id}/...`). The bundle must store the
     workspace-relative slice; the importer must reapply the new agent's
     prefix. Plus session_id is cleared and pinned forced to 1."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     aid = "agent_artifac00"
@@ -497,7 +497,7 @@ async def test_artifacts_roundtrip_strips_and_restores_prefix(db_client, tmp_wor
     art = new_arts[0]
     assert art["artifact_id"] != art_id
     assert re.fullmatch(ID_KINDS["artifact"], art["artifact_id"])
-    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
     assert art["file_path"] == f"{agent_workspace_relpath(new_aid, user_id)}/work/output.html"
     assert art["session_id"] is None, f"session_id should be NULL; got {art['session_id']!r}"
     assert int(art["pinned"]) == 1, f"pinned should be forced to 1; got {art['pinned']!r}"
@@ -508,8 +508,8 @@ async def test_artifacts_roundtrip_strips_and_restores_prefix(db_client, tmp_wor
 async def test_mcp_selection_default_is_empty(db_client, tmp_workspace_root):
     """Without mcp_selection, the bundle must ship zero MCP rows even when
     the agent has mcp_urls registered — MCP is opt-in by design."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     aid = "agent_mcpemp000"
@@ -537,8 +537,8 @@ async def test_mcp_selection_default_is_empty(db_client, tmp_workspace_root):
 async def test_mcp_selection_writes_through_with_reset_status(db_client, tmp_workspace_root):
     """When mcp_selection is provided, the importer creates real mcp_urls rows
     with rewritten mcp_id + agent_id and reset connection_status."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     aid = "agent_mcpwrt00"
@@ -591,7 +591,7 @@ async def test_legacy_bundle_without_artifacts_or_mcps_imports_clean(db_client, 
     """A 1.0-shaped bundle (no artifacts.json, mcp_hints.json that's just
     {name,url,...} without mcp_id) must still import without crashing and
     without auto-creating mcp_urls rows."""
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     aid = "agent_legacy001"
@@ -662,8 +662,8 @@ async def test_chat_history_disabled_strips_memory_chat(db_client, tmp_workspace
     off, import as new user, observe re-imported agent's chat history
     in the UI. The chat strings come from this table's `memory` column.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
     import zipfile
 
     user_id = "test_user"
@@ -751,8 +751,8 @@ async def test_chat_history_enabled_keeps_memory_chat(db_client, tmp_workspace_r
     (the default), the same memory_chat row MUST survive the round-trip,
     or we've broken the happy-path export.
     """
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     user_id = "test_user"
     aid = "agent_keepchat0001"
@@ -796,3 +796,54 @@ async def test_chat_history_enabled_keeps_memory_chat(db_client, tmp_workspace_r
     assert keep_phrase in new_memory[0]["memory"], (
         "happy-path chat memory must survive when include_chat_history=True"
     )
+
+
+@pytest.mark.asyncio
+async def test_export_refuses_a_team_the_exporter_does_not_own(db_client, tmp_workspace_root):
+    """The agent list is owner-checked; the team must be too, or a foreign
+    team_id ships someone else's name, intro, bulletin and work board."""
+    from narranexus.platform.bundle.builder import BundleForbidden, ExportSelection, build_bundle
+
+    user_id = "test_user"
+    aid = "agent_teamown0001"
+    await _seed_agent(db_client, aid, "Team Owner Agent", user_id)
+    await db_client.insert("teams", {
+        "team_id": "team_victim0001", "owner_user_id": "victim", "name": "Victim Team",
+    })
+    await db_client.insert("teams", {
+        "team_id": "team_mine0001", "owner_user_id": user_id, "name": "My Team",
+    })
+
+    with pytest.raises(BundleForbidden):
+        await build_bundle(
+            user_id,
+            ExportSelection(agent_ids=[aid], team_id="team_victim0001"),
+            tmp_workspace_root.parent / "foreign_team.nxbundle",
+        )
+
+    own_path = tmp_workspace_root.parent / "own_team.nxbundle"
+    await build_bundle(user_id, ExportSelection(agent_ids=[aid], team_id="team_mine0001"), own_path)
+    assert own_path.exists() and own_path.stat().st_size > 0
+
+
+@pytest.mark.asyncio
+async def test_export_of_a_foreign_agent_raises_the_typed_verdict(db_client, tmp_workspace_root):
+    """A foreign agent is an authorization verdict (BundleForbidden -> 403 at
+    the route); an unknown agent stays a plain ValueError (500, existence is
+    not confirmed)."""
+    from narranexus.platform.bundle.builder import BundleForbidden, ExportSelection, build_bundle
+
+    await _seed_agent(db_client, "agent_victim0001", "Victim Agent", "victim")
+    with pytest.raises(BundleForbidden):
+        await build_bundle(
+            "test_user",
+            ExportSelection(agent_ids=["agent_victim0001"]),
+            tmp_workspace_root.parent / "foreign_agent.nxbundle",
+        )
+    with pytest.raises(ValueError) as unknown:
+        await build_bundle(
+            "test_user",
+            ExportSelection(agent_ids=["agent_nope0001"]),
+            tmp_workspace_root.parent / "unknown_agent.nxbundle",
+        )
+    assert not isinstance(unknown.value, BundleForbidden)

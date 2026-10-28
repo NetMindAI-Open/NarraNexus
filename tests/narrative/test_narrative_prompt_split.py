@@ -28,14 +28,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative.models import (
     Narrative,
     NarrativeActor,
     NarrativeActorType,
     NarrativeInfo,
     NarrativeType,
 )
-from xyz_agent_context.narrative._narrative_impl.prompt_builder import (
+from narranexus.platform.narrative._narrative_impl.prompt_builder import (
     PromptBuilder,
     _canonical_timestamp,
 )

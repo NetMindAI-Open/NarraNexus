@@ -5,13 +5,13 @@
 @description: Short-reply amnesia fix — conversation persistence split.
 
 The conversation row a fast follow-up turn reads is written SYNCHRONOUSLY in
-ChatModule.hook_persist_turn (in-request, before the WS closes / before the
+ChatModule.persist_turn (in-request, before the WS closes / before the
 background hooks fire). Previously the WRITE itself lived in the background
 hook, which could lag seconds-to-tens-of-seconds; a user replying the instant they
 saw the answer raced that write and the next turn read history missing the
 exchange ("amnesia"). These tests pin the split:
-- hook_persist_turn WRITES the conversation row.
-- hook_after_event_execution does NOT add a conversation row.
+- persist_turn WRITES the conversation row.
+- after_turn does NOT add a conversation row.
   (It used to also embed the pair for Part-B retrieval; embeddings are retired,
   so ChatModule no longer overrides the background hook at all.)
 """
@@ -19,14 +19,14 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -48,10 +48,10 @@ def _reply(text: str) -> ProgressMessage:
     return ProgressMessage(
         step="3.2",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": text},
         },
     )
@@ -83,7 +83,7 @@ async def _load(chat_module) -> list:
 
 
 async def test_persist_turn_writes_conversation_synchronously(chat_module):
-    await chat_module.hook_persist_turn(_params())
+    await chat_module.persist_turn(_params())
     messages = await _load(chat_module)
     roles = [m["role"] for m in messages]
     assert "user" in roles and "assistant" in roles
@@ -93,14 +93,14 @@ async def test_persist_turn_writes_conversation_synchronously(chat_module):
 
 
 async def test_after_event_execution_does_not_write_conversation(chat_module):
-    # The conversation write is hook_persist_turn's job. The background hook
+    # The conversation write is persist_turn's job. The background hook
     # must not add conversation rows — and with embeddings retired it is now a
     # no-op (ChatModule no longer overrides it).
     params = _params()
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
     before = await _load(chat_module)
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.after_turn(params)
 
     after = await _load(chat_module)
     assert len(after) == len(before)  # no extra conversation rows

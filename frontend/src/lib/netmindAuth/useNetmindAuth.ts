@@ -8,9 +8,10 @@
  * Phase 2/3). reCAPTCHA is intentionally absent: ckType=2 skips it.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import i18n from '@/i18n';
 import { api } from '@/lib/api';
 import type { NetmindLoginResponse } from '@/types/api';
-import { netmindPost } from './request';
+import { NetmindApiError, netmindPost } from './request';
 import { baseRequestParams } from './constants';
 import { getNetmindConfig } from '@/lib/runtimeConfig';
 import { isTauri, openNetmindOAuth, takeNetmindOAuthResult } from '@/lib/tauri';
@@ -84,11 +85,25 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           signStr,
           ckType: 2,
         });
+        // "success but no token" is a protocol break, not a credential
+        // rejection — a bare Error routes it to connectionFailed ("try again"),
+        // NOT invalidCredentials (which would send the user to change a password
+        // that was never wrong, straight into the reset dead-loop).
         if (!data.loginToken) throw new Error('Login failed');
         loginToken = data.loginToken;
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Login failed';
-        setError(message);
+        // A real upstream rejection (NetmindApiError) → one generic credential
+        // message, so NetMind's distinct "user not found" vs "wrong password"
+        // text can't enumerate registered emails. A transport failure (offline
+        // / DNS / a 502 gateway page) is NOT the user's password being wrong —
+        // show connectionFailed so an outage doesn't read as "you typed it
+        // wrong". The real message always goes to the funnel for diagnosis.
+        setError(
+          e instanceof NetmindApiError
+            ? i18n.t('pages.login.invalidCredentials')
+            : i18n.t('pages.login.connectionFailed'),
+        );
         api.reportAuthFunnel('netmind_email_login_failed', email, message);
         setLoading(false);
         return;
@@ -166,7 +181,9 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         }
       } catch (e) {
         const message = e instanceof Error ? e.message : 'OAuth failed';
-        setError(message);
+        // Transport failure → connectionFailed (not bare "Failed to fetch");
+        // an upstream OAuth rejection keeps its message. Report either way.
+        setError(e instanceof NetmindApiError ? message : i18n.t('pages.login.connectionFailed'));
         // Direct browser->NetMind call — report or the server never sees it.
         api.reportAuthFunnel('netmind_oauth_failed', undefined, message);
       } finally {
@@ -195,11 +212,15 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           params.verifyCode = extra.verifyCode;
         }
         const data = await netmindPost<NetmindLoginPayload>('/user/userCallBack', params);
+        // Protocol break, not an upstream rejection — bare Error → connectionFailed
+        // (never echoes the dev string 'Bind failed' to the user).
         if (!data.loginToken) throw new Error('Bind failed');
         setBindInfo(null);
         await exchange(data.loginToken);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Bind failed');
+        // Upstream rejection (wrong verify code) is actionable — keep it;
+        // transport failure → connectionFailed.
+        setError(e instanceof NetmindApiError ? e.message : i18n.t('pages.login.connectionFailed'));
       } finally {
         setLoading(false);
       }
@@ -220,7 +241,20 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
       await netmindPost('/register/sendCode', { ...baseRequestParams(), email, type: 2 });
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to send code');
+      const message = e instanceof Error ? e.message : 'Failed to send code';
+      api.reportAuthFunnel('netmind_reset_code_failed', email, message);
+      // Anti-enumeration: masking the TEXT isn't enough — whether the UI
+      // advances to the code-entry step is itself a clean registered/not signal.
+      // So on an upstream REJECTION (e.g. "email not registered") advance anyway
+      // (return true) with no error, exactly as if a code were sent. Only a real
+      // TRANSPORT failure stops the flow. (An attacker hitting NetMind's endpoint
+      // directly still enumerates — that residual is NetMind/backend's uniform-
+      // response job, tracked with the send-code follow-up.)
+      if (e instanceof NetmindApiError) {
+        setError('');
+        return true;
+      }
+      setError(i18n.t('pages.login.connectionFailed'));
       return false;
     } finally {
       setLoading(false);
@@ -237,7 +271,22 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
         });
         return true;
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to reset password');
+        // Reached with an email + code + a CLIENT-VALIDATED password (the
+        // ForgotPasswordCard checklist gates weak passwords before this call),
+        // so an upstream rejection here is only a wrong/expired code OR
+        // "email not registered". Both map to the SAME actionable generic —
+        // echoing "email not registered" verbatim would re-open enumeration,
+        // and a bad code is fixed the same way ("request a new one"). Transport
+        // → connectionFailed. Real reason → funnel (this step's only trace).
+        const message = e instanceof Error ? e.message : 'Failed to reset password';
+        setError(
+          i18n.t(
+            e instanceof NetmindApiError
+              ? 'pages.login.resetCodeInvalid'
+              : 'pages.login.connectionFailed',
+          ),
+        );
+        api.reportAuthFunnel('netmind_reset_password_failed', email, message);
         return false;
       } finally {
         setLoading(false);

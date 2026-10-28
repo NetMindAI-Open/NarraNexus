@@ -10,43 +10,51 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.nexus_power.contracts.events import Usage
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.events import Usage
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
     CachePlan,
     ModelParams,
     ModelRequest,
+    ProviderProfile,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.tooling import ToolResult
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.compaction import (
+from narranexus_plugins.frameworks_nexus_power.core.contracts.tooling import ToolResult
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.compaction import (
     ToolResultPruner,
     estimate_message_tokens,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.model_client import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.model_client import (
     LiteLLMModelClient,
     _extract_usage,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.profiles import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.profiles import (
     output_budget,
+    requested_max_tokens,
     resolve_profile,
 )
-from xyz_agent_context.agent_framework.providers.model_catalog import (
+from narranexus.platform.agent_framework.providers.model_catalog import (
     _KNOWN_MODELS,
     get_context_window,
     get_max_output_tokens,
     get_model_meta,
+    get_model_name_match,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.modeling.prompt_cache import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.prompt_cache import (
     plan_cache,
 )
-from xyz_agent_context.agent_framework.nexus_power._nexus_power_impl.session.turn_ledger import (
+from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.session.turn_ledger import (
     TurnLedger,
 )
-from xyz_agent_context.agent_framework.nexus_power.contracts.model import ModelEvent
+from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ModelEvent
 
 
 def test_profile_resolution():
     assert resolve_profile("claude-sonnet-4", "anthropic").name == "anthropic"
     assert resolve_profile("deepseek-chat", None).name == "deepseek"
+    # DeepSeek over a generic openai-protocol endpoint still gets its own
+    # row — that is where the thinking replay requirement bit (2026-09-08).
+    assert resolve_profile("deepseek-ai/DeepSeek-V4-Pro", "openai").thinking_replay == "keep"
+    assert resolve_profile("gpt-4.1", "openai").thinking_replay == "strip"
+    assert resolve_profile("claude-sonnet-4", "anthropic").thinking_replay == "strip"
     assert resolve_profile("claude-opus-x", None).name == "anthropic"
     assert resolve_profile("totally-unknown", None).name == "default"
 
@@ -121,6 +129,175 @@ def test_output_budget_leaves_room_for_the_input():
 def test_output_budget_never_returns_a_useless_or_negative_ceiling():
     haiku = resolve_profile("claude-haiku-4-5", "anthropic")
     assert output_budget(haiku, 10_000_000) > 0
+
+
+def test_thinks_by_default_gets_a_higher_output_floor():
+    """A model that thinks by default burns max_tokens on hidden CoT
+    before it can reach text or a tool call — a 1_024 floor (right for a
+    non-thinking model) leaves no room past the thinking, so the turn
+    ends with stop_reason=max_tokens and zero output (measured 2026-09-08
+    on NetMind's DeepSeek-V4-Pro). ``thinks_by_default=True`` rows get an
+    8_192 floor instead, even when the input estimate leaves far less
+    room than that — a provider 400 on the oversized request is a visible
+    failure, better than a silent empty run.
+
+    Keyed on ``thinks_by_default``, NOT ``thinking_replay``: the two are
+    separate facts — this profile deliberately sets
+    ``thinking_replay="strip"`` to prove the floor no longer rides
+    on that field."""
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    thinking = ProviderProfile(
+        name="deepseek-like", thinking_replay="strip", thinks_by_default=True,
+        context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(thinking, 99_000) == 8_192
+
+
+def test_non_thinking_profiles_keep_the_low_output_floor():
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    plain = ProviderProfile(
+        name="openai-like", thinking_replay="strip", thinks_by_default=False,
+        context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(plain, 99_000) == 1_024
+
+
+def test_thinking_floor_never_exceeds_the_models_own_ceiling():
+    """A thinking-capable model whose catalog ceiling sits BELOW the
+    thinking floor (DeepSeek-V3's real 7_200) must still get its own
+    ceiling — the floor cannot ask for more than the model accepts."""
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    thinking = ProviderProfile(
+        name="deepseek-v3-like", thinks_by_default=True,
+        context_window=100_000, max_output_tokens=7_200,
+    )
+    assert output_budget(thinking, 99_000) == 7_200
+
+
+def test_floor_multiplier_scales_only_the_floor_and_the_ceiling_still_wins():
+    """``floor_multiplier`` doubles the floor term; a roomy input still
+    gets the headroom-derived budget, and the ceiling clamps last."""
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
+        ProviderProfile,
+    )
+
+    plain = ProviderProfile(
+        name="openai-like", context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(plain, 99_000, floor_multiplier=2) == 2_048
+    # Plenty of headroom: the multiplier changes nothing.
+    assert output_budget(plain, 10_000, floor_multiplier=2) == 8_192
+    # Ceiling equal to the floor: doubling cannot grow the budget.
+    thinking = ProviderProfile(
+        name="deepseek-like", thinks_by_default=True,
+        context_window=100_000, max_output_tokens=8_192,
+    )
+    assert output_budget(thinking, 99_000, floor_multiplier=2) == 8_192
+
+
+def test_catalog_thinks_by_default_overlay_is_honest_per_model():
+    """The overlay in ``_with_model_limits`` is model-specific, not
+    dialect-specific: DeepSeek-V4-Pro/V4-Flash
+    are measured True (in-repo 2026-09-08 incident); DeepSeek-V3 — same
+    dialect, same substring match — is left False because it was never
+    part of that measurement; OpenAI's o-series is True (no non-reasoning
+    mode exists for it); the gpt-5.x line stays False (configurable
+    reasoning effort, not independently measured)."""
+    assert resolve_profile("deepseek-ai/DeepSeek-V4-Pro", "openai").thinks_by_default is True
+    assert resolve_profile("deepseek-ai/DeepSeek-V4-Flash", "openai").thinks_by_default is True
+    assert resolve_profile("deepseek-ai/DeepSeek-V3", "openai").thinks_by_default is False
+    assert resolve_profile("o3", "openai").thinks_by_default is True
+    assert resolve_profile("o4-mini", "openai").thinks_by_default is True
+    assert resolve_profile("gpt-5.5", "openai").thinks_by_default is False
+    # An unregistered model keeps the dialect row's conservative default.
+    assert resolve_profile("totally-unknown-model", "openai").thinks_by_default is False
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek-v4-pro", "DeepSeek-V4-Pro", "netmind/deepseek-ai/DeepSeek-V4-Pro"],
+)
+def test_self_entered_spellings_of_a_thinking_model_still_think(model):
+    """B-03 must not depend on the user typing the catalog's exact id: a
+    BYOK / custom-base_url user writing DeepSeek-V4-Pro any other way
+    still gets the thinking floor. None of these ids is registered, so
+    only ``get_model_meta``'s last-segment, case-insensitive fallback can
+    resolve them."""
+    assert model not in _KNOWN_MODELS
+    assert resolve_profile(model, "openai").thinks_by_default is True
+    assert output_budget(resolve_profile(model, "openai"), 99_000) == 8_192
+
+
+def test_name_fallback_does_not_widen_unknown_or_non_thinking_models():
+    """Negative cases for the same fallback: an unknown name stays
+    unknown (False), a self-entered spelling of a NON-thinking catalog
+    model stays False, and a near-miss name is not fuzzily matched."""
+    assert get_model_meta("my-custom-model") is None
+    assert resolve_profile("my-custom-model", "openai").thinks_by_default is False
+    assert resolve_profile("deepseek-v3", "openai").thinks_by_default is False
+    assert get_model_meta("deepseek-v4-pro-experimental") is None
+
+
+def test_name_fallback_refuses_names_whose_entries_disagree(monkeypatch):
+    """Two catalog rows sharing a last segment but carrying different
+    facts make the bare name ambiguous: resolve nothing rather than pair
+    a user's model with one arbitrary row's numbers."""
+    from narranexus.platform.agent_framework.providers import model_catalog
+
+    a = model_catalog.ModelMeta(
+        model_id="vendor-a/twin", display_name="a", max_output_tokens=1_000,
+        context_window=10_000,
+    )
+    b = model_catalog.ModelMeta(
+        model_id="vendor-b/twin", display_name="b", max_output_tokens=2_000,
+        context_window=10_000,
+    )
+    monkeypatch.setitem(model_catalog._KNOWN_MODELS_BY_NAME, "twin", [a, b])
+    assert get_model_name_match("custom/Twin") is None
+    monkeypatch.setitem(model_catalog._KNOWN_MODELS_BY_NAME, "twin", [a])
+    match = get_model_name_match("custom/Twin")
+    assert match is not None and match.max_output_tokens == 1_000
+    # Identity lookup never answers for a mere name match, and the match
+    # carries no other row's id / display name / window.
+    assert get_model_meta("custom/Twin") is None
+    assert not hasattr(match, "model_id")
+    assert not hasattr(match, "display_name")
+    assert not hasattr(match, "context_window")
+
+
+def test_name_match_never_borrows_a_window_or_raises_the_ceiling():
+    """A self-entered id sharing a catalog row's name may be a different
+    build with a smaller wall: it must keep the dialect row's window and
+    ceiling (no borrowed 1M window, no raised 115_200 ceiling), while the
+    exact catalog id still gets both."""
+    dialect = resolve_profile("totally-unknown-model", "openai")
+    guessed = resolve_profile("myorg/Claude-Opus-4-8", "openai")
+    assert get_model_meta("myorg/Claude-Opus-4-8") is None
+    assert guessed.vendor_context_window == dialect.vendor_context_window
+    assert guessed.max_output_tokens == dialect.max_output_tokens
+
+    exact = resolve_profile("anthropic/claude-opus-4-8", "openai")
+    assert exact.vendor_context_window == 1_000_000
+    assert exact.max_output_tokens == 115_200
+    # The exact-id accessors do not guess either.
+    assert get_context_window("myorg/Claude-Opus-4-8") is None
+    assert get_max_output_tokens("myorg/Claude-Opus-4-8") is None
+
+
+def test_name_match_may_lower_the_ceiling():
+    """Lowering is always safe (a smaller ceiling cannot overrun a wall),
+    so a same-named row's smaller ceiling applies: DeepSeek-V3's 7_200."""
+    assert get_model_meta("myorg/DeepSeek-V3") is None
+    assert resolve_profile("myorg/DeepSeek-V3", "openai").max_output_tokens == 7_200
 
 
 @pytest.mark.parametrize(
@@ -312,6 +489,51 @@ async def test_stream_translation_text_tool_usage():
     # Anthropic-protocol routing for custom endpoints.
     fake = client._client
     assert fake.last_kwargs["model"] == "anthropic/claude-x"
+
+
+def test_requested_max_tokens_is_an_int_and_null_is_not_a_pin():
+    """A pinned value is returned as an int; ``None`` or a non-integer is
+    not a pin and yields the computed budget, never ``max_tokens: null``."""
+    profile = ProviderProfile(
+        name="deepseek-like", thinks_by_default=True,
+        context_window=1_000, max_output_tokens=100_000,
+    )
+    computed = requested_max_tokens(profile, {}, 500)
+    assert requested_max_tokens(profile, {"max_tokens": "777"}, 500) == 777
+    assert requested_max_tokens(profile, {"max_tokens": None}, 500) == computed
+    assert requested_max_tokens(profile, {"max_tokens": "lots"}, 500) == computed
+    assert isinstance(computed, int)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("extra", "multiplier"),
+    [({}, 1), ({}, 2), ({"max_tokens": 777}, 1), ({"max_tokens": 777}, 2)],
+)
+async def test_client_sends_exactly_requested_max_tokens(extra, multiplier):
+    """One source of truth for the ``max_tokens`` a request carries: the
+    client sends ``requested_max_tokens`` verbatim, which is the same
+    function loop.py's truncation retry reads to decide whether a doubled
+    floor would ask for more. A pinned value wins at any multiplier —
+    that equality is what rules a byte-identical replay out."""
+    profile = ProviderProfile(
+        name="deepseek-like", thinks_by_default=True,
+        context_window=1_000, max_output_tokens=100_000,
+    )
+    fake = _FakeLitellm([_chunk(finish="stop")])
+    client = LiteLLMModelClient(profile, fake)
+    params = ModelParams(model="m", extra=dict(extra))
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}], tools=[], params=params,
+        input_tokens_estimate=500, floor_multiplier=multiplier,
+    )
+    _ = [e async for e in client.stream_step(request)]
+    sent = fake.last_kwargs["extra"]["max_tokens"]
+    assert sent == requested_max_tokens(
+        profile, params.extra, 500, floor_multiplier=multiplier
+    )
+    assert sent == (777 if extra else 8_192 * multiplier)
+    assert "max_tokens" not in params.extra or extra  # caller dict untouched
 
 
 @pytest.mark.asyncio
@@ -606,3 +828,106 @@ async def test_a_cut_inside_a_literal_or_escape_is_still_truncation(arguments):
     be answered with the escaping red herring."""
     tool_use = await _tool_use_for(arguments, finish="tool_calls")
     assert tool_use.payload["args_truncated"] is True
+
+
+def test_projector_replays_reasoning_only_for_keep_profiles():
+    """The ledger always folds the CoT in; the profile decides whether the
+    provider sees it. "strip" providers may reject the unknown key,
+    "keep" providers (DeepSeek thinking mode) reject its absence."""
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.projector import (
+        PassthroughProjector,
+    )
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import ProviderProfile
+
+    ledger = TurnLedger("t1")
+    ledger.record_model_event(ModelEvent(kind="thinking_delta", payload={"text": "plan"}))
+    ledger.record_model_event(
+        ModelEvent(kind="tool_use", payload={"call_id": "c1", "tool_name": "bash", "args": {}})
+    )
+    ledger.record_model_event(ModelEvent(kind="done", payload={"stop_reason": "tool_calls"}))
+    ledger.record_tool_result("c1", ToolResult(call_id="c1", ok=True, content="ok"))
+    base = [{"role": "user", "content": "hi"}]
+    projector = PassthroughProjector(base)
+
+    kept = projector.project(ledger, ProviderProfile(name="deepseek", thinking_replay="keep"))
+    assert kept[1]["reasoning_content"] == "plan"
+    assert kept[1]["tool_calls"][0]["id"] == "c1"
+
+    stripped = projector.project(ledger, ProviderProfile(name="openai", thinking_replay="strip"))
+    assert "reasoning_content" not in stripped[1]
+    assert stripped[1]["tool_calls"][0]["id"] == "c1"
+    assert stripped[2] == {"role": "tool", "tool_call_id": "c1", "content": "ok"}
+    # Stripping is a projection, never a mutation of the ledger.
+    assert ledger.provider_messages()[0]["reasoning_content"] == "plan"
+
+
+# -- surrogate halves split across stream chunks (prod 2026-09-11) --------
+# A provider slicing by UTF-16 code unit ends one chunk on a high surrogate
+# and starts the next on its low half; each chunk then decodes to a lone
+# surrogate that kills any strict UTF-8 writer. Every text surface must be
+# joined across chunks at the source (both run modes rely on it).
+
+
+async def _events(chunks):
+    client = LiteLLMModelClient(
+        resolve_profile("claude", "anthropic"), _FakeLitellm(chunks)
+    )
+    request = ModelRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        params=ModelParams(model="claude-x", base_url="https://api.x.com"),
+    )
+    return [e async for e in client.stream_step(request)]
+
+
+def _joined(events, kind):
+    return "".join(e.payload["text"] for e in events if e.kind == kind)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,kind", [("content", "text_delta"), ("reasoning_content", "thinking_delta")])
+async def test_split_surrogate_pair_is_joined_across_text_chunks(field, kind):
+    events = await _events([
+        _chunk({field: "hi \ud83d"}),
+        _chunk({field: "\udc4b there"}),
+        _chunk(finish="stop"),
+    ])
+    for e in events:
+        if e.kind == kind:
+            e.payload["text"].encode("utf-8")
+    assert _joined(events, kind) == "hi 👋 there"
+
+
+@pytest.mark.asyncio
+async def test_unfinished_high_half_at_stream_end_becomes_replacement():
+    events = await _events([_chunk({"content": "bye \ud83d"}), _chunk(finish="stop")])
+    assert _joined(events, "text_delta") == "bye �"
+    assert [e.kind for e in events][-1] == "done"
+
+
+@pytest.mark.asyncio
+async def test_split_surrogate_pair_in_raw_argument_fragments():
+    events = await _events([
+        _chunk({"tool_calls": [{"index": 0, "id": "c1", "function": {"name": "narra_reply"}}]}),
+        _chunk({"tool_calls": [{"index": 0, "function": {"arguments": '{"text": "a\ud83d'}}]}),
+        _chunk({"tool_calls": [{"index": 0, "function": {"arguments": '\udc4b b \udc4b"}'}}]}),
+        _chunk(finish="tool_calls"),
+    ])
+    streamed = _joined(events, "arg_delta")
+    streamed.encode("utf-8")
+    assert streamed == '{"text": "a👋 b �"}'
+    tool_use = next(e for e in events if e.kind == "tool_use")
+    assert tool_use.payload["args"] == {"text": "a👋 b �"}
+
+
+def test_scrub_json_strings_returns_clean_trees_unchanged():
+    from narranexus_plugins.frameworks_nexus_power.core._nexus_power_impl.modeling.arg_stream import (
+        scrub_json_strings,
+    )
+
+    tree = {"a": ["x", {"b": "中文 👋"}], "n": 1}
+    assert scrub_json_strings(tree) is tree
+    dirty = {"a": ["x\ud83d"], "keep": {"c": "ok"}}
+    out = scrub_json_strings(dirty)
+    assert out == {"a": ["x�"], "keep": {"c": "ok"}}
+    assert out["keep"] is dirty["keep"]

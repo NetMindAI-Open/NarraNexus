@@ -56,9 +56,12 @@ ENV PYTHONUNBUFFERED=1 \
 #   nodejs/npm:           backend spawns the Claude Code CLI subprocess
 #   tini:                 PID 1 for clean signal handling
 #   bash:                 run.sh requires it (alpine wouldn't suffice)
+#   libmagic1:            content-based MIME sniffing (utils/mime_sniff.py tier
+#                         1, via the python-magic dep) — without the native lib
+#                         the sniffer degrades to the spoofable file extension
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        bash ca-certificates curl git tini nodejs npm gosu ffmpeg \
+        bash ca-certificates curl git tini nodejs npm gosu ffmpeg libmagic1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Claude Code CLI — hard dependency (claude-agent-sdk spawns it every turn).
@@ -119,7 +122,11 @@ RUN set -eux; \
 # narra-cli is the MCP/backend image (NarraNexus-deploy/docker/Dockerfile.python),
 # NOT the executor (which never shells it) — installed there in deploy 4007ca5
 # (dev) / 4b32444 (main). Missing it ships cloud NarraMessenger narra_cli dead.
-ARG NARRA_CLI_VERSION=1.1.0
+# 1.2.x CONTRACT: every API command REQUIRES --endpoint (configure + the global
+# config file are gone); narra_cli_client injects it from the binding. Do not
+# roll back below 1.2.0 without reverting that injection — 1.1.0 rejects the
+# flag, 1.2.x refuses to run without it.
+ARG NARRA_CLI_VERSION=1.2.1
 ENV NARRA_CLI_BIN=/opt/narra-cli/node_modules/.bin/narra-cli
 RUN npm install --prefix /opt/narra-cli "@narra-im/narra-cli@${NARRA_CLI_VERSION}" \
  && npm cache clean --force \
@@ -131,12 +138,25 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
 WORKDIR /app
 
 # Dep layer: copy lockfiles only so the heavy uv sync caches.
+# --extra plugins: the coding-agent framework SDKs (claude-agent-sdk /
+# openai-codex) are an OPTIONAL group since the lightweight local build stopped
+# bundling them (pyproject [project.optional-dependencies].plugins). This cloud
+# image runs every framework, so it must pull them back in explicitly —
+# omitting the flag silently ships claude_code / codex_cli dead here. Lockstep
+# with the deploy repo's Dockerfile.executor / Dockerfile.python (铁律 #7).
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
+# uv workspace members (packages/*, plugins/*) must be present for the
+# dependency-only sync to resolve — the root project depends on every member
+# via `{ workspace = true }`. Without these the layer fails with
+# "Distribution not found at: file:///app/packages/narranexus-contracts".
+# Lockstep with the deploy repo's Dockerfile.python / Dockerfile.executor.
+COPY packages/ ./packages/
+COPY plugins/ ./plugins/
+RUN uv sync --frozen --no-install-project --no-dev --extra plugins
 
 # Project layer: full source + editable install.
 COPY . .
-RUN uv sync --frozen --no-dev \
+RUN uv sync --frozen --no-dev --extra plugins \
  && uv pip install -e .
 
 # Pull in the prebuilt frontend dist from stage 1.

@@ -26,20 +26,20 @@ from typing import Any
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_FETCH_FAILED,
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
 )
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixMediaError,
     MatrixTrigger,
 )
-from xyz_agent_context.schema.attachment_schema import AttachmentCategory
-from xyz_agent_context.schema.parsed_message import MessageContentType
+from narranexus.platform.schema.attachment_schema import AttachmentCategory
+from narranexus.platform.schema.parsed_message import MessageContentType
 
 
 HOMESERVER = "matrix.netmind.chat"
@@ -216,7 +216,7 @@ def test_parse_event_media_without_mxc_dropped():
 
 @pytest.fixture
 def isolated_workspace(monkeypatch, tmp_path: Path) -> Path:
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)
     )
@@ -234,7 +234,7 @@ def trigger_with_owner(db_client, isolated_workspace):
         })
         trigger = MatrixTrigger()
         trigger._db = db_client
-        from xyz_agent_context.repository.channel_trigger_audit_repository import (
+        from narranexus.platform.repository.channel_trigger_audit_repository import (
             ChannelTriggerAuditRepository,
         )
         trigger._audit_repo = ChannelTriggerAuditRepository(
@@ -274,7 +274,7 @@ async def test_fetch_attachments_downloads_and_persists_image(
     # announce to the agent (resolve_attachment_path == the marker's
     # path=). This is the prompt-download-location contract: the agent's
     # Read tool must find the file where the marker says it is.
-    from xyz_agent_context.utils.attachment_storage import (
+    from narranexus.platform.utils.attachment_storage import (
         resolve_attachment_path,
     )
     on_disk = resolve_attachment_path("agent_x", "user_owner", att.file_id)
@@ -309,6 +309,7 @@ async def test_fetch_attachments_audits_oversized_before_download(
 
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 1024)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "1024")  # workers topology: no WebHost
 
     parsed = trigger.parse_event(_media_raw(size=10_000))  # > 1024
     attachments = await trigger.fetch_attachments(parsed, cred)
@@ -374,3 +375,39 @@ async def test_fetch_attachments_audits_fetch_failure(
         {"channel": "narramessenger", "event_type": EVENT_ATTACHMENT_FETCH_FAILED},
     )
     assert len(failures) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_attachments_works_in_a_process_without_an_http_host(
+    db_client, isolated_workspace, monkeypatch, trigger_with_owner
+):
+    """The trigger runs in the workers process, which exposes no WebHost.
+
+    2026-09-11 prod: ``host_settings()`` raised ``UnknownEntry: service
+    'host.web' is not exposed`` there, so every inbound NarraMessenger image
+    and file was dropped. The other tests in this file pass only because the
+    test process has imported ``backend.main`` (which installs the WebHost);
+    this one removes it to reproduce the workers topology.
+    """
+    from narranexus.contracts.services import WEB_HOST
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
+
+    monkeypatch.delitem(KERNEL_REGISTRIES.services._services, WEB_HOST.id, raising=False)
+    assert KERNEL_REGISTRIES.services.try_require(WEB_HOST) is None
+
+    trigger = await trigger_with_owner()
+
+    async def _stub_download(*, credential, server_name, media_id, max_bytes):
+        return _FAKE_PNG
+
+    monkeypatch.setattr(trigger, "_download_mxc", _stub_download)
+
+    attachments = await trigger.fetch_attachments(trigger.parse_event(_media_raw()), _cred())
+
+    assert len(attachments) == 1
+    assert attachments[0].mime_type == "image/png"
+    failed = await db_client.get(
+        "channel_trigger_audit",
+        {"channel": "narramessenger", "event_type": EVENT_ATTACHMENT_FETCH_FAILED},
+    )
+    assert failed == []

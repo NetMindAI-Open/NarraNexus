@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-07-23
+last_verified: 2026-08-12
 stub: false
 ---
 
@@ -99,3 +99,8 @@ Shows the agent's received messages from the Matrix inter-agent communication la
 `refreshAgentInbox(agentId, false, 0)` on manual refresh resets the stored `_inboxLimit` to the default (50) before re-fetching. Passing `0` is the signal to the store to reset, not to fetch 0 items.
 
 Messages within an expanded room are displayed newest-first — this differs from the chat panel where messages are oldest-first. This is intentional for the inbox use-case (see most recent first).
+
+## 2026-08-12 — 配色改用共享的 [[senderIdentity]]
+
+本文件的 `senderColor` / `senderInitials` 已删除，改为 import。抽取时发现它与 dashboard 那份
+**色序已经不同**，同一个 agent 在两个页面可能是两种颜色。哈希逐字节不变，本页面配色不移动。

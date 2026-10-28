@@ -1,21 +1,28 @@
 """
 @file_name: test_trigger_per_agent_lock.py
 @date: 2026-05-12
-@description: Lock the per-agent serialisation contract on
-              ``MessageBusTrigger._process_agent``.
+@description: Lock the per-LANE serialisation contract on
+              ``MessageBusTrigger._process_lane``.
 
 Why this file exists:
-    Without a per-agent lock, the poller calling ``_process_agent(agent_id)``
-    twice while a slow ``_invoke_runtime`` is in flight would fire
+    Without the lock, the poller calling ``_process_lane`` twice for the same
+    lane while a slow ``_invoke_runtime`` is in flight would fire
     ``AgentRuntime`` twice for the same pending bus message — because
     ``last_processed_at`` is only advanced after the first runtime returns.
     Observed in production (2026-05-12 13:20 — msg_4eb528dc processed 3x
     by agent_d8795abf5021, burning ~30K tokens for one duplicate reply).
+
+    The lock's key is the LANE ``(agent_id, channel_id)``, not the agent:
+    the duplicate risk is per-message, hence per-channel, so per-lane keeping
+    is enough — AND it lets one agent's several teams run at once, which is the
+    point (a message in team B must not wait behind the agent's team-A turn).
+
     These tests assert that:
 
-    1. Concurrent calls for the SAME agent_id serialise.
-    2. Concurrent calls for DIFFERENT agent_ids run in parallel (no
-       accidental global blocking from the new lock).
+    1. Concurrent calls for the SAME lane serialise.
+    2. Concurrent calls for DIFFERENT agents run in parallel.
+    3. Concurrent calls for the SAME agent on DIFFERENT channels run in
+       parallel (multi-team concurrency — the 2026-08-21 change).
 """
 from __future__ import annotations
 
@@ -23,87 +30,86 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
+from narranexus.platform.message_bus.message_bus_trigger import MessageBusTrigger
 
 
 def _trigger() -> MessageBusTrigger:
     """Build a MessageBusTrigger skipping __init__ deps — we only test the
     lock structure, which lives on attributes we set here directly."""
     t = MessageBusTrigger.__new__(MessageBusTrigger)
-    t._semaphore = asyncio.Semaphore(10)  # generous, lock is the unit under test
-    t._agent_locks = {}
+    t._semaphore = asyncio.Semaphore(10)  # generous, the lock is the unit under test
+    t._lane_locks = {}
     return t
 
 
-@pytest.mark.asyncio
-async def test_process_agent_serialises_same_agent():
-    """Two concurrent calls for the same agent_id MUST NOT overlap."""
-    t = _trigger()
-    in_flight = 0
-    max_in_flight = 0
+def _lane_worker(t: MessageBusTrigger):
+    """A fake lane turn that takes the per-lane lock and records overlap."""
+    state = {"in_flight": 0, "max_in_flight": 0}
 
-    async def fake_process(agent_id: str) -> bool:
-        nonlocal in_flight, max_in_flight
-        lock = t._agent_locks.setdefault(agent_id, asyncio.Lock())
+    async def run(lane: tuple[str, str]) -> None:
+        lock = t._lane_locks.setdefault(lane, asyncio.Lock())
         async with lock, t._semaphore:
-            in_flight += 1
-            max_in_flight = max(max_in_flight, in_flight)
-            await asyncio.sleep(0.05)  # simulate slow AgentRuntime
-            in_flight -= 1
-            return True
-
-    await asyncio.gather(
-        fake_process("agent_a"),
-        fake_process("agent_a"),
-        fake_process("agent_a"),
-    )
-
-    # If the lock works, at most ONE call holds it at a time.
-    assert max_in_flight == 1, (
-        f"Expected serial execution for same agent, but saw {max_in_flight} "
-        f"concurrent runs — per-agent lock not protecting the critical section."
-    )
-
-
-@pytest.mark.asyncio
-async def test_process_agent_parallel_for_different_agents():
-    """The per-agent lock MUST NOT bottleneck different agents."""
-    t = _trigger()
-    in_flight = 0
-    max_in_flight = 0
-
-    async def fake_process(agent_id: str) -> bool:
-        nonlocal in_flight, max_in_flight
-        lock = t._agent_locks.setdefault(agent_id, asyncio.Lock())
-        async with lock, t._semaphore:
-            in_flight += 1
-            max_in_flight = max(max_in_flight, in_flight)
+            state["in_flight"] += 1
+            state["max_in_flight"] = max(state["max_in_flight"], state["in_flight"])
             await asyncio.sleep(0.05)
-            in_flight -= 1
-            return True
+            state["in_flight"] -= 1
 
+    return run, state
+
+
+@pytest.mark.asyncio
+async def test_same_lane_serialises():
+    """Two concurrent calls for the same lane MUST NOT overlap."""
+    t = _trigger()
+    run, state = _lane_worker(t)
     await asyncio.gather(
-        fake_process("agent_a"),
-        fake_process("agent_b"),
-        fake_process("agent_c"),
+        run(("agent_a", "ch1")), run(("agent_a", "ch1")), run(("agent_a", "ch1")),
     )
-
-    # Different agents should overlap freely.
-    assert max_in_flight == 3, (
-        f"Different agents should run in parallel; saw max_in_flight={max_in_flight}. "
-        f"Likely cause: the lock map is global rather than per-agent."
+    assert state["max_in_flight"] == 1, (
+        f"Expected serial execution for the same lane, saw {state['max_in_flight']} "
+        f"concurrent — per-lane lock not protecting the critical section."
     )
 
 
 @pytest.mark.asyncio
-async def test_agent_locks_dict_grows_on_demand():
-    """Lock map should populate lazily — first call for an agent_id creates
-    its Lock. Catches refactors that switch to eager dict prepopulation."""
+async def test_different_agents_run_in_parallel():
+    """The lock MUST NOT bottleneck different agents."""
     t = _trigger()
-    assert t._agent_locks == {}
-    lock_a = t._agent_locks.setdefault("agent_a", asyncio.Lock())
-    assert "agent_a" in t._agent_locks
-    # Re-fetching returns the same Lock instance — critical so two
-    # concurrent calls share the same mutex.
-    lock_a_again = t._agent_locks.setdefault("agent_a", asyncio.Lock())
+    run, state = _lane_worker(t)
+    await asyncio.gather(
+        run(("agent_a", "ch1")), run(("agent_b", "ch1")), run(("agent_c", "ch1")),
+    )
+    assert state["max_in_flight"] == 3, (
+        f"Different agents should overlap; saw max_in_flight={state['max_in_flight']}."
+    )
+
+
+@pytest.mark.asyncio
+async def test_same_agent_different_channels_run_in_parallel():
+    """The 2026-08-21 change: one agent, several teams, at once. Different
+    channels are different lanes, so they must NOT serialise — otherwise a
+    message in team B waits behind the agent's team-A turn."""
+    t = _trigger()
+    run, state = _lane_worker(t)
+    await asyncio.gather(
+        run(("agent_a", "team_A")), run(("agent_a", "team_B")), run(("agent_a", "team_C")),
+    )
+    assert state["max_in_flight"] == 3, (
+        f"An agent's distinct channels should overlap; saw "
+        f"max_in_flight={state['max_in_flight']} — the lane lock is keyed too coarsely."
+    )
+
+
+@pytest.mark.asyncio
+async def test_lane_locks_dict_grows_on_demand():
+    """Lock map populates lazily — first call for a lane creates its Lock.
+    Catches refactors that switch to eager dict prepopulation."""
+    t = _trigger()
+    assert t._lane_locks == {}
+    lane = ("agent_a", "ch1")
+    lock_a = t._lane_locks.setdefault(lane, asyncio.Lock())
+    assert lane in t._lane_locks
+    # Re-fetching returns the same Lock instance — critical so two concurrent
+    # calls share the same mutex.
+    lock_a_again = t._lane_locks.setdefault(lane, asyncio.Lock())
     assert lock_a is lock_a_again

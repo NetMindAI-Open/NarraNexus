@@ -14,9 +14,9 @@
  * a fullscreen modal (ArtifactZoomModal) with a blurred backdrop.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type Ref } from 'react';
+import { useLayoutEffect, useRef, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, Maximize2, RefreshCw } from 'lucide-react';
+import { Maximize2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useArtifactStore } from '@/stores';
 import ArtifactTabStrip from './ArtifactTabStrip';
@@ -27,24 +27,15 @@ import ArtifactZoomModal from './ArtifactZoomModal';
 interface Props {
   agentId: string;
   /**
-   * Optional flex-grow override (used in expanded mode only). The parent
-   * layout passes this to drive the chat ↔ artifacts split via the
-   * ResizableDivider. When omitted, falls back to the legacy `flex-[2]`
-   * proportion. Sliver mode always uses the fixed 36 px width.
+   * Optional flex-grow override. The parent layout passes this to drive the
+   * chat ↔ artifacts split via the ResizableDivider. When omitted, falls back
+   * to the legacy `flex-[2]` proportion.
    */
   flexGrow?: number;
   /**
-   * Force the full expanded view and never the collapsed sliver — used by the
-   * mobile Chat/Artifacts tab, where the column IS the whole pane (there is no
-   * side sliver to collapse to). Desktop leaves this unset and keeps the
-   * sliver ⇄ expanded behaviour.
-   */
-  forceExpanded?: boolean;
-  /**
-   * Handle on the expanded `<aside>`, so the parent's ResizableDivider can
-   * write `flex-grow` straight to the DOM during a drag (live-follow with
-   * zero React renders). Only attached in expanded mode — the sliver has no
-   * divider next to it.
+   * Handle on the `<aside>`, so the parent's ResizableDivider can write
+   * `flex-grow` straight to the DOM during a drag (live-follow with zero
+   * React renders).
    */
   columnRef?: Ref<HTMLElement>;
   /**
@@ -60,7 +51,6 @@ interface Props {
 export default function ArtifactColumn({
   agentId,
   flexGrow,
-  forceExpanded = false,
   columnRef,
   contentFrozen = false,
 }: Props) {
@@ -69,8 +59,6 @@ export default function ArtifactColumn({
   // calls. Selectors first, then early returns.
   const artifacts = useArtifactStore((s) => s.artifacts);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
-  const collapsed = useArtifactStore((s) => s.collapsed);
-  const setCollapsed = useArtifactStore((s) => s.setCollapsed);
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const restoreTab = useArtifactStore((s) => s.restoreTab);
   const loadPinned = useArtifactStore((s) => s.loadPinned);
@@ -93,33 +81,6 @@ export default function ArtifactColumn({
     }
   };
 
-  // Auto-expand on artifact arrival.
-  //
-  // Pre-2026-05-13 behaviour: the column was unmounted entirely while
-  // `artifacts.length === 0`, then suddenly popped into existence when
-  // the first artifact landed — felt abrupt and a beat slow because the
-  // user wasn't aware the panel existed. New behaviour: always render
-  // the sliver (even with 0 artifacts) so the panel has a visual
-  // presence from day one, and auto-uncollapse it the moment a new
-  // artifact arrives so the user doesn't have to click the sliver to
-  // discover the freshly-created artifact.
-  //
-  // We track the previous length in a ref. Mount initialises prev =
-  // current, so first paint with cached artifacts (stale-while-
-  // revalidate after agent switch) does NOT auto-expand — only genuine
-  // growth past the previous tick triggers expansion. The "fights the
-  // user who just collapsed" edge case is accepted as a tradeoff —
-  // user explicitly asked for new-artifact-pops-it-open semantics
-  // (they can re-collapse, and the next growth event will pop it open
-  // again, which matches "tell me when something new is here").
-  const prevLengthRef = useRef(artifacts.length);
-  useEffect(() => {
-    if (artifacts.length > prevLengthRef.current && collapsed) {
-      setCollapsed(false);
-    }
-    prevLengthRef.current = artifacts.length;
-  }, [artifacts.length, collapsed, setCollapsed]);
-
   // Drag freeze (see `contentFrozen`). Measured in a LAYOUT effect so the
   // width is read before the browser paints the first dragged frame —
   // a passive `useEffect` could sample a width the drag had already changed.
@@ -129,60 +90,13 @@ export default function ArtifactColumn({
     setFrozenContentPx(contentFrozen ? (contentRef.current?.offsetWidth ?? null) : null);
   }, [contentFrozen]);
 
-  // Sliver form: shown when the user collapsed the column OR when no
-  // artifacts exist yet. The empty-state sliver advertises the panel's
-  // existence so users know where artifacts will appear once the agent
-  // creates one.
-  const effectiveCollapsed = !forceExpanded && (collapsed || artifacts.length === 0);
-  if (effectiveCollapsed) {
-    const hasArtifacts = artifacts.length > 0;
-    // A <div> wrapper (not a single <button>) so the sliver can hold TWO
-    // controls without nesting buttons: the expand affordance and a
-    // refresh button. The refresh button matters most in the empty state
-    // — that's exactly when the user wants to force a re-sync but the
-    // expanded-header refresh button isn't reachable.
-    return (
-      <div className="group chat-frosted w-9 hover:bg-[var(--bg-secondary)] transition-colors flex flex-col items-center pt-3 pb-2 gap-2">
-        <button
-          onClick={() => setCollapsed(false)}
-          className="flex-1 flex flex-col items-center w-full"
-          title={
-            hasArtifacts
-              ? t('artifacts.sliver.expandTitle', { count: artifacts.length })
-              : t('artifacts.sliver.emptyTitle')
-          }
-          aria-label={
-            hasArtifacts
-              ? t('artifacts.sliver.expandAria', { count: artifacts.length })
-              : t('artifacts.sliver.emptyAria')
-          }
-        >
-          {/* Top: vertical title so the user knows what this column is */}
-          <span className="text-[11px] font-semibold [writing-mode:vertical-rl] tracking-wider whitespace-nowrap">
-            {hasArtifacts ? t('artifacts.sliver.label', { count: artifacts.length }) : t('artifacts.sliver.labelEmpty')}
-          </span>
-          {/* Spacer to push the chevron to the bottom */}
-          <span className="flex-1" />
-          {/* Bottom: chevron pointing left to suggest "open out toward the chat" */}
-          <ChevronLeft className="w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity" aria-hidden />
-        </button>
-        {/* Refresh — always available, even when the panel is empty. */}
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="opacity-50 hover:opacity-100 transition-opacity disabled:opacity-30"
-          title={t('artifacts.refresh')}
-          aria-label={t('artifacts.refresh')}
-        >
-          <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
-        </button>
-      </div>
-    );
-  }
+  // The collapsed "sliver" form is gone: since v4 the only live mount is the
+  // drawer (BookmarkPanelHost), which owns opening/closing, so the sliver
+  // branch and the store's `collapsed` state were unreachable and removed.
 
-  // Forced-expanded (mobile Artifacts tab) with nothing yet — a calm empty
-  // state instead of a blank pane, since the tab is always present on mobile.
-  if (forceExpanded && artifacts.length === 0) {
+  // Nothing yet — a calm empty state instead of a blank pane, since the
+  // drawer's Artifacts tab is always present.
+  if (artifacts.length === 0) {
     return (
       <aside
         className="chat-frosted flex flex-1 flex-col items-center justify-center min-w-0 p-6 text-center overflow-hidden"
@@ -236,7 +150,7 @@ export default function ArtifactColumn({
               <button
                 key={a.artifact_id}
                 onClick={() => restoreTab(a.artifact_id)}
-                className="px-2 py-0.5 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] truncate max-w-[14rem] text-left"
+                className="px-2 py-0.5 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--nm-paper-warm)] truncate max-w-[14rem] text-left"
                 title={t('artifacts.restore', { title: a.title })}
               >
                 ↺ {a.title}
@@ -273,14 +187,9 @@ export default function ArtifactColumn({
             </button>
           )}
           {active && <ArtifactDownloadMenu artifact={active} />}
-          <button
-            onClick={() => setCollapsed(true)}
-            className="text-xs opacity-60 hover:opacity-100 px-2"
-            title={t('artifacts.collapse')}
-            aria-label={t('artifacts.collapseAria')}
-          >
-            ▶
-          </button>
+          {/* No collapse affordance: the drawer (BookmarkPanelHost) owns
+              closing. The old collapse button and the store state behind it
+              were removed with the sliver branch. */}
         </div>
       </div>
       <div
@@ -312,7 +221,13 @@ export default function ArtifactColumn({
             <div
               key={a.artifact_id}
               className="absolute inset-0"
-              style={{ display: a.artifact_id === activeId ? 'block' : 'none' }}
+              style={{
+                // effectiveActiveId, NOT raw activeId: when the raw pointer
+                // names a hidden/minimized row the modal and `active` fall
+                // back to a visible chart while this pool kept comparing the
+                // raw id — every pane display:none = blank column (0802 ①).
+                display: a.artifact_id === effectiveActiveId ? 'block' : 'none',
+              }}
             >
               <ArtifactRenderer artifact={a} />
             </div>

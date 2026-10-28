@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers import model_sync
-from xyz_agent_context.agent_framework.providers.model_probe_ledger import PASS, FAIL
+from narranexus.platform.agent_framework.providers import model_sync
+from narranexus.platform.agent_framework.providers.model_probe_ledger import PASS, FAIL
 
 
 def _iso(days_ago: float = 0.0) -> str:
@@ -427,8 +427,8 @@ def test_get_default_models_netmind_free_prefers_gateway_gated_entry(monkeypatch
     # Once the daily pass has written the netmind_free ledger entry, new free
     # cards must seed from it (gateway ∩ verdicts) — not from the raw netmind
     # catalog passes, which include models the gateway cannot route or price.
-    from xyz_agent_context.agent_framework.providers import model_catalog
-    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+    from narranexus.platform.agent_framework.providers import model_catalog
+    from narranexus.platform.agent_framework.providers import model_probe_ledger
 
     def fake_ledger_models(source, protocol):
         return {
@@ -472,7 +472,7 @@ async def test_apply_ledger_to_db_never_lists_extras(monkeypatch):
 
 
 def test_ledger_models_never_lists_extras(monkeypatch):
-    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+    from narranexus.platform.agent_framework.providers import model_probe_ledger
 
     led = {"sources": {"netmind": {"models": {
         "A": {"openai": PASS},

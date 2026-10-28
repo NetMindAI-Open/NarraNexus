@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_runtime.broadcaster import Broadcaster
+from narranexus.platform.agent_runtime.broadcaster import Broadcaster
 
 
 @pytest.mark.asyncio
@@ -104,7 +104,7 @@ async def test_new_subscriber_receives_current_thinking_buffer():
     """Phase C edge case: a subscriber joining mid-thinking-segment
     gets the buffer snapshot before the live stream."""
     b = Broadcaster("run_seg")
-    b.set_current_thinking_buffer("hello world so far")
+    b.set_current_thinking_buffer("hello world so far", False)
 
     sub = b.subscribe("ws-late")
     received: list[dict] = []
@@ -180,3 +180,47 @@ async def test_publish_then_immediate_close_does_not_drop_events():
     async for e in sub:
         received.append(e)
     assert [e["type"] for e in received] == ["progress", "complete"]
+
+
+async def _first_frame(b) -> dict:
+    """Drain the snapshot frame a fresh subscriber is handed."""
+    sub = b.subscribe("ws-tier")
+    received: list[dict] = []
+
+    async def consume():
+        async for e in sub:
+            received.append(e)
+
+    task = asyncio.create_task(consume())
+    await asyncio.sleep(0.02)
+    task.cancel()
+    return received[0]
+
+
+@pytest.mark.asyncio
+async def test_partial_replay_carries_the_narration_tier():
+    """The backend must actually EMIT the tier, not merely be able to.
+
+    The frontend tests translateReconnectFrame against a hand-built frame, so
+    without this nothing checks that this end ever sets the field. A break is
+    invisible three ways over — a mid-run refresh renders the replayed half as
+    reasoning while the live half renders as narration (the torn sentence this
+    change removed), the suite stays green, and the only trace is a log line a
+    docker restart rotates away.
+    """
+    b = Broadcaster("run_tier")
+    b.set_current_thinking_buffer("Reading the file now.", True)
+
+    frame = await _first_frame(b)
+    assert frame["type"] == "thinking_partial_replay"
+    assert frame["content"] == "Reading the file now."
+    assert frame["monologue"] is True
+
+
+@pytest.mark.asyncio
+async def test_partial_replay_marks_reasoning_as_not_narration():
+    b = Broadcaster("run_tier2")
+    b.set_current_thinking_buffer("weighing options", False)
+
+    frame = await _first_frame(b)
+    assert frame["monologue"] is False

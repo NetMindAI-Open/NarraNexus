@@ -137,32 +137,30 @@ impl ProcessManager {
             .env("PATH", &child_path)
             .env("DATABASE_URL", &db_url)
             .env("SQLITE_PROXY_URL", &proxy_url)
-            .env("SQLITE_PROXY_PORT", &proxy_port);
+            .env("SQLITE_PROXY_PORT", &proxy_port)
+            // Surface label for analytics (resolve_surface) AND the
+            // telemetry env label (_env_label): EVERY sidecar serves
+            // the "desktop" surface, not just backend — mcp/workers
+            // would otherwise fall back to the deployment-mode label
+            // ("local") in their telemetry envelopes.
+            .env("NARRA_SURFACE", "desktop");
         if def.id == "backend" {
             cmd.env("DASHBOARD_BIND_HOST", "127.0.0.1");
-            // Analytics surface label: the desktop sidecar serves the
-            // "desktop" surface. resolve_surface() reads NARRA_SURFACE.
-            cmd.env("NARRA_SURFACE", "desktop");
-            // Official release builds bake a write-only PostHog ingest key in
-            // at compile time (CI sets NARRA_POSTHOG_KEY from a repo secret).
-            // option_env! resolves to None for community / source builds, which
-            // therefore stay silent (the backend falls back to NullSink). The
-            // key is forwarded to the Python sidecar as POSTHOG_API_KEY.
-            if let Some(key) = option_env!("NARRA_POSTHOG_KEY") {
-                cmd.env("POSTHOG_API_KEY", key);
-            }
             // NetMind ("Power") account login (local dual-mode). A Finder-
             // launched .app inherits no shell env, so — exactly like
-            // NARRA_POSTHOG_KEY above — these are baked at COMPILE time: a build
-            // that exported them (before `bash scripts/release/build-desktop.sh`) ships a
-            // Power-enabled desktop app; a normal community/source build leaves
+            // other release configuration — these are baked at COMPILE time: a
+            // build that exported them (before
+            // `bash scripts/release/build-desktop.sh`) ships a Power-enabled
+            // desktop app; a normal community/source build leaves
             // them None so the backend stays pure-local (username-only). A runtime
             // env var still wins (e.g. `open`ing the .app from a shell that set
             // it), keeping parity with how run.sh / dev-local.sh drive the same
-            // knobs. Note: build-desktop.sh is deliberately NOT edited — the
-            // frontend half is baked by exporting VITE_ENABLE_POWER_LOGIN before
-            // that script (vite reads exported VITE_* env), and cargo reads these
-            // via option_env! in the same build shell.
+            // knobs. The frontend half is baked by exporting VITE_* before
+            // build-desktop.sh (vite reads exported VITE_* env), and cargo reads
+            // these via option_env! in the same build shell; that script's
+            // first step (check_desktop_netmind_env.sh) refuses a missing,
+            // mismatched, or non-prod set, so a baked None here means a
+            // deliberate community build with Power login off.
             for (var, baked) in [
                 ("NARRANEXUS_ENABLE_POWER_LOGIN", option_env!("NARRANEXUS_ENABLE_POWER_LOGIN")),
                 ("NETMIND_USE_SUBSCRIPTION_ENABLED", option_env!("NETMIND_USE_SUBSCRIPTION_ENABLED")),
@@ -490,7 +488,7 @@ fn is_required_service(id: &str) -> bool {
 
 /// Resolve the on-disk log directory we share with the Python side.
 /// Mirrors the layout used by setup_logging() in
-/// src/xyz_agent_context/utils/logging/_setup.py — namely
+/// src/narranexus/platform/utils/logging/_setup.py — namely
 /// ``$NEXUS_LOG_DIR/<service>/<service>_YYYYMMDD.log``. When neither
 /// the env var nor a HOME directory is available we fall back to
 /// `<tempdir>/narranexus-logs` so Tauri-only desktop runs still get

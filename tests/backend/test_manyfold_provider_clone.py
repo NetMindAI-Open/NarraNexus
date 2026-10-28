@@ -19,9 +19,9 @@ import pytest
 import pytest_asyncio
 
 from backend.routes.manyfold.agents import _clone_provider_setup
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 
 @pytest_asyncio.fixture

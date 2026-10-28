@@ -50,7 +50,7 @@ export function InboxPanel() {
           <Mail />
           {t('inbox.title')}
           {agentUnreadCount > 0 && (
-            <span className="ml-1 text-[var(--color-yellow-500)] tabular-nums normal-case tracking-normal">
+            <span className="ml-1 text-[var(--color-warning)] tabular-nums normal-case tracking-normal">
               · {agentUnreadCount}
             </span>
           )}

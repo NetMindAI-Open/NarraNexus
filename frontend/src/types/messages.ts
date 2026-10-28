@@ -17,7 +17,14 @@ export type MessageType =
   | 'error'
   | 'complete'
   | 'heartbeat'
-  | 'cancelled';
+  | 'cancelled'
+  // Live-steering control frames (owner mid-run follow-up). The client sends
+  // {action:'steer', ...}; the backend acks with steer_queued (accepted into
+  // the run), steer_rejected (bounds / framework can't steer), or later
+  // steer_consumed (the run actually folded it in). See wsManager.steer.
+  | 'steer_queued'
+  | 'steer_rejected'
+  | 'steer_consumed';
 
 // Progress status
 export type ProgressStatus = 'running' | 'completed' | 'failed';
@@ -50,6 +57,16 @@ export interface AgentTextDelta extends BaseMessage {
 export interface AgentThinking extends BaseMessage {
   type: 'agent_thinking';
   thinking_content: string;
+  /**
+   * NexusPower only: the SUBSET of `thinking_content` that is the framework's
+   * own assistant text ("monologue") rather than provider chain-of-thought.
+   * Both tiers stream on this one channel, but the backend batcher no longer
+   * coalesces across a switch, so a frame is one tier and this is either the
+   * whole `thinking_content` or empty. The tier test is still equality rather
+   * than truthiness — see `isMonologueFrame` in lib/monologueTier for why the
+   * guard stays. Empty for provider CoT and for every non-NexusPower driver.
+   */
+  monologue?: string;
 }
 
 // NexusPower: the user-facing reply, streamed as the model writes it.
@@ -129,6 +146,14 @@ export interface ErrorMessage extends BaseMessage {
     | 'executor_oom'
     | 'executor_unreachable'
     | string;
+  /**
+   * Whether the USER can clear this error alone — wait out / upgrade a rate
+   * limit, re-login, top up — versus a provider outage or a platform bug.
+   * Stamped by the claude driver on every response.error and true by
+   * construction for auth_expired / config_actionable; undefined when the
+   * driver did not classify (codex / nexus_power), never a fabricated false.
+   */
+  self_serviceable?: boolean;
   traceback?: string;
 }
 
@@ -156,6 +181,40 @@ export interface CancelledMessage extends BaseMessage {
 export interface RunStartedMessage {
   type: 'run_started';
   run_id: string;
+  // Whether this run's framework can drain a mid-run steer (nexus_power yes;
+  // claude_code / codex no). Gates SENDING during the run (the composer stays
+  // editable regardless): when true a follow-up folds into the turn, else it
+  // holds until the run ends rather than hanging with no ack. Absent on legacy
+  // backends → treated as not steerable (safe: no mid-run input).
+  steerable?: boolean;
+}
+
+// Reconnect control frame. A reconnected session cannot steer — it does not
+// hold the run's live channel — and the frontend enforces that structurally: a
+// reconnect builds a fresh ConnectionEntry whose `steerable` is undefined
+// (falsy), and steer()/isSteerable() are false without anyone reading this
+// frame. So there is deliberately NO `steerable` field here: nothing would read
+// it, and declaring one would invite a future reader to assume reconnect can be
+// made steerable by flipping it (it can't, without also wiring a live channel).
+export interface RunReconnectMessage {
+  type: 'run_reconnect';
+  run_id: string;
+}
+
+// Steer acks (see MessageType). client_msg_id echoes the id the client minted
+// for its optimistic bubble so it can be matched.
+export interface SteerQueuedMessage {
+  type: 'steer_queued';
+  client_msg_id: string;
+}
+export interface SteerRejectedMessage {
+  type: 'steer_rejected';
+  client_msg_id: string;
+  reason: 'too_large' | 'too_many_pending' | 'framework_no_steering' | string;
+}
+export interface SteerConsumedMessage {
+  type: 'steer_consumed';
+  ids: string[];  // the client_msg_ids the run actually folded in
 }
 
 // Union type for all runtime messages
@@ -170,9 +229,13 @@ export type RuntimeMessage =
   | CompleteMessage
   | HeartbeatMessage
   | CancelledMessage
-  | RunStartedMessage;
+  | RunStartedMessage
+  | RunReconnectMessage
+  | SteerQueuedMessage
+  | SteerRejectedMessage
+  | SteerConsumedMessage;
 
-// Attachment metadata (mirrors backend xyz_agent_context.schema.Attachment)
+// Attachment metadata (mirrors backend narranexus.platform.schema.Attachment)
 export type AttachmentCategory =
   | 'image'
   | 'document'
@@ -204,7 +267,7 @@ export interface Attachment {
 
 // A file attached to a message-bus message (agent-to-agent / team chat).
 // Mirrors the bus-attachment dict from
-// xyz_agent_context.message_bus._bus_attachment_impl. Unlike a chat
+// narranexus.platform.message_bus._bus_attachment_impl. Unlike a chat
 // `Attachment` (resolved per-agent via file_id), a bus attachment lives in
 // the per-user shared area and is fetched by `rel_path` through
 // `GET /api/agent-inbox/attachments/raw?path=<rel_path>`.
@@ -260,6 +323,14 @@ export interface ChatMessage {
     | string;
   warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
   attachments?: Attachment[];  // User-uploaded files referenced by this message
+  // Live-steering follow-up state (owner sent this WHILE a run was in flight).
+  // 'queued'   — sent, backend acked steer_queued, awaiting consumption
+  // 'merged'   — the run folded it in (steer_consumed) → it shaped the reply
+  // 'rejected' — bounds / framework can't steer (steer_rejected); rejectReason set
+  // Absent on an ordinary (turn-starting) user message.
+  steerStatus?: 'queued' | 'merged' | 'rejected';
+  steerClientMsgId?: string;  // the id used to match steer_queued / _consumed / _rejected
+  rejectReason?: string;      // present when steerStatus === 'rejected'
   // Inline timeline carried over from the live stream. Set on assistant
   // messages at stopStreaming time so MessageBubble can render exactly
   // the same chronological "think → tool → reply" sequence the user
@@ -309,7 +380,7 @@ export interface ConversationRound {
  * - thinking / tool_call / tool_output / reply / native_output are the
  *   only visible block types. Other progress frames (step markers like
  *   3.5, 4, 5) are framework plumbing and don't appear in the timeline.
- * - reply (from send_message_to_user_directly) is the authoritative
+ * - reply (from reply_owner / notify_owner) is the authoritative
  *   user-facing speech; native_output (raw LLM text after the agent
  *   already used send_message in the same turn) is dropped at push
  *   time as a duplicate. Long-term the agent prompt should stop
@@ -322,6 +393,15 @@ export interface ThinkingEvent {
   id: string;
   ts: number;
   content: string;
+  /**
+   * This block is NexusPower's own narration, not provider chain-of-thought,
+   * so it renders at the PROGRESS tier (legible, always open) instead of
+   * receding. Still a process event either way — it never becomes a reply and
+   * never enters the answer bubble (design A′: the tier changes, the register
+   * does not). A block is one tier by construction: a tier switch starts a
+   * new block, both live (chatStore) and on replay (timelineToEvents).
+   */
+  monologue?: boolean;
 }
 
 export interface ToolCallEvent {

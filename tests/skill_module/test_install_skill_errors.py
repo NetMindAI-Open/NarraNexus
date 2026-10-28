@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.skill_module.skill_module import SkillModule
+from narranexus_plugins.skill_module.skill_module import SkillModule
 
 
 @pytest.fixture
@@ -95,6 +95,38 @@ def test_path_traversal_message_includes_offending_path(skill_module, tmp_path):
     msg = str(exc_info.value)
     assert "traversal" in msg.lower()
     assert "../../etc/evil.txt" in msg or "etc/evil.txt" in msg
+
+
+# -------- not a zip at all: must be a 400-mapped ValueError, not a 500 -
+
+
+def test_invalid_zip_payload_raises_valueerror_not_a_bare_exception(skill_module, tmp_path):
+    """A payload that isn't a zip at all (corrupted upload, wrong file type)
+    must surface as the same ValueError every other rejection path in this
+    file uses (B-30). Before this fix, `zipfile.BadZipFile` escaped
+    uncaught: the install route only maps `ValueError` to a 400, so this
+    landed in the generic `except Exception` branch and the user got a
+    500 with no actionable message instead of a 400 explaining the file
+    is not a valid zip."""
+    not_a_zip = tmp_path / "not-a-zip.zip"
+    not_a_zip.write_bytes(b"this is definitely not zip content")
+    with pytest.raises(ValueError) as exc_info:
+        skill_module.install_skill(not_a_zip)
+    msg = str(exc_info.value)
+    assert "zip" in msg.lower()
+
+
+def test_a_directory_instead_of_a_zip_raises_valueerror_not_oserror(skill_module, tmp_path):
+    """`zipfile.ZipFile` on a path that is not an openable file raises
+    OSError (IsADirectoryError here), not BadZipFile. The precedent this
+    conversion copies (`bundle/security.validate_skill_archive_path`)
+    records that catching BadZipFile alone let exactly these escape as a
+    500; the open must convert both."""
+    not_a_file = tmp_path / "a-directory.zip"
+    not_a_file.mkdir()
+    with pytest.raises(ValueError) as exc_info:
+        skill_module.install_skill(not_a_file)
+    assert "zip" in str(exc_info.value).lower()
 
 
 # -------- happy path: zip with SKILL.md installs cleanly ---------------

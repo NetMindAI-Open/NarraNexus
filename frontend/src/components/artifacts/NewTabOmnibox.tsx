@@ -113,7 +113,7 @@ export default function NewTabOmnibox({ agentId, isOpen, onClose }: Props) {
                 <button
                   key={a.artifact_id}
                   onClick={() => pick(a.artifact_id)}
-                  className="w-full text-left px-3 py-2 rounded hover:bg-[var(--bg-secondary)] text-sm flex items-center gap-2"
+                  className="w-full text-left px-3 py-2 rounded hover:bg-[var(--nm-paper-warm)] text-sm flex items-center gap-2"
                 >
                   <span className="truncate flex-1">{a.title}</span>
                   <span className="text-[10px] opacity-40">{a.kind.split('/').pop()}</span>

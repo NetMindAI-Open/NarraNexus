@@ -1,0 +1,1 @@
+export const plugin = { activate(host) { host.register(host.registries.themes, '__PLUGIN_ID__.theme', { displayName: '__DISPLAY_NAME__', tokens: { '--nm-paper': '#0f1115', '--nm-ink': '#e8e8e8' }, dark: true }); } };

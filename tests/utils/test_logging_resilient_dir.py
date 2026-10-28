@@ -20,8 +20,29 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.utils.logging import _setup
-from xyz_agent_context.utils.logging._setup import _ensure_writable_log_dir
+from narranexus.platform.utils.logging import _setup
+from narranexus.platform.utils.logging._setup import _ensure_writable_log_dir
+
+
+@pytest.fixture(autouse=True)
+def _isolated_temp_fallback(tmp_path, monkeypatch):
+    """Give every test its own temp root for the fallback branch.
+
+    The fallback is `tempfile.gettempdir()/narranexus-logs/<service>` — a
+    fixed, shared, machine-global path. On any box where another account ran
+    the suite first, `/tmp/narranexus-logs/svc2` already exists owned by them,
+    `_probe_writable` says no, and the test fails on someone else's leftovers
+    rather than on the code. That is what happened here: red since 2026-05-22,
+    caused by a directory dated three months later than the test.
+
+    The existing workaround was to pick a service name nobody else would use
+    ("ztest_resilient_unique"), which is a convention with no enforcement.
+    Redirecting the temp root instead makes the isolation structural.
+    """
+    fake_tmp = tmp_path / "tmproot"
+    fake_tmp.mkdir()
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(fake_tmp))
+    return fake_tmp
 
 
 def test_writable_preferred_dir_is_used(tmp_path):

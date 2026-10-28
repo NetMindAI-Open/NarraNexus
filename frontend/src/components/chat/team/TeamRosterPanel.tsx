@@ -2,15 +2,18 @@
  * @file_name: TeamRosterPanel.tsx
  * @author:
  * @date: 2026-07-30
- * @description: The team room's standing member column — every member,
- *   its status, its timer, and one click to that member's live process.
+ * @description: The team room's members panel — every member, its
+ *   status, its timer, and one click to that member's live process.
+ *   Rendered inside the room's shared right-side drawer (the members
+ *   tab), which owns width, border and visibility; this panel fills what
+ *   it is given.
  *
  * A folded console answers "is anything happening" only after you ask it.
  * In a room where six agents work in parallel, the question the user
  * actually holds is "what is EACH of them doing, right now" — so the
- * roster is permanent chrome down the right edge: one row per member,
- * always, including members the activity poll never mentioned (absent
- * from `activity` = idle with no trace).
+ * drawer opens on this panel by default where it is a pinned column:
+ * one row per member, always, including members the activity poll never
+ * mentioned (absent from `activity` = idle with no trace).
  *
  * v2 (2026-07-31, owner feedback: the column must not read cheap):
  * - The column BREATHES: 256px at rest, and when a member's detail is
@@ -21,7 +24,7 @@
  *   stalled=error, idle=muted), a readable status word instead of a
  *   1.5px color dot, a chevron affordance, a selected state (accent
  *   rail + wash) that mirrors the transcript's typing-bubble highlight.
- * - The expanded detail is a mini ProcessPanel (TeamMemberPanel):
+ * - The expanded detail is one member's terminal card (TeamMemberPanel):
  *   running members stream REAL thinking/tool rows through the
  *   universal run-observation channel; idle members keep the persisted
  *   TurnTimeline. Same terminal language as single chat.
@@ -33,7 +36,7 @@
 
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ChevronDown } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Crown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AvatarWithStatus, RingAvatar } from '@/components/nm';
 import {
@@ -46,10 +49,13 @@ import {
 } from '@/lib/teamActivity';
 import { LiveDot, friendlyToolName } from '../process/processShared';
 import { TeamMemberPanel } from './TeamMemberPanel';
+import { TeamWorkBoard } from './TeamWorkBoard';
 import type { AgentInfo } from '@/types';
 import type { TeamMemberActivity, TeamMemberStatus } from '@/types/teams';
 
 export interface TeamRosterPanelProps {
+  /** The room's team. Drives the work board under the member list. */
+  teamId: string;
   /** Every member of the room; only `agent_id` / `name` are consumed. */
   members: AgentInfo[];
   /** Polled activity. A member missing here is idle with no trace. */
@@ -67,6 +73,11 @@ export interface TeamRosterPanelProps {
   accent?: string;
   /** Empty-state escape hatch to the team's settings page. */
   onOpenSettings?: () => void;
+  /** Designate this member the team lead. When omitted, the roster shows no
+   *  set-lead affordance — the setter lives elsewhere. Given, an expanded
+   *  non-lead row offers a "set lead" action right where the lead badge is
+   *  shown, so designation happens at the locus the badge advertises. */
+  onSetLead?: (agentId: string) => void;
   /** Shell override — the narrow-screen drawer reuses the same rows. */
   className?: string;
 }
@@ -150,6 +161,23 @@ function StatusLine({ activity }: { activity: TeamMemberActivity }) {
       </span>
     );
   }
+  // The turn ran and chose not to speak. Since 2026-09-03 the transcript no
+  // longer carries a line for that, so this is where "said nothing" and
+  // "never ran" stay tellable apart.
+  // Also while queued — the owner's natural reply to silence is to ask again,
+  // and that must not make the silence vanish from every surface.
+  if ((activity.status === 'idle' || activity.status === 'queued') && activity.last_turn_silent) {
+    return (
+      <span
+        className="min-w-0 truncate text-[11px]"
+        style={{ color: activity.status === 'queued' ? tone.color : 'var(--text-tertiary)' }}
+        data-testid={`silent-${activity.agent_id}`}
+      >
+        {activity.status === 'queued' ? `${t(tone.labelKey)} · ` : ''}
+        {t('chat.team.roster.silentLastTurn')}
+      </span>
+    );
+  }
   return (
     <span
       className="min-w-0 truncate text-[11px]"
@@ -170,6 +198,7 @@ function MemberRow({
   now,
   expanded,
   onToggle,
+  onSetLead,
 }: {
   activity: TeamMemberActivity;
   name: string;
@@ -178,6 +207,7 @@ function MemberRow({
   now: number;
   expanded: boolean;
   onToggle: () => void;
+  onSetLead?: (agentId: string) => void;
 }) {
   const { t } = useTranslation();
   const stalled = activity.status === 'stalled';
@@ -243,13 +273,29 @@ function MemberRow({
       </button>
 
       {expanded && (
-        <TeamMemberPanel activity={activity} name={name} now={now} open={expanded} />
+        <>
+          {onSetLead && !isLead && (
+            <div className="flex justify-end px-3 pb-2">
+              <button
+                type="button"
+                data-testid={`set-lead-${activity.agent_id}`}
+                onClick={() => onSetLead(activity.agent_id)}
+                className="flex items-center gap-1 rounded-[var(--radius-xs)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+              >
+                <Crown className="h-3 w-3" />
+                {t('chat.team.setLead')}
+              </button>
+            </div>
+          )}
+          <TeamMemberPanel activity={activity} name={name} now={now} open={expanded} />
+        </>
       )}
     </div>
   );
 }
 
 export function TeamRosterPanel({
+  teamId,
   members,
   activity,
   leadAgentId,
@@ -258,6 +304,7 @@ export function TeamRosterPanel({
   onToggle,
   accent = 'var(--color-silicon)',
   onOpenSettings,
+  onSetLead,
   className,
 }: TeamRosterPanelProps) {
   const { t } = useTranslation();
@@ -283,11 +330,12 @@ export function TeamRosterPanel({
   return (
     <aside
       className={cn(
-        'flex shrink-0 flex-col border-l border-[var(--rule)] min-h-0',
-        // The column breathes: opening a member's terminal needs width,
-        // and the transcript (flex-1 min-w-0) yields on its own.
-        'transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none',
-        expandedId ? 'w-[min(430px,92vw)]' : 'w-64',
+        // Width and border belong to the drawer shell that hosts this
+        // panel (the shared BookmarkDrawer — user-resizable, preference
+        // shared with single chat). The panel fills whatever it is given;
+        // an expanded member's terminal works within that width instead of
+        // widening a column of its own.
+        'flex flex-col min-h-0',
         className,
       )}
     >
@@ -331,10 +379,15 @@ export function TeamRosterPanel({
               now={now}
               expanded={expandedId === a.agent_id}
               onToggle={() => onToggle(a.agent_id)}
+              onSetLead={onSetLead}
             />
           ))}
         </div>
       )}
+      {/* Below the members, not among them: the roster is about who is busy
+          right now, the board about what the team owes — the second question
+          outlives every turn on the first. */}
+      <TeamWorkBoard teamId={teamId} now={now} />
     </aside>
   );
 }

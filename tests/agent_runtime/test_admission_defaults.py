@@ -1,7 +1,7 @@
 """
 Tests that cloud-mode defaults in _build_from_env() match prod sizing targets.
 """
-from xyz_agent_context.agent_runtime.admission import _build_from_env
+from narranexus.platform.agent_runtime.admission import _build_from_env
 
 
 def test_cloud_defaults_match_prod(monkeypatch):

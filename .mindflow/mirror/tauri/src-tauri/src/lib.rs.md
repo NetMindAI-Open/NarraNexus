@@ -1,7 +1,13 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-07-23
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03（批 2d.2）— 注册 `plugin` scheme + 显式 CSP
+
+`register_asynchronous_uri_scheme_protocol("plugin", …)` 与 officewatch 同型；`tauri.conf.json` 的 `csp` 从
+`null` 改为显式白名单（script-src 只允许 self/blob/plugin: 与 wasm；connect-src 覆盖 localhost/https/wss；
+frame-src 保留 officewatch）。CSP 在本机无法真机验证，需要一次桌面冒烟。
 
 ## 2026-07-23 — notification plugin + notify_completion (#44)
 

@@ -37,9 +37,7 @@ status() {
   echo ""
   local services=(
     "8100:DB Proxy" "8000:Backend API" "5173:Frontend"
-    "7801:MCP Awareness" "7802:MCP SocialNetwork" "7803:MCP Job" "7804:MCP Chat"
-    "7806:MCP Skill" "7807:MCP CommonTools" "7808:MCP BasicInfo" "7820:MCP MessageBus"
-    "7830:Lark Trigger" "7831:Slack Trigger" "7832:Telegram Trigger" "7834:Discord Trigger")
+    "7801:MCP Modules (every module server mounted by path)" "47831:Channel health (aggregated, every IM channel)")
   for entry in "${services[@]}"; do
     local port="${entry%%:*}"
     local name="${entry#*:}"
@@ -58,13 +56,13 @@ stop_all() {
   # Kill tmux session if running
   tmux kill-session -t nexus-dev 2>/dev/null || true
   # Kill processes on known ports
-  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
+  for port in 8100 8000 5173 5174 7801 47831; do
     lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
   done
   # Kill known process patterns
   pkill -f "sqlite_proxy_server" 2>/dev/null || true
   pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-  pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
+  pkill -f "narranexus.platform.module_system.module_runner mcp" 2>/dev/null || true
   pkill -f "run_worker_supervisor" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
@@ -185,79 +183,17 @@ check_deps() {
     echo ""
   }
 
-  # Install Claude Code CLI (@anthropic-ai/claude-code). HARD dependency:
-  # claude_agent_sdk spawns this binary every chat turn, so if it's absent
-  # the agent loop fails immediately. Unlike lark-cli we do not degrade
-  # gracefully — we exit.
-  _CLAUDE_CLI_TIMEOUT=180
-
-  # PINNED, deliberately. This used to be an unpinned `npm install -g`, which
-  # meant the version depended on when the machine was provisioned. Two
-  # consequences, both found 2026-07-29:
-  #   1. This binary is what the agent loop launches (via
-  #      ClaudeAgentOptions.cli_path — see adapters/claude/cli_binary.py), and
-  #      the CLI's `tools`-array ordering is version-dependent. Unpinned means
-  #      the request bytes — hence prompt-cache hit rate — drift silently.
-  #   2. It is ALSO the binary the desktop OAuth flow shells out to
-  #      (tauri/src-tauri/src/commands/auth.rs: `claude auth login/status`), so
-  #      an uncontrolled version moves credential handling too.
-  # Must equal PINNED_CLI_VERSION in cli_binary.py — a mismatch means the
-  # resolver rejects this install and falls back to the SDK's bundled 2.1.56.
-  # tests/agent_framework/test_claude_cli_pin.py enforces the agreement.
-  _CLAUDE_CLI_VERSION="2.1.220"
-
-  _try_install_claude_cli() {
-    local action="$1"
-    echo -e "${Y}${action} @anthropic-ai/claude-code@${_CLAUDE_CLI_VERSION} (timeout ${_CLAUDE_CLI_TIMEOUT}s)...${R}"
-    _run_with_timeout "$_CLAUDE_CLI_TIMEOUT" "npm install claude-code" \
-      npm install -g "@anthropic-ai/claude-code@${_CLAUDE_CLI_VERSION}"
-  }
-
-  if ! command -v claude &>/dev/null; then
-    if ! _try_install_claude_cli "Installing"; then
-      echo -e "${RED}Failed to install @anthropic-ai/claude-code — this is a HARD dependency.${R}"
-      echo ""
-      echo "  claude_agent_sdk (our Python Agent framework) spawns the \`claude\`"
-      echo "  binary every chat turn. Without it nothing works."
-      echo ""
-      echo "  Common fixes:"
-      echo "    • Slow registry (China): npm config set registry https://registry.npmmirror.com"
-      echo "    • Permission denied: use nvm (https://github.com/nvm-sh/nvm) or sudo"
-      echo "    • Network blocked: check connection to registry.npmjs.org"
-      echo "  Then retry: npm install -g @anthropic-ai/claude-code@${_CLAUDE_CLI_VERSION}"
-      echo ""
-      exit 1
-    fi
-    # Post-install PATH verification (same class of bug as lark-cli below).
-    if ! command -v claude &>/dev/null; then
-      _npm_prefix=$(npm config get prefix 2>/dev/null || echo "")
-      if [ -n "$_npm_prefix" ] && [ -x "$_npm_prefix/bin/claude" ]; then
-        echo -e "${RED}claude installed at $_npm_prefix/bin but not on \$PATH.${R}"
-        echo "  Add to your shell rc: export PATH=\"$_npm_prefix/bin:\$PATH\""
-        echo "  Then restart the shell and retry bash run.sh."
-        exit 1
-      fi
-      echo -e "${RED}claude install reported success but binary is nowhere to be found.${R}"
-      exit 1
-    fi
-  else
-    # Already present — but at which version? An install-if-absent check alone
-    # would leave an old CLI in place forever, and the agent loop only adopts
-    # this binary when it matches the pin (otherwise it silently falls back to
-    # the SDK's bundled 2.1.56, losing the tools-ordering fix). Same
-    # pin-and-reinstall shape as lark-cli / narra-cli below.
-    _claude_ver=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0")
-    if [ "$_claude_ver" != "$_CLAUDE_CLI_VERSION" ]; then
-      echo -e "${Y}claude is v${_claude_ver}, pin is v${_CLAUDE_CLI_VERSION} — reinstalling.${R}"
-      if ! _try_install_claude_cli "Reinstalling"; then
-        # NOT fatal: an existing CLI still runs the desktop OAuth flow, and the
-        # agent loop keeps working on the SDK's bundled binary (铁律 #14 — a
-        # version mismatch must not block agent runs).
-        echo -e "${Y}Reinstall failed; keeping v${_claude_ver}. The agent loop will"
-        echo -e "  use the SDK's bundled CLI instead (see [CLAUDE-CLI] in logs).${R}"
-      fi
-    fi
-  fi
+  # Claude Code is NO LONGER installed here. On the lightweight build it is an
+  # OPTIONAL plugin the user installs on demand from Settings → Plugins, which
+  # runs an `npm install --prefix ~/.narranexus/plugins/nodejs
+  # @anthropic-ai/claude-code@<pinned>` plus a `python -m pip install --target
+  # ~/.narranexus/plugins/pyenv/claude_code claude-agent-sdk`. The pinned version
+  # and the install itself live in backend/integrations/plugins/ (registry.py
+  # imports PINNED_CLI_VERSION from cli_binary.py — still the single source of
+  # truth).
+  # An un-installed framework is fail-closed at get_agent_loop_driver, never a
+  # silent fallback; nexus_power (built-in) always works. Node stays required
+  # below for lark-cli / narra-cli.
 
   if ! command -v lark-cli &>/dev/null; then
     if ! _try_install_lark_cli "Installing"; then
@@ -327,6 +263,11 @@ check_deps() {
   # have validated against the hosted backend. Graceful degrade: if install
   # fails, NarraMessenger receive still works (Matrix /sync); only CLI-backed
   # query degrades.
+  # 1.2.x CONTRACT: every API command REQUIRES --endpoint (the `configure`
+  # command + global config file are gone); narra_cli_client injects it from
+  # each agent's binding. 1.2.x declares engines.node>=22 but runs on node 20
+  # (engine warning only — verified 2026-09-09); do not pin below 1.2.0 without
+  # reverting the injection.
   #
   # NOTE — cloud parity: `narra_cli` runs in the MCP container, so the cloud
   # image that needs narra-cli is the MCP/backend image
@@ -339,7 +280,7 @@ check_deps() {
   # finds it in BOTH run modes — `bash run.sh` (env-exported) and the
   # 4-terminal `make dev-mcp` path (which never sees run.sh's export).
   _NARRA_CLI_HOME="${NARRA_CLI_HOME:-$HOME/.narranexus/narra-cli}"
-  _NARRA_CLI_VERSION="1.1.0"
+  _NARRA_CLI_VERSION="1.2.1"
   _NARRA_CLI_TIMEOUT=120
   export NARRA_CLI_BIN="$_NARRA_CLI_HOME/node_modules/.bin/narra-cli"
 
@@ -363,27 +304,23 @@ check_deps() {
     fi
   fi
 
-  # Optional endpoint config. narra-cli defaults to https://api.netmind.chat
-  # (prod), so prod needs nothing. Point a non-prod box at its backend by
-  # exporting NARRA_BACKEND_ENDPOINT (e.g. https://api-test.netmind.chat).
-  # Global config (single backend per deployment); data commands read it via
-  # ~/.narra-cli/config.json.
-  if [ -x "$NARRA_CLI_BIN" ] && [ -n "${NARRA_BACKEND_ENDPOINT:-}" ]; then
-    "$NARRA_CLI_BIN" configure --endpoint "$NARRA_BACKEND_ENDPOINT" >/dev/null 2>&1 \
-      && echo -e "${Y}narra-cli endpoint → ${NARRA_BACKEND_ENDPOINT}${R}" \
-      || echo -e "${Y}⚠ narra-cli configure failed; using default endpoint.${R}"
-  fi
-
-  # Compat preflight: `doctor` checks the CLI install + local config + endpoint
-  # reachability. It makes a NETWORK call, so it MUST run under the timeout guard
-  # (a DNS blackhole / dead endpoint would otherwise hang startup forever — the
-  # very "never wedge startup" the comment promised). 15s cap, non-fatal: a
-  # timeout (124) or any non-zero just surfaces a WARNING.
+  # No endpoint config step: since narra-cli 1.2 there is no `configure` and no
+  # global config — the endpoint is a per-call flag that narra_cli_client
+  # injects from each agent's binding (backend_base_url), so one process serves
+  # api.netmind.chat / api-test / api-cn bindings side by side.
+  # NARRA_BACKEND_ENDPOINT is now ONLY the doctor preflight's probe target.
+  #
+  # Compat preflight: `doctor` checks the CLI install + endpoint reachability.
+  # It makes a NETWORK call, so it MUST run under the timeout guard (a DNS
+  # blackhole / dead endpoint would otherwise hang startup forever — the very
+  # "never wedge startup" the comment promised). 15s cap, non-fatal: a timeout
+  # (124) or any non-zero just surfaces a WARNING.
+  _NARRA_DOCTOR_ENDPOINT="${NARRA_BACKEND_ENDPOINT:-https://api.netmind.chat}"
   if [ -x "$NARRA_CLI_BIN" ]; then
-    if _run_with_timeout 15 "narra-cli doctor" "$NARRA_CLI_BIN" doctor >/dev/null 2>&1; then
+    if _run_with_timeout 15 "narra-cli doctor" "$NARRA_CLI_BIN" doctor --endpoint "$_NARRA_DOCTOR_ENDPOINT" >/dev/null 2>&1; then
       echo -e "${Y}narra-cli doctor OK (v${_NARRA_CLI_VERSION}).${R}"
     else
-      echo -e "${Y}⚠ narra-cli doctor failed/timed out (CLI/endpoint compat?) — NarraMessenger CLI ops may fail. Run: ${NARRA_CLI_BIN} doctor${R}"
+      echo -e "${Y}⚠ narra-cli doctor failed/timed out (CLI/endpoint compat?) — NarraMessenger CLI ops may fail. Run: ${NARRA_CLI_BIN} doctor --endpoint ${_NARRA_DOCTOR_ENDPOINT}${R}"
     fi
   fi
 
@@ -472,18 +409,94 @@ run_container_mode() {
   # image is built. The Dockerfile may pre-set these; respect overrides.
   export BASE_WORKING_PATH="${BASE_WORKING_PATH:-/data/workspaces}"
   export NEXUS_LOG_DIR="${NEXUS_LOG_DIR:-/data/logs}"
+  # The telemetry consent marker must live on the PERSISTED surface:
+  # HOME (/home/app) is container writable layer — a rebuild/upgrade
+  # wipes it, silently reverting a full-level sandbox from "user opted
+  # out" back to shipping. /data is the volume every container-mode
+  # deployment mounts (workspaces/logs/db already live there), so the
+  # user's opt-out survives exactly as long as their data does.
+  export NEXUS_DIAG_OPTOUT_FILE="${NEXUS_DIAG_OPTOUT_FILE:-/data/telemetry_optout}"
   export DATABASE_URL="${DATABASE_URL:-sqlite:////data/nexus.db}"
   export DASHBOARD_BIND_HOST="${DASHBOARD_BIND_HOST:-0.0.0.0}"
-  # Analytics surface label: the container image is the hosted/server form
-  # factor → "cloud" (routes to NullSink this phase). Explicit override wins.
+  # This container launcher serves the hosted/server form factor. The cloud
+  # stack may start uvicorn directly, where deployment-mode inference supplies
+  # the same label; an explicit override still wins here.
   export NARRA_SURFACE="${NARRA_SURFACE:-cloud}"
+  # Telemetry env label (routing + envelope). Deployment-layer detection
+  # lives HERE on purpose: the logging utility (_ship.py) must not sniff
+  # another integration's env vars. Staging manyfold sandboxes identify
+  # themselves by the webhook host they were provisioned with.
+  # Manyfold-managed sandbox detection mirrors the canonical identity
+  # resolver (integrations/manyfold_outbound.manyfold_runtime_env):
+  # token + runtime_id, BOTH required — the webhook URL is explicitly
+  # allowed to be absent (channel-send escape hatch), so gating on it
+  # would silently skip real sandboxes AND fire on self-hosts that
+  # merely set the URL.
+  _is_manyfold_sandbox=""
+  if [ -n "${MANYFOLD_SYNC_WEBHOOK_TOKEN:-}" ] && [ -n "${MANYFOLD_RUNTIME_ID:-}" ]; then
+    _is_manyfold_sandbox="1"
+  fi
+  if [ -z "${NEXUS_DIAG_ENV:-}" ] && [ -n "$_is_manyfold_sandbox" ]; then
+    # Every managed sandbox gets its own label: "staging" routes to the
+    # dev collector; everything else is "sprite" — its own storage
+    # partition, so a full-level sandbox fleet rotates ITSELF under the
+    # collector's size cap instead of crowding out prod's history.
+    # Label contract (four-sided): "sprite" is in the collector's
+    # default DIAG_COLLECT_KNOWN_ENVS and the discovery-map examples;
+    # its discovery endpoint is the built-in prod default (only
+    # "staging" is redirected to dev, in the block below).
+    case "${MANYFOLD_SYNC_WEBHOOK_URL:-}" in
+      *api-staging*) export NEXUS_DIAG_ENV="staging" ;;
+      *)             export NEXUS_DIAG_ENV="sprite" ;;
+    esac
+  fi
+  # Staging sandboxes discover their ingest URL from the DEV collector,
+  # not the built-in prod default: staging telemetry is fully self-
+  # contained on dev-agent (its /v1/config already serves a staging ->
+  # dev-ingest map), so staging validation never waits on the prod
+  # collector being deployed. Only staging is redirected; sprite (prod
+  # manyfold) keeps the built-in prod discovery so it routes to the
+  # prod collector. Explicit env still wins.
+  #
+  # KNOWN RESIDUAL (accepted 2026-08-12): the staging/sprite split is a
+  # substring sniff of the manyfold webhook host (api-staging). A prod
+  # sandbox whose host ever contained "api-staging" would mislabel and
+  # ship prod logs to the dev collector; conversely a staging host that
+  # dropped the substring would fall through to prod discovery and drop
+  # batches. Both collapse to a config fix once observed — staging
+  # validation only needs the common case, which this covers. Hardening
+  # (manyfold injecting NEXUS_DIAG_ENV explicitly) is deferred. When it
+  # lands, the injector must set token + runtime_id too: the redirect
+  # below is gated on label AND manyfold identity, so an injected
+  # "staging" label with those vars absent gets the label but not the
+  # redirect, and its batches fall back to prod discovery silently.
+  # Gated on _is_manyfold_sandbox too: the "staging" label is only
+  # auto-derived for sandboxes, but a personal install that set
+  # NEXUS_DIAG_ENV=staging by hand must NOT get its logs redirected to
+  # our dev collector — the redirect is a managed-sandbox behavior, not
+  # a label anyone can opt into.
+  if [ -n "$_is_manyfold_sandbox" ] \
+     && [ "${NEXUS_DIAG_ENV:-}" = "staging" ] \
+     && [ -z "${NEXUS_DIAG_DISCOVERY_URL:-}" ]; then
+    export NEXUS_DIAG_DISCOVERY_URL="https://dev-agent.narra.nexus/telemetry/v1/config"
+  fi
+  # Managed sandboxes DEFAULT to full — via the consent chain's
+  # managed-DEFAULT layer, not the env override: full logs are the
+  # point of sandbox telemetry (joint support debugging), but the
+  # user's opt-out marker still wins and the settings toggle stays
+  # live. An NEXUS_DIAG_SHIP override here would grey the toggle and
+  # 409 the PUT — confiscating the switch on exactly the single-tenant
+  # user runtime the consent design was built for.
+  if [ -n "$_is_manyfold_sandbox" ] && [ -z "${NEXUS_DIAG_DEFAULT_SHIP:-}" ]; then
+    export NEXUS_DIAG_DEFAULT_SHIP="full"
+  fi
 
   mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data
   mkdir -p "$(dirname /data/nexus.db)" || true
 
   # 1. sqlite_proxy (only when DATABASE_URL is sqlite-ish)
   if [[ "${DATABASE_URL}" == sqlite* ]]; then
-    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.db.sqlite_proxy_server &
+    "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.utils.db.sqlite_proxy_server &
     SQLITE_PID=$!
     # Wait up to 30s for :8100
     for i in {1..30}; do
@@ -501,8 +514,8 @@ run_container_mode() {
     export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
 
-  # 2. MCP module runner (stays its own process — port-bound SSE servers)
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.module_runner mcp &
+  # 2. MCP module runner (stays its own process — ONE port, every module server mounted by path)
+  "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.module_system.module_runner mcp &
   # 3. Worker supervisor — ONE process running poller / job / message-bus / all
   #     IM channel triggers in a single event loop, each as a supervised task
   #     with backoff-restart, sharing one package import + one DB pool. Replaces
@@ -522,7 +535,7 @@ run_container_mode() {
     supervisor_args+=(--exclude jobs,channels)
     echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
   fi
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor \
+  "$SCRIPT_DIR/.venv/bin/python3" -m narranexus.platform.module_system.run_worker_supervisor \
     "${supervisor_args[@]+"${supervisor_args[@]}"}" &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
@@ -588,17 +601,24 @@ case "${1:-}" in
       exit 1
     }
     # Verify import works
-    "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
-      echo -e "${RED}xyz_agent_context still not importable. Rebuilding venv from scratch...${R}"
+    "$SCRIPT_DIR/.venv/bin/python3" -c "import narranexus.kernel" 2>/dev/null || {
+      echo -e "${RED}narranexus still not importable. Rebuilding venv from scratch...${R}"
       rm -rf "$SCRIPT_DIR/.venv"
       $UV_CLEAN_ENV uv sync || { echo -e "${RED}uv sync failed.${R}"; exit 1; }
-      $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" || {
+      # `--no-deps`, like the non-fallback path above: without it this
+      # re-resolves every dependency from the pyproject ranges instead of
+      # leaving the graph `uv sync` just installed from the lock. Harmless in
+      # practice (the lock's versions all satisfy the floors, so uv changes
+      # nothing), but it is the same shape as the 2026-09-10 dmg bug and there
+      # is no reason for the two branches to differ.
+      $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --no-deps --reinstall \
+        --python "$SCRIPT_DIR/.venv/bin/python3" || {
         echo -e "${RED}editable install failed after rebuild. Manual fix needed:${R}"
         echo "  rm -rf .venv && uv sync && uv pip install -e ."
         exit 1
       }
       # Final check after rebuild
-      "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" || {
+      "$SCRIPT_DIR/.venv/bin/python3" -c "import narranexus.kernel" || {
         echo -e "${RED}STILL not importable. Tell maintainer.${R}"
         exit 1
       }

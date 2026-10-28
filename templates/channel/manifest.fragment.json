@@ -1,0 +1,23 @@
+{
+  "api": {
+    "channel": 0,
+    "trigger": 0,
+    "module": 0
+  },
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "provides": {
+    "ingress.channels": [
+      "nxplugins.__PLUGIN_PKG__:CHANNEL"
+    ],
+    "ingress.triggers": [
+      "nxplugins.__PLUGIN_PKG__:TRIGGERS"
+    ],
+    "agent.capabilities.modules": [
+      "nxplugins.__PLUGIN_PKG__:MODULES"
+    ]
+  }
+}

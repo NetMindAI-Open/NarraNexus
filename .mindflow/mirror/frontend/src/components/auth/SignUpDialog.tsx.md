@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/auth/SignUpDialog.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — Mark 前端批：弹窗 Esc/背景关闭 + 改邮箱重置验证码
+
+- **Esc/背景关闭（item 3）+ in-flight/拖拽保护（复审 item 4）**：此前只有 X。加 `document` keydown（Escape→onClose）。背景关闭改用 **`onMouseDown` 记起点 + `onClick`**——两者都必须落在遮罩本身(`e.target===e.currentTarget`)才关,否则「在输入框按下选文字→拖到卡片外松开」会被误判成背景点击而关窗。**所有关闭路径(Esc/背景/X)都加 `busy = sending||submitting` 守卫**:请求在飞时不关(否则组件卸载→后续 setError 落空→弹窗凭空消失、验证码白烧)。`busy` 进 Escape effect 依赖。
+- **改邮箱重置验证码状态（item 7）**：email 的 onChange 走 `onEmailChange`——已发过码（`codeSent||cooldown>0||code`）就清 `codeSent/cooldown/code`。
+- **sendCode 不回显上游文案 + 保留诊断（复审二轮 item 1）**：catch 用 `t('pages.signup.sendFailed')` 不透传 NetMind「该邮箱已注册」(防枚举),但**不再裸 `catch {}` 丢掉根因**——`api.reportAuthFunnel('signup_send_code_failed', email.trim().toLowerCase(), message)` 留痕(传输失败根本没到服务端,funnel 是唯一痕迹;只带 email+message,绝不带验证码——文件头铁律)。⚠仅遮 UI;**彻底关闭注册枚举需后端 `/register/sendCode` 返统一响应,记为 follow-up**。
+- **背景关闭改判在 `onMouseUp`（复审二轮 🟢）**:mousedown+mouseup **两端都必须落遮罩**才关,堵住「遮罩按下→卡片内松手」这个镜像手势(之前只堵了反向)。
+见 `SignUpDialog.test.tsx`（Esc/背景 press-release/拖拽不关/点内部不关/in-flight Esc 不关/改邮箱重置）。
+- **`PASSWORD_RULES` 抽到 [[passwordPolicy.ts]]（复审三轮）**：本地定义删除,改 import 共享副本——[[ForgotPasswordCard.tsx]] 现在也用同一份,消除「同一后端策略抄两处/另一处根本没有」。规则/文案/UI 不变。
 
 # SignUpDialog.tsx — 在我们自己的页面上注册
 

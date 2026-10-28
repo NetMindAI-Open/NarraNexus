@@ -2,9 +2,12 @@
 //!
 //! Exposes `trigger_claude_login` / `trigger_claude_logout` so the desktop
 //! app can drive the OAuth flow without requiring the user to open a
-//! terminal. Each command spawns the bundled `claude` CLI with the
-//! Node.js + CLI shim paths prepended to PATH (same injection that
-//! `process_manager.rs` does for Python services).
+//! terminal. Each command spawns the `claude` CLI with the Node.js + CLI
+//! shim paths prepended to PATH (same injection that `process_manager.rs`
+//! does for Python services). Claude Code is no longer bundled — it is an
+//! on-demand plugin, so `resolve_bundled_node_bins` (state.rs) also includes
+//! the plugin dir (`~/.narranexus/plugins/nodejs/node_modules/.bin`) where the
+//! Settings → Plugins installer drops it; login requires the plugin installed.
 
 use tauri::State;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};

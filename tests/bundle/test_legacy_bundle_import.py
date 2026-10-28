@@ -32,7 +32,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from xyz_agent_context.bundle.importer import (
+from narranexus.platform.bundle.importer import (
     _loads_maybe,
     _sanitize_for_schema,
     confirm,
@@ -46,7 +46,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     ws.mkdir()
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
     return ws
@@ -56,14 +56,14 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 async def isolated_db(tmp_path, tmp_workspace_root, monkeypatch):
     """Fresh sqlite AsyncDatabaseClient on a current-schema DB (the
     'fresh DB' environment from the bug matrix — no legacy columns)."""
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     db_path = tmp_path / "test_nexus.db"
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{db_path}")
 
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)
@@ -153,7 +153,7 @@ async def test_failed_import_rolls_back_orphans(isolated_db):
 
     # Sabotage a late write stage: social entity persistence explodes.
     with patch(
-        "xyz_agent_context.repository.SocialNetworkRepository.save_entity",
+        "narranexus.platform.repository.SocialNetworkRepository.save_entity",
         new=AsyncMock(side_effect=RuntimeError("boom mid-import")),
     ):
         with pytest.raises(RuntimeError, match="boom mid-import"):
@@ -174,7 +174,7 @@ def test_composite_narrative_id_rewrite_in_free_text():
     the embedded agent_<hex> substring with a different-length new id —
     or if it does rewrite, it must rewrite via the id_map consistently.
     This pins today's actual behavior so any change is a conscious one."""
-    from xyz_agent_context.bundle import build_all_id_regex
+    from narranexus.platform.bundle import build_all_id_regex
 
     composite = "agent_a4e1a9d3eaec_binliang_default_N-01"
     text = json.dumps({"narrative_id": composite})

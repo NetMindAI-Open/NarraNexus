@@ -1,0 +1,287 @@
+---
+code_file: src/narranexus/platform/agent_runtime/response_processor.py
+last_verified: 2026-09-11
+stub: false
+---
+
+## 2026-09-09 — `ErrorMessage.self_serviceable` 出线
+
+`response.error` 分支读 `data.get("self_serviceable")`：有值则 bool 化带到 recoverable 的
+`ErrorMessage` 上，缺省保持 `None`（codex / nexus_power 不分类，**不**伪造 False）。
+`auth_expired` 与 `config_actionable` 两个 fatal 分支按定义直接写 `True`（重新登录 / 改配置
+本来就是用户的事）。同类的另一个出口是 [[step_3_agent_loop]] 的 raw-exception 路径
+（`_raw_exception_error`，config_actionable → True、infra_transient → None），两处口径一致。
+分类口径在契约包，本文件只搬运。
+
+## 2026-09-10（B-05/#127）— `response.error` 的 `fatal`：框架自报「终局且未交付」
+
+**契约正文只在本文件（代码注释同处），生产方只指过来。** `fatal` = 本 turn 终局失败 **且** 本 turn 未交付
+任何输出，不是单纯「turn 结束了」。读一次得出 `already_delivered = data.get("fatal") is False`：
+
+- 显式 `False` → 本函数**所有**出口出 `severity="recovered_after_reply"`：auth / self-serviceable 两条分支
+  （对所有框架生效，不是某个框架专属）保留各自的 `error_type`、文案、`action_reason`、`self_serviceable=True`，
+  只把 severity 从 `fatal` 降级——turn 中途 key 被吊销、已答话后才撞上不可压缩 context overflow，不抹掉用户
+  已看到的回复。`recovered_after_reply` 在 `VERDICT_ON_FATAL_SEVERITIES` 里，sticky-fatal 不会升回；
+  step_3 `_has_fatal_error_frame` 只认 `"fatal"`，同样放行。
+- truthy → 未命中 auth / self-serviceable 时 `severity="fatal"`，`error_type` 原样透传。
+- 缺键（claude 内联错误、codex 独立 `error` 通知）→ 行为零变化：auth / self-serviceable 仍 `fatal`，其余 `recoverable`。
+- 两个框架分类出口都透传 driver 的 `self_serviceable`（含 `None`），与 `recoverable` 出口同口径，不编造。
+
+谁填这个值：nexus_power [[event_adapter]] 透传 loop.py `_fail` 的 `_turn_delivered()` 判定；codex [[official_sdk]]
+按 `turn_had_message` 覆写 [[output_transfer]] 的保守默认 `True`。
+
+背景：`recoverable` 桶对真正终局的 NexusPower 失败不成立，旧行为让 turn 落 `state=completed` +
+空回复 + 无 fatal 痕迹（GitHub #127）。
+测试：`tests/agent_runtime/test_response_processor_fatal_flag.py`（含 `fatal=False` + auth / context-window
+降级、缺键/True 仍 fatal、`self_serviceable` 透传与不编造）。
+
+## 2026-09-03（插件平台批 1）— 事件常量改从 `narranexus.contracts.agent_events` import
+
+`agent_framework/loop/events.py` 已删除（无兼容垫片，铁律 #2），本文件对事件字典常量/构造器的
+引用全部指向契约包；语义与线上值不变（`tests/snapshots/golden/agent_events.json` 钉住）。
+
+## 2026-09-03 — `response.retry` → 步骤面板进度行
+
+新分支（在 `DATA_TYPE_ERROR` 之前）：把 [[events]] 的 `DATA_TYPE_RETRY` 变成
+`ProgressMessage(step="3.4.retry.<attempt>", status=COMPLETED（RUNNING 会被 popover 当成"当前活动"长期挂住）, title="Retrying after a
+transient provider error"（可重试枚举含 server_error，标题不写死 rate limit）, description="… attempt N/M in Ds",
+details={error_type, attempt, max_attempts, delay_seconds})`，`ResponseType.OTHER` + `increment_response`；
+缺 `error_type` 时默认 `"api_error"`，与错误分支同口径。
+
+同一改动收窄 `_is_auth_failure`：裸 `"401"` 从 `_AUTH_FAILURE_PHRASES` 移出，改为
+`_AUTH_FAILURE_AND_GROUPS`（`("401","unauthorized")` / `("401","authentication")` /
+`("401","invalid")` 全部共现才算）。原因：CLI 内联错误正文现在原样进 `error_message`，
+订阅限流文案常带 epoch（`…limit reached|1774015401`）或 token 数，裸子串会把限流判成
+fatal 的「登录失效」并跳过 fallback —— 与 [[failure]] 里 403 marker 的收窄纪律同款。
+不是 ErrorMessage、不进文本累积：被适配器吞掉的那次失败永远不到用户面前，全部尝试都
+失败时最终错误仍以普通 `DATA_TYPE_ERROR` 到达并走既有分类。日志前缀
+`[AGENT-LOOP-RETRY]`。测试 `tests/agent_runtime/test_response_processor_retry_notice.py`。
+
+## 2026-08-30 — `_pending_monologue` 随批次纯净化一起消失
+
+批次现在 tier 纯净（见 [[_thinking_batcher]]），所以「独白子集」要么是整个
+批次、要么是空——不再需要一个和 batcher 并行的缓冲区去追踪子集。
+`_pending_monologue` / `_take_pending_monologue` 删除，换成
+`_batch_monologue(coalesced)`：读 `batcher.flushed_tier`，返回整段或空串。
+
+**字段仍然是 str 不是 bool**：`collect_run.output_text` 中继的是这段**文本**
+（2026-07-30 加它就是为了修群聊回复整段蒸发，dev evt_238abc4b0b0c4dca）。
+
+**`final_output` 收到的字符一个没变**：以前混档批次把子集加进去，现在同一段
+文本作为独立批次加进去。`test_response_processor_tier_purity.py` 里
+`test_final_output_still_receives_only_the_narration` 钉住这条。
+
+## 2026-08-19 — record_tool_call 持久化不再发明 "unknown"
+
+state_update 的 args 里 tool_name 改为 `item.get("tool_name") or ""`:
+写成 "unknown" 是不可逆信息丢失(「名字没到」与「工具真叫 unknown」从此
+无法区分),且所有下游(/event-log、UI 披露)会永远回显占位符。展示路径
+的 fallback 不动;`_looks_like_user_reply_tool("")` 恒 False,pending
+reply 帧丢弃判定不受影响。`pending` 单次读取归一(告警守卫与丢帧判定同一口径)。缺名的已完成调用现在落一条 logger.warning——
+空名会让 history_projection 把 call+output 整对丢出回放(静默上下文
+丢失必须可观测);output_transfer 里描述该后果的注释同步改准。读侧同批治理见 [[../../../backend/routes/agents/chat_history]]。
+
+## 2026-07-30 — 独白子集同时上到 AgentThinking 消息本体
+
+两个 flush 点（batcher 阈值 flush + 残余 flush）把 `_take_pending_monologue()`
+改为**每次 flush 只 drain 一次**，同一份子集同时交给 `record_thinking`（state
+侧，进 final_output）和 `AgentThinking.monologue`（消息侧，供 [[run_collector]]
+拼 output_text）。此前独白只进 state，消息流上不可见——bus/IM 触发器只消费
+消息流，群聊回复因此丢失。展示流（thinking_content）逐字节不变（铁律 #16）。
+
+## 2026-07-30 — pending tool_call 帧的三条纪律
+
+1. details 增带 `tool_call_id` + `pending`——前端按 tool_call_id 把 pending
+   行原地替换成完整版，两帧都要带键。
+2. pending 帧 `state_update=None`：只有完整调用 record_tool_call，两帧都记
+   会翻倍步数和持久化 timeline。
+3. 用户回复工具（`_looks_like_user_reply_tool`）的 pending 帧整帧丢弃：
+   回复已经走 reply-delta 直播，空参数回复帧会往轮次内容里注入一个空气泡。
+
+## 2026-07-29 (三次) — thinking_item 的 monologue 路由
+
+带 `monologue: true` 的 thinking_item(只有 NexusPower 的 LegacyEventAdapter 会打
+这个标)在进 batcher 之外单独累积 `_pending_monologue`,两个 flush 点(batcher 阈值
+flush + 残余 flush)把它作为 `record_thinking` 的 `monologue` 参数交给
+[[execution_state]] 进 `final_output`。独白与 CoT 的展示流仍由 batcher 逐字节合帧,
+用户所见不变;分开积累是因为 batcher 合帧后monologue/CoT 已不可拆。
+
+## 2026-07-29 (二次) — 删除 DATA_TYPE_RESUME_FAILED 分支(T5)
+
+随 [[execution_state]] 的 `mark_resume_failed` 一起删。该分支的唯一作用是把 adapter
+的内部 marker 转成一次 state 更新,好让 step_4 清理过期句柄行——那张表的写入路径
+已不存在。
+
+## 2026-07-29 — tool_output 优先按 id 配对
+
+`ITEM_TYPE_TOOL_CALL_OUTPUT` 分支:从事件里取 `tool_call_id` 透传给
+`record_tool_output`([[execution_state]] 同日条目),并且**展示用的 tool_call
+查找也改成优先按 id**,位置配对降为回落(驱动没报 id 时才用)。
+
+修的是本文件注释自己就点明过的问题:并行工具调用时所有 call 先到达、output 按
+完成顺序返回,于是"第 N 个 output 对应第 N 个 call"不成立,前端会显示错的工具名。
+
+## 2026-07-29 — REPLY_DELTA / PLAN 两条分支
+
+新增 `ResponseType.REPLY_DELTA` / `PLAN` 及其处理分支，产出
+`AgentReplyDelta` / `AgentPlan`。两条**只**在 NexusPower 独有的事件形状上触发，
+别的 driver 的流一个字节都不受影响。
+
+计费口径没变、也不许变：reply-delta **不计入** `final_output`——它是表达工具
+参数的投影，真正的 final_output 仍来自工具调用本身。两边都算就是双计，只算
+delta 就会在非流式路径上丢内容。
+
+## 2026-07-28 — `DATA_TYPE_RESUME_FAILED` marker → mark_resume_failed（resume 化 R3）
+
+`_handle_raw_response_event` 新增分支（**DATA_TYPE_ERROR 之前**）：适配器的
+`response.resume_failed` marker（常量来自 [[events.py]]；陈旧句柄 → 同轮冷
+启动重试已跑）→ `ProcessedResponse(message=None,
+state_update={"method": "mark_resume_failed"})` + 一条
+`[AGENT-LOOP-RESUME] resume failed …` warning。**刻意不产出 ErrorMessage**
+——重试已把这轮补成正常轮，用户不感知（铁律 #16）；信号只推
+ExecutionState.resume_failed，由 step_4 删陈旧句柄行。测试：
+tests/agent_runtime/test_resume_failed_threading.py。
+
+## 2026-07-27 — DATA_TYPE_USAGE 累加进 streamed_* 兜底
+
+新增 `DATA_TYPE_USAGE` 分支:把从流式事件抠出的每轮 usage(见 [[output_transfer]])
+经 `accumulate_streamed_usage` 累加进 [[execution_state]] 的 **streamed_* 独立字段**
+(不碰权威的 input/output_tokens),不 yield 消息。DONE 分支不变——真 Anthropic 的
+`ResultMessage.usage` 仍走权威路径。二者靠 `finalize()`「DONE 为 0 才提升 streamed」
+避免重复计。修的是:网关代理的非 Anthropic 模型 usage 恒 0 → 免费额度不扣的问题。
+
+## 2026-07-26 — auth-expired 文案优先指向 setup-token
+
+`_AUTH_EXPIRED_USER_MESSAGE` 把 `claude setup-token` + Settings 粘贴列为
+首选恢复路径（标注 most reliable）：2026-07-23 macOS 事故里「重新
+`claude login`」对隔离 CONFIG_DIR 的 Keychain 死条目无效，旧文案会把
+用户引进死胡同。
+
+## 2026-07-25 — response.done 透传 cli_session_id(resume 化 R1,纯搬运)
+
+accumulate_usage args 新增 `"cli_session_id": data.get("session_id")`。None =
+框架没报(只有 Claude Code 的 ResultMessage 带);合并语义在 ExecutionState
+(latest-non-None-wins,见 execution_state.py.md 同日条目)。
+
+## 2026-07-23 — response.done 折算 cache 用量,归一化两套 provider 词汇(W1)
+
+`response.done` 分支现在读 cache 字段并入 `accumulate_usage` 参数。**词汇归一化
+是这里唯一的坑**:Anthropic 叫 `cache_read_input_tokens`/`cache_creation_input_tokens`,
+OpenAI/codex 叫 `cached_input_tokens`(只有读、没有写计数)——两者都折到
+`cache_read_tokens`,codex 的 `cache_creation_tokens` 恒 0 是词汇缺失不是 bug。
+`num_turns` 从 data(非 usage)读取,None = 框架没报,与 0 语义不同。
+
+## 2026-07-14 — `response.error` 新增确定性自助类分支（不再被兜底掩盖 / "黑盒" P1）
+
+在 `response.error` 处理里，**auth 判断之后、recoverable 之前**插入一层
+`classify_self_serviceable(error_type, error_message)`（来自
+`agent_framework/llm/failure`）。命中（context-window / 余额 / 模型 ID）则产出
+`ErrorMessage(error_type=config_actionable, severity=fatal,
+action_reason=<reason>)` + 由 `self_serviceable_user_message` 组的可操作文案
+（引导 + 脱敏 provider 原文，保留 token 数字）。`step_3` 据此 skip 兜底。
+
+这是对 **2026-06-17 那条**的自然演进:那次把 context-length 从 auth 里摘出来
+（避免误判成 re-login），当时只能让它"走 recoverable / helper fallback"——但
+fallback 正是把失败伪装成正常回复的元凶（本条 P1）。现在给它专属分类 +
+正确引导（"换更大上下文的模型"），既不是 auth，也不再被掩盖。顺序:auth 优先
+（先判先返回），self-serviceable 次之，最后才是 recoverable 残余桶。
+
+## 2026-06-17 — 收紧 auth 误判:`invalid_request_error` 退出类型集合
+
+`_AUTH_FAILURE_TYPES` 原含 `invalid_request_error`（注释「常包着坏/过期
+key」）。但这是 OpenAI 的 **catch-all 客户端错误类型**,同时覆盖坏 key 和
+大量非 auth 400(context_length_exceeded / 坏 model id / content-policy)。
+codex 把这些原样透传上来,于是每次上下文超长 / 坏 model 的 turn 都被误判成
+`auth_expired`(fatal)+ 掐掉 helper fallback。改为:类型集合删掉
+`invalid_request_error`;phrase 列表补 `"incorrect api key"`。真正的 auth
+仍精确命中——codex 发 `unauthorized`、Claude 发 `invalid_request`(无
+`_error`)、OpenAI 坏 key 靠报文 "Incorrect API key provided" 兜住。回归测试:
+`test_invalid_request_error_is_not_auth_by_type_alone` +
+`test_openai_bad_key_still_classified_by_message`。
+
+## 2026-06-11 — 鉴权失败单独归类为 fatal + auth_expired
+
+`response.error` 分支原来把**所有** API error 一律 `severity="recoverable"`，
+本意是别让一次瞬时 rate-limit 把整轮 turn 拆掉。但鉴权失败（codex OAuth
+token 过期/refresh 已用过 → `error_type="unauthorized"` + "log out and sign
+in again"）是**不可恢复**的——凭证已死，重试或 helper 兜底都没用，而
+helper 还会编一个回复把"登录失效"盖住（incident 2026-06-11：每轮静默退化
+到 gpt-5，Settings 还显示 "✓ auth ready"）。
+
+新增 `_is_auth_failure(error_type, error_message)`（框架无关，铁律 #9）：先
+匹配分类（`unauthorized` / `authentication_error` / 含 "auth"），再兜底匹配
+message 片段（"sign in again" / "refresh token" / "401" 等）。命中则发
+`ErrorMessage(severity="fatal", error_type=AUTH_EXPIRED_ERROR_TYPE,
+error_message=可操作提示)`，提示用户 `codex login` / 换 API key 槽位。
+`AUTH_EXPIRED_ERROR_TYPE = "auth_expired"` 是导出常量，step_3 靠它跳过
+no_reply fallback（见 step_3_agent_loop 2026-06-11 条目）。瞬时错误仍走
+`recoverable`。测试：tests/agent_runtime/test_response_processor_auth_failure.py。
+
+## 2026-05-13 — Phase B：generator 化 + thinking-delta WS 合并
+
+`ResponseProcessor.process(...)` 从 "return 单个 ProcessedResponse" 改成
+**generator yield 0..N 个 ProcessedResponse**。同时引入 per-instance
+`_ThinkingBatcher`：
+
+- 一个 raw thinking_item 进来：进 batcher，yield 0（仍累积）或 1（触发 chars/time 阈值）
+- 一个 raw 非 thinking 事件进来：先 flush thinking 残余（yield 0 或 1 个 THINKING），再
+  yield 该事件本身。**两条输出**——保证用户看到 thinking → tool_call 的自然时序
+- 100ms / 500 chars / type 切换 / 显式 flush 任一触发都会出 thinking frame
+- 一个 turn 一个 ResponseProcessor 实例（per-run），所以 batcher 也是 per-run
+
+新加 `flush_pending(state)` 方法：caller 在 agent_loop 退出后（正常 / 异常 / cancel
+都要）显式调一次，把 batcher 里残留的 thinking 吐出去——否则最后一段思考会
+silent dropped。`step_3_agent_loop.py` 已经在 try 末尾 + except 块开头都接上了。
+
+数据效果（5000 个 1-char chunk 输入）：emit 出来的 thinking 帧 ≤ 200，content
+逐字保留，顺序不变。
+
+**调用方契约变化（重要）**：所有调用 `process()` 的代码必须改成 `for result in
+processor.process(...):` 而不是 `result = processor.process(...)`。Stream 结束
+后必须 `for result in processor.flush_pending(state):` 收尾。
+
+# response_processor.py — Agent Loop 原始事件 → 类型化消息的转换器
+
+## 2026-07-27 — 事件类型字面量收敛到 loop/events.py 常量
+
+六种事件形状的字符串字面量改为 import `loop/events.py` 的常量
+（TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
+事件契约自此有唯一事实源，详见 events.py.md。
+
+## 为什么存在
+
+`ClaudeAgentSDK.agent_loop()` 产生的事件字典格式是系统内部约定的中间格式（由 `output_transfer.py` 生成），不直接是前端期望的 WebSocket 消息格式。这个文件把原始事件解析为类型化的 schema 对象（`AgentTextDelta`、`AgentThinking`、`ProgressMessage` 等），同时计算出对 `ExecutionState` 的更新操作，让 `step_3_agent_loop.py` 的逻辑简洁干净（只需调用 `process` + `apply_state_update` + `yield`）。
+
+## 上下游关系
+
+被 `step_3_agent_loop.py` 在 Agent Loop 中循环调用：每收到一个 event 字典，调用 `process(response, state)` 获取 `ProcessedResponse`，然后用 `apply_state_update(state, result)` 更新 state，再 yield `result.message`（如果非 None）。
+
+下游消费者：产出的消息对象被 yield 到 WebSocket handler，通过 `step_display.format_tool_call_for_display()` 和 `format_thinking_for_display()` 格式化 ProgressMessage 的展示数据。
+
+`execution_state.py` 是紧密合作的伴随文件——`ProcessedResponse.state_update` 字段存储 state 更新方法名和参数，`apply_state_update` 通过 `getattr(state, method_name)(**args)` 动态调用 `ExecutionState` 的方法。
+
+## 设计决策
+
+**`ProcessedResponse.state_update` 用方法名字符串而非 callable**：这允许序列化（方便调试和测试），也避免了 `ResponseProcessor` 直接 import `ExecutionState` 方法。代价是动态 dispatch（`getattr`）没有静态类型检查。
+
+**工具输出用 `tool_output_count` 匹配对应的工具调用**：在 `_handle_run_item_stream_event` 里，`tool_output_count + 1` 是第几个工具输出，然后遍历 `state.all_steps` 找第 N 个 `tool_call` 步骤，提取工具名用于展示。这个对应关系依赖"工具输出按调用顺序到达"的假设。
+
+**`response.done` 不产生消息**：`response.done` 事件只更新 state 的 token usage，不 yield 任何消息给前端（`message=None`），防止前端显示重复的"完成"指示。
+
+**`response.error` 产生 `ErrorMessage`**：API 认证失败、rate limit、quota 耗尽等错误通过 `AssistantMessage.error` 字段到达，`output_transfer.py` 转为 `response.error` 事件，这里转为 `ErrorMessage` schema 对象 yield 给前端，用户能看到具体错误信息而不是空白回复。
+
+## Gotcha / 边界情况
+
+- 工具调用的步骤序号格式是 `"3.4.{tool_count}"`（字符串），对应前端 ProgressMessage 面板里 Step 3.4.1、3.4.2 等子步骤。工具输出复用同样的步骤序号，前端根据序号更新同一个步骤的状态（running → completed）。
+- 非空 delta 过滤：`output_transfer.py` 可能产生空 delta（来自结构性 `StreamEvent`），这里的 `if not delta: return ... message=None` 过滤掉它们，避免前端频繁处理空更新。
+
+## 新人易踩的坑
+
+- `process()` 是无副作用的纯函数，不修改任何状态。需要通过 `apply_state_update()` 才能让 state 变化生效。忘记调用 `apply_state_update` 的话 state 永远是初始状态，工具调用序号会永远是 1。
+- `_handle_run_item_stream_event` 里的 `format_tool_call_for_display()` 调用：前端只看到格式化后的展示数据（icon、desc），`tool_name` 原始值也在 `details` 里保留，但 `arguments` 可能因为 `desc_template` 格式化失败而显示为 raw 参数。
+
+## 2026-08-18 — 「没有调用任何回复工具」不再点名单一工具
+
+判定一轮是否交付过的注释此前写 `send_message_to_user_directly`，那个工具已拆成
+`reply_owner`/`notify_owner`；且团队房间此前是例外（纯文本自动张贴）。现在两处都不成立 ——
+「没有调用任何回复工具」对每个面无条件成立，注释也就不需要点名了。

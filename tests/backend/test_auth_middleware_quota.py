@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 from backend import auth as auth_mod
 from backend.auth import auth_middleware, create_token
-from xyz_agent_context.agent_framework.providers.resolver import (
+from narranexus.platform.agent_framework.providers.resolver import (
     NoProviderConfiguredError,
 )
 
@@ -64,12 +64,25 @@ def _build_app(resolver) -> FastAPI:
     async def create_agent():
         return {"ok": True, "route": "create_agent"}
 
+    # A SIBLING of a bypass prefix: `/api/quota-admin` starts with the string
+    # `/api/quota` but is a different path. It must stay gated.
+    @app.post("/api/quota-admin/grant")
+    async def quota_admin_grant():
+        return {"ok": True, "route": "quota_admin_grant"}
+
     return app
 
 
 @pytest.fixture
 def force_cloud_mode(monkeypatch):
     monkeypatch.setattr(auth_mod, "_is_cloud_mode", lambda: True)
+    # In cloud the bound auth provider (builtin.auth.netmind) decodes the
+    # session JWT through the kernel's WEB_HOST service. That is normally
+    # exposed by importing backend.main; publish it here so this file does not
+    # silently depend on some other test having imported the app first.
+    from backend.plugin_sdk_host import install_web_host
+
+    install_web_host()
 
 
 @pytest.fixture
@@ -223,3 +236,17 @@ def test_get_on_non_bypass_path_still_requires_jwt(force_cloud_mode):
     r = client.get("/api/agents")  # no Authorization header
 
     assert r.status_code == 401
+
+
+def test_sibling_of_a_bypass_prefix_is_still_gated(force_cloud_mode, jwt_headers):
+    """`/api/quota-admin` merely STARTS WITH `/api/quota`. Matching the bypass
+    list with bare `startswith` would hand every such sibling a free pass; the
+    list is matched on segment boundaries instead."""
+    resolver = MagicMock()
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
+
+    client = TestClient(_build_app(resolver))
+    r = client.post("/api/quota-admin/grant", json={}, headers=jwt_headers)
+
+    assert r.status_code == 402
+    resolver.resolve_and_set.assert_awaited_once_with("alice")

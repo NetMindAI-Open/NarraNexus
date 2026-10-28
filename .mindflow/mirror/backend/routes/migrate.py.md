@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/migrate.py
 stub: false
-last_verified: 2026-07-30
+last_verified: 2026-09-03
 ---
+
+## 2026-09-03 (评审修订) — `HurryRequest.import_id` 加长度上限
+
+评审 M3：`hurry.py` 注释说「Ids are bounded」但只界了条数没界长度，而这条路由又在
+body-size 豁免表里。`Field(min_length=1, max_length=128)`。不校验归属：local-only、
+单进程、id 由同一客户端生成，校验守的是不存在的对手——写进了字段注释。
 
 ## Why it exists
 
@@ -33,3 +39,11 @@ the write side (map → `apply_plan` → a populated NarraNexus agent).
   seconds (铁律 #15 — the platform must not become the interruption source), so
   both go through `asyncio.to_thread`. The blocking `shutil` copy in
   `applier._copy_local_skill` is likewise `to_thread`'d.
+
+## 2026-09-03 — POST /hurry
+
+`/apply` accepts a client-minted `import_id`, and `/hurry` marks it (see
+[[hurry]]) so a RUNNING apply stops summarizing and just finishes. It exists
+because the alternatives are both bad: cutting the HTTP request leaves a
+half-populated agent, and waiting out N sequential helper-LLM summaries can take
+minutes. Local-only and identity-resolved like the rest of the router.

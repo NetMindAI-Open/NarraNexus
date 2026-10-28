@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.schema.parsed_message import ParsedMessage
 from tests.channel.test_mock_channel_trigger_integration import (
     _FakeCredential,
     _FakeTrigger,
@@ -83,7 +83,7 @@ class _FakeLarkCli:
     ],
 )
 async def test_lark_react_maps_semantic_to_emoji_type(monkeypatch, semantic, expected):
-    import xyz_agent_context.module.lark_module._lark_mcp_tools as m
+    import narranexus_plugins.lark_module._lark_mcp_tools as m
 
     fake = _FakeLarkCli()
     monkeypatch.setattr(m, "_cli", fake)
@@ -95,7 +95,7 @@ async def test_lark_react_maps_semantic_to_emoji_type(monkeypatch, semantic, exp
 
 @pytest.mark.asyncio
 async def test_lark_react_missing_message_id(monkeypatch):
-    import xyz_agent_context.module.lark_module._lark_mcp_tools as m
+    import narranexus_plugins.lark_module._lark_mcp_tools as m
 
     monkeypatch.setattr(m, "_cli", _FakeLarkCli())
     react = _tools(m.register_lark_mcp_tools)["react_to_user_message"]
@@ -105,7 +105,7 @@ async def test_lark_react_missing_message_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_lark_react_swallows_sdk_error(monkeypatch):
-    import xyz_agent_context.module.lark_module._lark_mcp_tools as m
+    import narranexus_plugins.lark_module._lark_mcp_tools as m
 
     monkeypatch.setattr(m, "_cli", _FakeLarkCli(raises=True))
     react = _tools(m.register_lark_mcp_tools)["react_to_user_message"]
@@ -129,7 +129,7 @@ class _FakeSlackClient:
 
 @pytest.mark.asyncio
 async def test_slack_react_maps_and_calls(monkeypatch):
-    import xyz_agent_context.module.slack_module._slack_mcp_tools as m
+    import narranexus_plugins.slack_module._slack_mcp_tools as m
 
     async def _cred(_a):
         return _Cred()
@@ -144,7 +144,7 @@ async def test_slack_react_maps_and_calls(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_slack_react_no_credential(monkeypatch):
-    import xyz_agent_context.module.slack_module._slack_mcp_tools as m
+    import narranexus_plugins.slack_module._slack_mcp_tools as m
 
     async def _cred(_a):
         return None
@@ -171,7 +171,7 @@ class _FakeDiscordClient:
 
 @pytest.mark.asyncio
 async def test_discord_react_maps_and_calls(monkeypatch):
-    import xyz_agent_context.module.discord_module._discord_mcp_tools as m
+    import narranexus_plugins.discord_module._discord_mcp_tools as m
 
     async def _cred(_a):
         return _Cred()
@@ -205,7 +205,7 @@ class _FakeTelegramClient:
 
 @pytest.mark.asyncio
 async def test_telegram_react_maps_and_closes(monkeypatch):
-    import xyz_agent_context.module.telegram_module._telegram_mcp_tools as m
+    import narranexus_plugins.telegram_module._telegram_mcp_tools as m
 
     async def _cred(_a):
         return _Cred()
@@ -224,7 +224,7 @@ async def test_telegram_react_maps_and_closes(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_wechat_react_unsupported():
-    import xyz_agent_context.module.wechat_module._wechat_mcp_tools as m
+    import narranexus_plugins.wechat_module._wechat_mcp_tools as m
 
     react = _tools(m.register_wechat_mcp_tools)["react_to_user_message"]
     out = await react("agent_a", "u1", "m1", "on_it")
@@ -237,7 +237,7 @@ async def test_wechat_react_unsupported():
 
 @pytest.mark.asyncio
 async def test_telegram_sdk_set_message_reaction(monkeypatch):
-    from xyz_agent_context.module.telegram_module.telegram_sdk_client import (
+    from narranexus_plugins.telegram_module.telegram_sdk_client import (
         TelegramSDKClient,
     )
 
@@ -260,7 +260,7 @@ async def test_telegram_sdk_set_message_reaction(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_telegram_sdk_reaction_bad_message_id(monkeypatch):
-    from xyz_agent_context.module.telegram_module.telegram_sdk_client import (
+    from narranexus_plugins.telegram_module.telegram_sdk_client import (
         TelegramSDKClient,
     )
 
@@ -278,8 +278,8 @@ async def test_telegram_sdk_reaction_bad_message_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_source_message_id_in_trigger_extra_data(db_client, monkeypatch):
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
 
     captured: dict = {}
 
@@ -319,8 +319,8 @@ async def test_trigger_prepends_early_feedback_to_input(db_client, monkeypatch):
     """The trigger injects the 'ack early' directive into the per-turn input
     (input_content), right after the channel tag — using the channel's
     react_tool_ref + the real room/message ids."""
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
 
     captured: dict = {}
 
@@ -367,8 +367,8 @@ async def test_trigger_message_only_ack_when_no_message_id(db_client, monkeypatc
     """A react-capable channel with NO inbound message_id degrades to the
     message-only ack — it must NOT emit an empty prefix (regression: PR #90
     review Important #3)."""
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
 
     captured: dict = {}
 
@@ -412,7 +412,7 @@ def test_lark_trigger_react_tool_ref_and_prefix():
     """Lark fully overrides _build_and_run_agent (manual copy of the injection),
     so pin its react_tool_ref to the fully-qualified name its prompts use, and
     that the inherited _early_feedback_prefix renders it (PR #90 review #4)."""
-    from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+    from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
     t = LarkTrigger()
     assert t.react_tool_ref == "mcp__lark_module__react_to_user_message"
@@ -445,7 +445,7 @@ def test_early_feedback_prefix_message_only_when_no_react_tool():
 
 
 def test_render_early_feedback_reaction_variant():
-    from xyz_agent_context.channel.channel_reactions import (
+    from narranexus.platform.channel.channel_reactions import (
         REACTION_VOCABULARY,
         render_early_feedback,
     )
@@ -460,7 +460,7 @@ def test_render_early_feedback_reaction_variant():
 
 
 def test_render_early_feedback_message_only_variant():
-    from xyz_agent_context.channel.channel_reactions import render_early_feedback
+    from narranexus.platform.channel.channel_reactions import render_early_feedback
 
     out = render_early_feedback(tool_ref=None, room_id="", message_id="")
     assert "react_to_user_message" not in out
@@ -469,7 +469,7 @@ def test_render_early_feedback_message_only_variant():
 
 
 def test_render_early_feedback_inline_lark():
-    from xyz_agent_context.channel.channel_reactions import render_early_feedback
+    from narranexus.platform.channel.channel_reactions import render_early_feedback
 
     out = render_early_feedback(
         tool_ref="mcp__lark_module__react_to_user_message",
@@ -495,7 +495,7 @@ class _FakeTelegramClientReject:
 
 @pytest.mark.asyncio
 async def test_telegram_react_rejected_returns_failure(monkeypatch):
-    import xyz_agent_context.module.telegram_module._telegram_mcp_tools as m
+    import narranexus_plugins.telegram_module._telegram_mcp_tools as m
 
     async def _cred(_a):
         return _Cred()
@@ -510,7 +510,7 @@ async def test_telegram_react_rejected_returns_failure(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_discord_sdk_add_reaction_rejects_non_snowflake():
-    from xyz_agent_context.module.discord_module.discord_sdk_client import (
+    from narranexus_plugins.discord_module.discord_sdk_client import (
         DiscordSDKClient,
         DiscordSDKError,
     )

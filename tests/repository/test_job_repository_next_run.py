@@ -7,8 +7,8 @@
 from datetime import datetime, timezone as dt_tz
 import pytest
 
-from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.module.job_module._job_scheduling import NextRunTuple
+from narranexus.platform.repository import JobRepository
+from narranexus.platform.utils.job_scheduling import NextRunTuple
 
 
 @pytest.mark.asyncio
@@ -63,7 +63,7 @@ async def test_update_last_run_writes_all_three_fields(db_client):
 
 @pytest.mark.asyncio
 async def test_create_job_writes_beta_fields(db_client):
-    from xyz_agent_context.schema.job_schema import TriggerConfig, JobType
+    from narranexus.platform.schema.job_schema import TriggerConfig, JobType
     repo = JobRepository(db_client)
     tc = TriggerConfig(cron="0 8 * * *", timezone="Asia/Shanghai")
     await repo.create_job(

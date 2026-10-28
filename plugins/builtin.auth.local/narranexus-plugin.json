@@ -1,0 +1,18 @@
+{
+  "id": "builtin.auth.local",
+  "version": "1.0.0",
+  "displayName": "Local auth",
+  "description": "Authentication provider of the desktop/local distribution: the X-User-Id header names the user (authProviders, distribution-only).",
+  "hosts": [
+    "backend"
+  ],
+  "api": {
+    "auth": 0
+  },
+  "distributionOnly": true,
+  "protected": true,
+  "provides": {
+    "kernel.auth": "narranexus_plugins.auth_local.provider:CONTRIBUTION"
+  },
+  "quality": "gold"
+}

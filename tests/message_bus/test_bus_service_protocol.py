@@ -18,9 +18,9 @@ import inspect
 
 import pytest
 
-from xyz_agent_context.message_bus.cloud_bus import CloudMessageBus
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
-from xyz_agent_context.message_bus.message_bus_service import MessageBusService
+from narranexus.platform.message_bus.cloud_bus import CloudMessageBus
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.message_bus_service import MessageBusService
 
 SEND_METHODS = ("send_message", "send_to_agent")
 

@@ -12,15 +12,17 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Cpu, Info, Shield, Monitor } from 'lucide-react';
+import { X, Cpu, Info, Shield, Monitor, MonitorPlay } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from './ProviderSettings';
+import BrowserSettings from './BrowserSettings';
 import { useConfigStore } from '@/stores/configStore';
 import { usePowerStore } from '@/stores/powerStore';
 import { api } from '@/lib/api';
 import { isTauri } from '@/lib/tauri';
+import { PANELS, useRegistryEntries } from '@/platform/registries';
 
 // =============================================================================
 // Sidebar navigation sections
@@ -35,6 +37,9 @@ interface NavSection {
 const NAV_SECTIONS: NavSection[] = [
   { id: 'providers', labelKey: 'settings.modal.navProviders', icon: Cpu },
   { id: 'privacy', labelKey: 'settings.modal.navPrivacy', icon: Shield },
+  // The agent's "no browser installed" refusal sends the user to this
+  // section by name — it must exist wherever that message can be seen.
+  { id: 'browser', labelKey: 'settings.modal.navBrowser', icon: MonitorPlay },
   // Desktop-only power controls — filtered out on web in the component.
   { id: 'desktop', labelKey: 'settings.modal.navDesktop', icon: Monitor },
 ];
@@ -73,11 +78,14 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { t } = useTranslation();
-  const [activeSection, setActiveSection] = useState('providers');
+  const [selectedSection, setActiveSection] = useState('providers');
+  const browserAvailable = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
+  const activeSection = selectedSection === 'browser' && !browserAvailable ? 'providers' : selectedSection;
 
   // Desktop-only sections are hidden on web — the power controls need the
   // Tauri shell (caffeinate lives on the Rust side).
-  const navSections = NAV_SECTIONS.filter((s) => s.id !== 'desktop' || isTauri());
+  const navSections = NAV_SECTIONS.filter((s) =>
+    (s.id !== 'desktop' || isTauri()) && (s.id !== 'browser' || browserAvailable));
 
   // Locked Use (prevent sleep) — desktop only.
   const preventSleep = usePowerStore((s) => s.preventSleep);
@@ -170,7 +178,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               variant="ghost"
               size="icon"
               onClick={onClose}
-              className="w-8 h-8 hover:bg-[var(--bg-tertiary)]"
+              className="w-8 h-8 hover:bg-[var(--nm-paper-warm)]"
             >
               <X className="w-4 h-4" />
             </Button>
@@ -189,10 +197,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     key={section.id}
                     onClick={() => setActiveSection(section.id)}
                     className={cn(
-                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
+                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-lg)] text-sm transition-colors',
                       isActive
                         ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]',
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] hover:text-[var(--text-primary)]',
                     )}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
@@ -223,7 +231,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {SLOT_EXPLANATIONS.map((slot) => (
                         <div
                           key={slot.nameKey}
-                          className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+                          className="p-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <div
@@ -266,7 +274,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
 
                   {/* Analytics toggle row */}
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+                  <div className="flex items-center justify-between p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
                     <div className="flex-1 min-w-0 pr-4">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
                         {t('settings.modal.analyticsTitle')}
@@ -303,6 +311,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
               )}
 
+              {/* ─── Browser Section ─── */}
+              {activeSection === 'browser' && (
+                <div className="space-y-4 max-w-2xl">
+                  <BrowserSettings />
+                </div>
+              )}
+
               {/* ─── Desktop Section (Tauri only) ─── */}
               {activeSection === 'desktop' && isTauri() && (
                 <div className="space-y-4 max-w-2xl">
@@ -316,7 +331,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
 
                   {/* Locked Use toggle row */}
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+                  <div className="flex items-center justify-between p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
                     <div className="flex-1 min-w-0 pr-4">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
                         {t('settings.modal.lockedUseTitle')}

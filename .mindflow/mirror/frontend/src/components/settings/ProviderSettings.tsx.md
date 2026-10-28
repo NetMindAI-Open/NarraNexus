@@ -1,7 +1,60 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-30
+last_verified: 2026-09-08
+stub: false
 ---
+
+## 2026-09-08（Owner 反转 09-03 决定）— 「添加 provider」找回一键接入 tab
+
+云端非 staff 此前只剩「自定义」，NetMind.AI Power / Anthropic / OpenAI 的一键预设只在首程页有。现在弹窗第一个 tab（默认）是
+`OneKeyOnboard`（bare + hideHeader，完成后关弹窗并刷新列表），Sign-in 仍按 `oauthAllowed` 门控，Custom 不变。
+
+---
+
+## 2026-08-28 — Sign-in tab 抽出为 SubscriptionConnect(P0:landing 只配订阅走不通)
+
+add modal 的 oauth tab(Claude Code Login 卡三段 + Codex CLI Login 卡,
+连同 claude/codex status state、登录倒计时 effect、setup-token state、
+5 个 handler、formatCountdown/formatExpiresAt、CLAUDE_LOGIN_TIMEOUT_SEC)
+整体搬去 [[SubscriptionConnect]],tab 原位改为
+`<SubscriptionConnect providers addProvider/>`(第 4 轮定稿的 props)。动机:landing
+(SetupPage)要把订阅升为一等路径,逻辑必须单份。随行变化:
+
+- 身份 fetch 收敛进 [[providersApi]](其 authFetch 委托 [[authHeaders]]
+  单一解析点——本地 review 打回过手抄版);`providerUrl` 的 useCallback
+  **留在组件内**但函数体委托 `providerApiUrl`(userId 依赖驱动
+  refreshConfig 重跑,是 re-render 语义不是 URL 语义)。`addProvider` 的
+  POST/错误契约最终落在 [[providersApi]] 的 `addProviderCard`(经
+  api.addProvider + providerErrorMessage;中间经历过 postProvider 裸
+  fetch 稿,第 3 轮被打回),成功后的 refreshConfig 副作用留在本组件。
+- refreshConfig 不再拉 claude/codex status(归 SubscriptionConnect 自取),
+  只剩 provider 列表;新增可选 prop `onProvidersChanged`,每次成功刷新后
+  回调——SetupPage 用它做页脚实时翻转。**回调持在 ref 里、不进
+  refreshConfig 依赖**(本地 review:靠注释要求"调用方必须传稳定引用"
+  是只有注释在守的挂载死循环陷阱;ref 模式让内联箭头也安全)。
+- 再加可选 prop `refreshToken?: number`(Owner 走查第 2 轮):SetupPage
+  的订阅卡在本组件**外面**,经它 add 的卡不会路过 refreshConfig,
+  "Your providers" 网格一直陈旧;外部 bump token 即重拉(它**必须留在**
+  挂载 effect 的依赖里)。测试:
+  `__tests__/ProviderSettingsRefresh.test.tsx`(bump 重拉 / 同值不重拉)。
+- 抽取残留(孤儿 Helpers 分节、formatCountdown 的孤儿 docstring、多余
+  空行)已清;文件 1254 → ~850 行。
+- 第 3 轮:`addProvider` 的 POST 迁移到 ApiClient(session 守卫 +
+  detail 提取);第 4 轮收敛为共享 `addProviderCard`(与 SetupPage 同一
+  份包装,刷新副作用仍各自持有)。add modal 的 tab 数组按
+  `useOauthAllowed(addModalOpen)` 过滤——cloud 非 staff 不渲染 Sign-in
+  tab(入口不指向被门禁的面板);探测**推迟到 modal 打开**(status 路由
+  在 local 会真起 `claude auth status` 子进程,别为关着的 modal 付钱)。
+  注意 `addMethod` 默认 'onekey',永远不落在可消失的 tab 上。tab 门有
+  测试(ProviderSettingsRefresh.test 的 Sign-in tab gate 两例,钉
+  `=== false` 语义——truthiness 会把 local 的 tab 一起砍掉)。本组件的
+  `ProviderSummary` 现在是共享 `ProviderRow` 的别名(第 4 轮类型收敛,
+  三份行形状 → 一份)。其余裸端点(delete/test/models/sync)仍走本组件
+  authFetch,迁移是已记录的后续项。
+- Test 按钮加载态从静态 `'...'` 换成 Loader2 spinner + "Testing…" 文案
+  (详情弹窗 + Custom 表单两处;Owner 走查第 3 轮)——OAuth 卡的 Test
+  自 PR #375 起真跑一次 CLI(5-15s),静态三个点读起来像卡死。i18n 新键
+  `settings.provider.testingConnection`(en+zh)。
 
 ## 2026-07-30 — OAuth 卡隐藏 Edit models
 
@@ -143,7 +196,7 @@ staff in cloud"),非 blocked 走原 `<select>`。两 status 都没加载到时 *
 ## 2026-06-11 (later) — 移除内嵌 OneKeyOnboard(去重)
 
 Section 1 顶部原本渲染 `<OneKeyOnboard>`。现在 SettingsPage 在面板级始终内嵌
-OneKeyOnboard、SetupPage 作首屏 hero,二者都把 ProviderSettings 放在
+OneKeyOnboard、WelcomePage 作首屏 hero,二者都把 ProviderSettings 放在
 Advanced 折叠里——于是 Advanced 里这个就成了重复。已删除(连同 import)。
 Section 1 剩下的是"简单一键预设之外"的部分:model sync、CLI OAuth 登录、
 Custom(base_url)端点。`refreshConfig` 仍被其它地方使用,保留。
@@ -281,7 +334,7 @@ This mirrors the backend's `provider_driver/resolver._CODEX_FRAMEWORK_VALUES` �
 
 之前 `authFetch` 只发 JWT Bearer，不发 X-User-Id。Local 模式下 backend middleware 看到 header 缺失就 fallback 到"users 表第一行"，导致 binliang3 在 Settings 页面填的 NetMind API key 全部写到了 binliang（最老账号）名下。后端这次彻底关掉了 fallback（缺 header 直接 401），所以这里也必须配合发上来。
 
-同时 `providerUrl()` 删除了 `?user_id=...` 这条 query 通道——和后端一致，identity 只走 header。这条提交里同步更新的还有 `App.tsx` 和 `SetupPage.tsx` 的 bare `fetch(...?user_id=...)` 调用，统一改走 `api.getProviders()`（ApiClient 自动发 X-User-Id 和 JWT）。
+同时 `providerUrl()` 删除了 `?user_id=...` 这条 query 通道——和后端一致，identity 只走 header。这条提交里同步更新的还有 `App.tsx` 和 `WelcomePage.tsx` 的 bare `fetch(...?user_id=...)` 调用，统一改走 `api.getProviders()`（ApiClient 自动发 X-User-Id 和 JWT）。
 
 `syncProviderDefaults` 的签名也从 `(userId: string)` 改成 `()`——参数没意义了。
 
@@ -424,3 +477,18 @@ reset path.
 ## 2026-07-07 (bug#3 跟进) — helper 下拉不再隐藏 OAuth provider
 
 `renderSlotRow` 的 matching 过滤移除了 `helper_llm && auth_type==='oauth'` 排除项:订阅(claude_oauth/codex_oauth)现在可以进 helper 槽(后端经 CliHelperSDK 走 CLI 一次性)。SLOT_DEFS 的 helper 描述改为 'API key or subscription'。此前后端 auto-bind 已把槽绑好,但前端下拉过滤让 UI 显示 'No provider configured' —— 本次对齐。
+
+## 2026-09-03 — the add-a-provider modal has two tabs, not three
+
+The "API key" tab was removed (Owner decision). It rendered the same
+[[OneKeyOnboard]] card that step 1 of the first-run flow already puts in front of
+every user, so inside Settings it duplicated the path they arrived through — and
+it was the tab the modal opened on, hiding the two methods that only exist here.
+What remains is exactly what one pasted key CANNOT express:
+
+- **CLI sign-in** — Claude Code / Codex CLI OAuth, no key at all;
+- **Custom** — a user-supplied base_url + protocol.
+
+Pasting a key still works, in the one place it belongs: Settings → Providers'
+one-key card (and the welcome flow). `settings.provider.tabApiKey` was deleted
+with the tab (binding rule #2).

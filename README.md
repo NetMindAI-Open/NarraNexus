@@ -229,6 +229,10 @@ More templates at [narra.nexus/templates](https://www.narra.nexus/templates).
 
 ---
 
+## Extending NarraNexus
+
+Everything above the engine is a plugin — the built-in modules, channels, frameworks, memory kinds and teams are `plugins/builtin.*` packages on the same contracts a third party uses. Start with [docs/guides/getting-started.md](docs/guides/getting-started.md) (a plugin in 30 minutes: `narranexus plugin new`), [docs/plugins/distributions.md](docs/plugins/distributions.md) (compose your own distribution with `narranexus create-app`, `dist doctor`, `build`) and [docs/guides/embedding.md](docs/guides/embedding.md) (the headless `Engine`, `@narranexus/ui-kit`, `<narranexus-chat>`). The contracts are stable and governed by [docs/API_POLICY.md](docs/API_POLICY.md).
+
 ## Contributing & governance
 
 NarraNexus is built to work well with human and AI-agent contributors alike.

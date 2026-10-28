@@ -1,0 +1,64 @@
+{
+  "id": "acme.crm-agent",
+  "displayName": "Acme CRM Agent",
+  "description": "Example ToB distribution (copy me): the minimal set plus one custom plugin and an SSO auth stub, built for docker as a cloud deployment.",
+  "engine": ">=1.15 <2",
+  "plugins": {
+    "builtin.chat": "^1.0",
+    "builtin.basic_info": "^1.0",
+    "builtin.awareness": "^1.0",
+    "builtin.providers": "^1.0",
+    "builtin.frameworks.nexus_power": "^1.0",
+    "builtin.turn": "^1.0",
+    "builtin.llm_clients": "^1.0",
+    "builtin.memory_kinds": "^1.0",
+    "builtin.common_tools": "^1.0",
+    "acme.crm": {
+      "path": "./plugins/acme.crm"
+    },
+    "acme.auth-sso": {
+      "path": "./plugins/acme.auth-sso"
+    },
+    "builtin.prompts": "^1.0",
+    "builtin.ui": "^1.0"
+  },
+  "excludes": [
+    "builtin.frameworks.claude_code",
+    "builtin.frameworks.codex_cli",
+    "builtin.nexus_plugins_module",
+    "builtin.social_network",
+    "builtin.job",
+    "builtin.skills",
+    "builtin.message_bus",
+    "builtin.general_memory",
+    "builtin.browser",
+    "builtin.home_assistant",
+    "builtin.channels.lark",
+    "builtin.channels.slack",
+    "builtin.channels.telegram",
+    "builtin.channels.wechat",
+    "builtin.channels.narramessenger",
+    "builtin.channels.discord",
+    "builtin.teams",
+    "builtin.auth.local",
+    "builtin.auth.netmind"
+  ],
+  "branding": {
+    "name": "Acme Agent",
+    "logo": "./branding/logo.svg",
+    "theme": ""
+  },
+  "auth": "acme.auth-sso",
+  "defaults": {
+    "pipelineProfile": "default",
+    "agentSpec": "./defaults/agent.json",
+    "locale": "zh"
+  },
+  "runtime": {
+    "userPlugins": false,
+    "deployment": "cloud"
+  },
+  "targets": [
+    "docker"
+  ]
+}

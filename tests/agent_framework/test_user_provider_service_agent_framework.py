@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
+from narranexus.platform.agent_framework.providers.user_service import UserProviderService
 
 
 class _MemoryDB:
@@ -54,13 +54,13 @@ class _MemoryDB:
 
 
 @pytest.mark.asyncio
-async def test_get_returns_claude_code_default_when_no_row():
+async def test_get_returns_nexus_power_default_when_no_row():
     svc = UserProviderService(_MemoryDB())
-    assert await svc.get_user_agent_framework("new_user") == "claude_code"
+    assert await svc.get_user_agent_framework("new_user") == "nexus_power"
 
 
 @pytest.mark.asyncio
-async def test_get_returns_claude_code_when_column_null():
+async def test_get_returns_nexus_power_when_column_null():
     db = _MemoryDB()
     db.rows[("u1", "agent")] = {
         "user_id": "u1",
@@ -70,7 +70,7 @@ async def test_get_returns_claude_code_when_column_null():
         "model": "claude-sonnet-4-5",
     }
     svc = UserProviderService(db)
-    assert await svc.get_user_agent_framework("u1") == "claude_code"
+    assert await svc.get_user_agent_framework("u1") == "nexus_power"
 
 
 @pytest.mark.asyncio

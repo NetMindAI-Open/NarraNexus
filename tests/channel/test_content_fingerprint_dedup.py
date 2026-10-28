@@ -24,8 +24,8 @@ import time
 
 import pytest
 
-from xyz_agent_context.channel.channel_dedup_store import ChannelDedupStore
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus.platform.channel.channel_dedup_store import ChannelDedupStore
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
 

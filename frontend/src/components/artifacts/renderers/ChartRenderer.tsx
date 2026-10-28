@@ -40,6 +40,7 @@ export default function ChartRenderer({ artifact }: Props) {
     artifact.updated_at,
   );
   const registerChartInstance = useArtifactStore((s) => s.registerChartInstance);
+  const unregisterChartInstance = useArtifactStore((s) => s.unregisterChartInstance);
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
   // Stash attempt() in a ref so the load effect only re-runs when URL
   // changes — pulling `heal` into the deps would re-fire the fetch (and
@@ -60,7 +61,8 @@ export default function ChartRenderer({ artifact }: Props) {
     if (!url) return;
     setError(null);
     let disposed = false;
-    let chart: { dispose: () => void } | null = null;
+    let chart: (ChartInstanceLike & { dispose: () => void; resize: () => void }) | null = null;
+    let observer: ResizeObserver | null = null;
 
     (async () => {
       try {
@@ -68,13 +70,67 @@ export default function ChartRenderer({ artifact }: Props) {
         const text = await fetchArtifactText(url);
         const option = JSON.parse(text);
         if (disposed || !ref.current) return;
-        // Pick the NM theme that matches the current dark/light state.
-        // lib/echarts-nm-theme registers nm-light / nm-dark at app boot
-        // (side-effect in main.tsx) so the names always resolve.
-        const c = echarts.init(ref.current, pickNMTheme());
-        c.setOption(option);
-        chart = c as unknown as { dispose: () => void };
-        registerChartInstance(artifact.artifact_id, c as unknown as ChartInstanceLike);
+
+        const node = ref.current;
+        const init = () => {
+          if (disposed || chart) return;
+          type EChart = ChartInstanceLike & {
+            dispose: () => void;
+            resize: () => void;
+            setOption: (o: unknown) => void;
+          };
+          let created: EChart | null = null;
+          try {
+            // Pick the NM theme that matches the current dark/light state
+            // (registered at app boot via main.tsx side effect).
+            const c = echarts.init(node, pickNMTheme()) as unknown as EChart;
+            created = c;
+            c.setOption(option);
+            chart = c;
+            registerChartInstance(artifact.artifact_id, c);
+          } catch (e) {
+            // init runs from the ResizeObserver callback (a separate call
+            // stack), so a throw here would NOT reach the outer catch — the
+            // deferred-init path (0802 ①) would leave a permanently blank
+            // pane with no error banner. Surface it and stop re-throwing on
+            // every subsequent resize tick.
+            // If echarts.init succeeded but setOption threw (a malformed
+            // option is this component's documented, expected failure), the
+            // canvas exists but `chart` is still null, so cleanup's
+            // chart?.dispose() would leak it — dispose it here. Only when
+            // chart is still null (a throw after registration means the
+            // instance is owned; cleanup disposes it, no double-dispose).
+            if (chart === null) {
+              try {
+                created?.dispose();
+              } catch {
+                /* a half-initialised instance may resist dispose; ignore */
+              }
+            }
+            if (disposed) return;
+            setError(String(e));
+            observer?.disconnect();
+          }
+        };
+
+        // One observer drives BOTH lifecycles (0802 bugs ①②): init is
+        // deferred until the container actually has area — the LRU pool
+        // mounts charts under display:none, and echarts.init on a 0×0 box
+        // yields a permanently blank canvas — and every later box change
+        // (column drag, window resize, zoom modal, collapse) re-fits via
+        // chart.resize(), which this codebase previously never called.
+        observer = new ResizeObserver(() => {
+          if (disposed) return;
+          const { width, height } = node.getBoundingClientRect();
+          if (width > 0 && height > 0) {
+            if (!chart) init();
+            else chart.resize();
+          }
+        });
+        observer.observe(node);
+        // Visible-at-mount fast path: don't wait for the first RO tick.
+        const { width, height } = node.getBoundingClientRect();
+        if (width > 0 && height > 0) init();
       } catch (e) {
         const msg = String(e);
         setError(msg);
@@ -89,10 +145,14 @@ export default function ChartRenderer({ artifact }: Props) {
 
     return () => {
       disposed = true;
-      registerChartInstance(artifact.artifact_id, null);
+      observer?.disconnect();
+      // Identity-checked unregister: with the zoom modal and the column
+      // both mounting this artifact, a naive null-write here erased the
+      // OTHER mount's live registration (0802 bug ②).
+      if (chart) unregisterChartInstance(artifact.artifact_id, chart);
       chart?.dispose();
     };
-  }, [url, artifact.artifact_id, registerChartInstance]);
+  }, [url, artifact.artifact_id, registerChartInstance, unregisterChartInstance]);
 
   return (
     <>

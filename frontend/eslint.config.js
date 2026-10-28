@@ -6,7 +6,11 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `**/dist` (not just the root `dist`) so `npm run build:packages`'s build output under
+  // `packages/*/dist` is ignored too — those are bundled/typegen artifacts, not source, and
+  // a work tree with packages already built otherwise fails `npm run lint` non-deterministically
+  // depending on build order (M-6, 2026-09 plugin-platform review).
+  globalIgnores(['dist', '**/dist']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

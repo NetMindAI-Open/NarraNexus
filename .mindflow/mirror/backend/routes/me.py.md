@@ -1,10 +1,14 @@
 ---
 code_file: backend/routes/me.py
-last_verified: 2026-06-23
+last_verified: 2026-08-12
 stub: false
 ---
 
 # me.py — owner-scoped (`/api/me`) read endpoints
+
+## 2026-08-12 — /network 合并键加身份消歧（Mark item 11）
+
+`_entity_key` 原来只用 `entity_type + entity_name(else entity_id)`，导致同名不同人（两个「王小明」——工程师与厨师）collapse 成一个节点、后者静默覆盖前者。修复：键追加 `contact_info.email`（else `phone`）作跨-agent 稳定身份信号——email/phone 在认识同一人的多个 agent 间一致，故能分开不同身份、同时仍合并「同一人被 N 个 agent 认识」。无联系信息时退化为原 name-only 键（保留「kz 三 agent collapse 成一节点」行为）。
 
 ## 为什么存在
 

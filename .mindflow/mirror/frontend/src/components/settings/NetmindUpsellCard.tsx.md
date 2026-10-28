@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/settings/NetmindUpsellCard.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — `onUpgrade` 变成可选，且不再直接开卡结账
+
+两处改动，都是把类型改成和渲染一致：
+
+- **`onUpgrade` 可选**：`subscribed` 模式**不渲染 CTA**，所以那个调用点传的回调
+  永远不可能被触发。它必填的后果不是多写一个参数，而是**养活了一份重复的卡订阅
+  实现**（[[NetmindAccountPanel]] 的 `handleSubscribe`）只为满足类型——那份副本已
+  随本次改动删掉。
+- **upsell 模式的 CTA 现在打开支付方式选择**，不再直接调订阅（见
+  [[NetmindActionZone]]）。这一步就是「支付宝买不了套餐」的全部原因：三条轨在后端
+  早已打通，前端却只给已持有一次性订阅的人开了口子。
+
+本组件仍然是纯展示，价格/额度/周期依旧来自 `/plans`，无硬编码。
+
 
 ## 2026-07-31 — 套餐名统一为 "Nexus Pro"
 

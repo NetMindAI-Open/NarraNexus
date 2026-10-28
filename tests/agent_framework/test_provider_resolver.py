@@ -24,17 +24,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     get_provider_source,
     set_provider_source,
 )
-from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
-from xyz_agent_context.agent_framework.providers.resolver import (
+from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+from narranexus.platform.agent_framework.providers.resolver import (
     NoProviderConfiguredError,
     ProviderResolver,
     ProviderResolverError,
 )
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -43,7 +43,7 @@ from xyz_agent_context.schema.provider_schema import (
     SlotConfig,
 )
 
-_CLOUD = "xyz_agent_context.utils.deployment_mode.is_cloud_mode"
+_CLOUD = "narranexus.platform.utils.deployment_mode.is_cloud_mode"
 
 
 # ---------- helpers -------------------------------------------------------
@@ -93,8 +93,8 @@ def _stub_single_resolver(monkeypatch):
     driver resolver (resolve_user_runtime_llm_configs). These tests exercise
     the routing DECISION tree, not config contents, so stub the builder to a
     bare RuntimeLLMConfigs — no seeded DB needed."""
-    from xyz_agent_context.agent_framework.providers import driver as provider_driver
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.providers import driver as provider_driver
+    from narranexus.platform.agent_framework.api_config import (
         ClaudeConfig,
         OpenAIConfig,
         RuntimeLLMConfigs,
@@ -137,8 +137,8 @@ async def test_local_mode_flagged_without_config_raises_catchable_error(monkeypa
     from ProviderResolverError. It must be translated, or callers' `except
     ProviderResolverError` misses it and the run continues on the platform key
     (the 2026-07 incident this path exists to prevent)."""
-    from xyz_agent_context.agent_framework.api_config import LLMConfigNotConfigured
-    from xyz_agent_context.agent_framework.providers import driver as provider_driver
+    from narranexus.platform.agent_framework.api_config import LLMConfigNotConfigured
+    from narranexus.platform.agent_framework.providers import driver as provider_driver
 
     async def _raise(_user_id, _db, agent_id=None):
         raise LLMConfigNotConfigured("nothing configured")
@@ -186,8 +186,8 @@ async def test_agent_id_is_threaded_to_the_single_point_builder(monkeypatch):
     """Per-agent slot overrides must reach the builder — on the free tier too,
     now that nothing preempts them."""
     seen = {}
-    from xyz_agent_context.agent_framework.providers import driver as provider_driver
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.providers import driver as provider_driver
+    from narranexus.platform.agent_framework.api_config import (
         ClaudeConfig, OpenAIConfig, RuntimeLLMConfigs,
     )
 

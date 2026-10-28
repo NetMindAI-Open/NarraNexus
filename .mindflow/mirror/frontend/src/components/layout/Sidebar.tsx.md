@@ -1,8 +1,97 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-07-28
+last_verified: 2026-09-06
 stub: false
 ---
+
+## 2026-09-04 (合并 dev #383) — 两边删除取并集
+
+本分支删了 `useCreateAgent`（「+」改为进 [[../../pages/ChooseCreateMethodPage.tsx]]），#383 删了
+`useChatStore` / `usePreloadStore` / `clearPreload`（会话清理收进 `lib/sessionWipe`）。合并后
+两组都不在。
+
+stub: false
+---
+
+## 2026-09-03 — 「+」改为进创建分叉页
+
+CreateMenu 的 `onCreateAgent` 从直接调 `createAgent()` 改为
+`navigate('/app/agents/new')`。一次点击直达是**用户没意识到自己创建了 agent**
+的直接原因（见 [[ChooseCreateMethodPage.tsx]] 的归因），分叉页上的「从空白
+开始」调的还是同一个 `useCreateAgent()`。
+
+连带清掉：本文件不再需要 `useCreateAgent()`，`creatingAgent` 的 `disabled`
+也随之失去意义（导航是瞬时的），一并删除，不留死状态。
+## 2026-08-20 — Export 行深链进 Dashboard 导出标签
+
+「导出功能融入智能体管理」:侧栏 Export 行不再去独立的 `/app/bundle/export`,
+改跳 `/app/dashboard?tab=export`(DashboardPage 首帧读 `?tab=` 落到内嵌导出向导)。
+active 高亮用 `dashboardTab = new URLSearchParams(location.search).get('tab')`
+(不是 `search.includes('tab=export')`,否则 `?tab=exportfoo` 会误命中):Export 行
+`pathname=/app/dashboard && dashboardTab==='export'`,Dashboard 行(智能体管理)
+反过来 `dashboardTab!=='export'`,避免 `?tab=export` 时两行同亮。Export 行也补了
+`prefetchDashboard`(它现在也是通往 dashboard chunk 的入口)。独立
+`/app/bundle/export` 路由仍在(TeamDetail 快捷导出复用)。测试:sidebarExportEntry.test.tsx。
+
+
+## 2026-08-19 — 账户入口指向设置内 pane
+
+弹层 Account 项改 navigate('/app/settings?tab=account')——同一目的地,
+少一跳别名重定向。
+
+## 2026-08-19 — 账户弹层只剩身份;工作台升一级导航
+
+- 弹层瘦身为:用户名+在线/模式/版本头、Account(NetMind 用户,去
+  /app/account)、移动端反馈入口、Logout。主题/语言迁去 Settings →
+  Personalization([[PersonalizationSettings]]),工作台入口迁出。
+  langOpen 状态、语言列表、主题切换项及其 import 一并删除。
+- 全局导航在 Marketplace 与 Settings 之间新增「你的工作台」行(/app/you,
+  BookOpen 图标)——它是常用目的地,不该藏在身份弹层里。
+
+## 2026-08-19 — 账户弹层点击页面任意处可关闭
+
+账户弹层的全屏 backdrop 换 [[useDismissOnOutside]](挂 Zone-3 容器,dismiss
+同时收起语言子菜单)。与行菜单/CreateMenu 同批统一:侧栏内所有自绘弹层的
+关闭语义现在都是「点页面任意处/Escape」。
+
+## 2026-08-19 — squash 残留清理
+
+两条指向 `@/components/ui` 的 import 合并为一条(squash 自动合并残留,无行为
+变化)。
+
+## 2026-08-06 (3) — 账户弹层三项指向 /app/account
+
+Account / Billing / Subscription 从 navigate('/app/settings?tab=account')
+改为 navigate('/app/account')(Settings 的 account 面板已迁出,见
+[[../../pages/AccountPage.tsx]])。仍以 netmindToken 存在为显示条件。
+
+## 2026-08-06 (2) — Create team 入口改跳页
+
+New 菜单的 Create team 从打开 TeamManagementModal 改为 navigate
+('/app/teams/new')(新 [[../../pages/CreateTeamPage.tsx]]);modal 挂载
+从 Sidebar 移除(Dashboard Teams 视图仍在用它管理既有团队)。
+
+## 2026-08-06 — Chat UI v4:三层结构重写
+
+按 v4 设计稿(specs/2026-08-06-chat-ui-v4-design.dc.html)整体重排:
+① logo + 收起按钮(panel 图标);② 全局导航列 — New(下拉:Create agent /
+Create team / Import .nxbundle / Import from other source,见 [[CreateMenu.tsx]])
+/ Export / Dashboard / Marketplace / Settings / System(gated),之后才是
+Chats 列表;③ 底部用户行 → **账户弹层**(工作台 / Account / Billing /
+Subscription(netmindToken 才显示)/ Theme / Language(内联展开列表)/
+Logout)+ Find Us 外链(从 TopBar 迁入,保持 target=_blank + noopener)。
+
+关键不变量(沿袭):logout / 切模式仍是 wipeAllSessionData() + **硬跳转**
+window.location.href;SHOW_MODE_SWITCHER 逻辑保留在弹层里未删。
+收起态改为 **整个 aside 隐藏**(uiStore.sidebarCollapsed,md:hidden),
+72px 图标栏退役;展开按钮在聊天头部 / MainLayout 浮动 chip 上,不在本组件。
+TeamManagementModal / ImportAgentModal 的挂载点从 AgentList 移到这里。
+宽度 288→272px。ThemeToggle / LanguageToggle 组件不再被本文件引用
+(账户弹层内联实现),组件本身保留给其他调用方。
+
+## 2026-08-12 — 悬停预取 DashboardPage 补 `.catch`（复审二轮 🟢）
+
+`prefetchDashboard` 的 `import('@/pages/DashboardPage')` 加 `.catch(() => {})`——删掉全局 `vite:preloadError` 监听后没人 `preventDefault`,后台预取失败本应静默(真导航会重试、[[ChunkErrorBoundary.tsx]] 兜到达 render 的),把「故意忽略」写进代码而非留成 unhandled rejection。纯加固,无行为变化。
 
 ## 2026-07-28 — Beta 徽章挂到 logo 旁
 
@@ -114,3 +203,12 @@ on mobile it becomes an off-canvas drawer toggled from the TopBar.
   `features.showSystemPage` (runtimeStore). The mode-switch popup is a raw
   positioned `div`, not a Popover — it doesn't close on outside-click; you toggle
   it by clicking the button again.
+
+## 2026-08-27 — session wipe extracted
+
+`wipeAllSessionData` moved to [[sessionWipe]]: the first-run flow's rail also
+offers "log out", and a second hand-rolled half-logout is how cloud data bled
+into a later local session before. The sidebar still owns the confirm dialog and
+the `window.location.href` reload — only the wipe itself is shared.
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

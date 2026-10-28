@@ -1,9 +1,18 @@
 ---
 code_file: tauri/src-tauri/src/commands/auth.rs
-last_verified: 2026-05-06
+last_verified: 2026-08-28
 ---
 
 # auth.rs — IPC commands for Claude Code OAuth login/logout/status
+
+## 2026-08-28 — 登录 PATH 含插件目录（Claude 不再自带）
+
+`claude auth login/logout` 仍 shell `claude`，PATH 由 `build_child_path()` →
+[[state]] `resolve_bundled_node_bins()` 拼。Claude Code 改按需插件后，该 helper
+现在也 append `~/.narranexus/plugins/nodejs/node_modules/.bin`，故用户在
+设置 → 插件 装完 Claude Code 后，登录能找到插件版 `claude`。凭据仍写
+`~/.claude/.credentials.json`（[[plugin_paths]]：per-user，跟二进制位置无关，
+登录一次到处认）。**未装插件时登录会 command-not-found——这是预期**（先装再登）。
 
 Four commands exposed to the frontend:
 - `trigger_claude_login`  → spawns `claude auth login`, records the child

@@ -1,20 +1,24 @@
 """
 @file_name: test_inline_assistant_error_event.py
 @date: 2026-07-14
-@description: An inline AssistantMessage.error must fold CLI stderr into the
-error event so the real provider cause survives.
+@description: An inline AssistantMessage.error must carry the real provider
+cause in the error event, not just the collapsed enum.
 
 AssistantMessage.error is a 6-value enum; the Claude CLI collapses a litellm
-ContextWindowExceededError to `unknown`, and the token-count detail survives
-ONLY in CLI stderr. _inline_assistant_error_event keeps error_type = the enum
-(so the classifier can still key on it) and appends the stderr tail so
-classify_self_serviceable can recover "context window" from the message — the
-end-to-end fix for the "black box" P1.
+ContextWindowExceededError to `unknown`. _inline_assistant_error_event keeps
+error_type = the enum (so the classifier can still key on it) and builds
+error_message from two channels, in this order (2026-09-03): the CLI's own
+inline text is the message, verbatim — for a subscription 429 that text IS
+the reason ("Opus is experiencing high load…", "You've hit your limit ·
+resets …") — and the CLI stderr tail is appended after it (litellm's token
+counts live there), so classify_self_serviceable can still recover "context
+window" / "balance not enough" from the message — the end-to-end fix for the
+"black box" P1.
 """
-from xyz_agent_context.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _inline_assistant_error_event,
 )
-from xyz_agent_context.agent_framework.llm.failure import classify_self_serviceable
+from narranexus.platform.agent_framework.llm.failure import classify_self_serviceable
 
 
 def _data(ev):
@@ -79,15 +83,18 @@ def test_inline_text_balance_error_classifies_as_insufficient_balance():
     )
 
 
-def test_stderr_wins_when_both_are_present():
-    """stderr is the richer channel (it carries litellm's numbers); the inline
-    text is the fallback for when there is no stderr at all."""
+def test_text_leads_and_stderr_is_appended():
+    """The inline text is the message the user reads, verbatim; stderr (which
+    carries litellm's numbers) rides behind it so the classifier still sees
+    both."""
     d = _data(
         _inline_assistant_error_event(
             "unknown", ["stderr-marker"], assistant_text="text-marker"
         )
     )
+    assert d["error_message"].startswith("text-marker")
     assert "stderr-marker" in d["error_message"]
+    assert d["error_message"].index("text-marker") < d["error_message"].index("stderr-marker")
 
 
 def test_no_detail_anywhere_still_produces_the_plain_enum():

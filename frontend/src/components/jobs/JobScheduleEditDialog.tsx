@@ -123,14 +123,14 @@ export function JobScheduleEditDialog({ job, isOpen, saving, onClose, onSave }: 
           {canSwitchMode && (
             <div className="space-y-1.5">
               <span className="block text-xs text-[var(--text-secondary)]">{t('jobs.editSchedule.modeLabel')}</span>
-              <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)]">
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-[var(--radius-lg)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)]">
                 {(['interval', 'cron'] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
                     onClick={() => { setMode(m); setError(null); }}
                     className={
-                      'py-1.5 text-xs rounded-md transition-colors ' +
+                      'py-1.5 text-xs rounded-[var(--radius-md)] transition-colors ' +
                       (mode === m
                         ? 'bg-[var(--text-primary)] text-[var(--text-inverse)] font-medium'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]')
@@ -187,7 +187,7 @@ export function JobScheduleEditDialog({ job, isOpen, saving, onClose, onSave }: 
             <select
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              className="w-full rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--border-strong)] outline-none"
+              className="w-full rounded-[var(--radius-lg)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--border-strong)] outline-none"
             >
               {timezones.map((tz) => (
                 <option key={tz} value={tz}>{tz}</option>

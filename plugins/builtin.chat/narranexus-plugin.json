@@ -1,0 +1,36 @@
+{
+  "id": "builtin.chat",
+  "version": "1.0.0",
+  "displayName": "Chat",
+  "description": "Builtin module ChatModule.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0,
+    "trigger": 0,
+    "hook": 0,
+    "data_access": 0,
+    "route": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.chat_module.contribution:MODULES"
+    ],
+    "ingress.triggers": [
+      "narranexus_plugins.chat_module.contribution:TRIGGERS"
+    ],
+    "backend.hooks": [
+      "narranexus_plugins.chat_module.plugin_hooks:HOOKS"
+    ],
+    "agent.capabilities.data_access": [
+      "narranexus_plugins.chat_module.data_access:DATA_ACCESS"
+    ],
+    "backend.routes": [
+      "narranexus_plugins.chat_module.routes:ROUTES"
+    ]
+  },
+  "quality": "gold"
+}

@@ -9,7 +9,7 @@
      agent slot (has a provider_id);
   2. otherwise falls back to the OWNER's user_slots default (NOT the trigger
      identity — the pre-fix bug);
-  3. degrades to claude_code on missing rows / DB hiccup.
+  3. degrades to nexus_power on missing rows / DB hiccup.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from collections import defaultdict
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _resolve_agent_framework_name,
 )
 
@@ -98,12 +98,22 @@ async def test_override_with_provider_but_null_framework_does_not_win():
 
 
 @pytest.mark.asyncio
-async def test_missing_owner_defaults_to_claude_code():
+async def test_missing_owner_defaults_to_nexus_power():
     db = _FakeDB()
     db.tables["agents"].append({"agent_id": "ag1", "created_by": ""})
-    assert await _resolve_agent_framework_name("ag1", db) == "claude_code"
+    assert await _resolve_agent_framework_name("ag1", db) == "nexus_power"
 
 
 @pytest.mark.asyncio
-async def test_db_hiccup_defaults_to_claude_code():
-    assert await _resolve_agent_framework_name("ag1", _BoomDB()) == "claude_code"
+async def test_db_hiccup_defaults_to_nexus_power():
+    assert await _resolve_agent_framework_name("ag1", _BoomDB()) == "nexus_power"
+
+
+@pytest.mark.asyncio
+async def test_no_slot_row_resolves_to_nexus_power_regression():
+    """Regression guard for the platform default flip (2026-08-20): an agent
+    whose owner has NO user_slots row must resolve to nexus_power. Revert
+    _DEFAULT_FRAMEWORK and this goes red."""
+    db = _FakeDB()
+    db.tables["agents"].append({"agent_id": "ag_new", "created_by": "owner_no_slot"})
+    assert await _resolve_agent_framework_name("ag_new", db) == "nexus_power"

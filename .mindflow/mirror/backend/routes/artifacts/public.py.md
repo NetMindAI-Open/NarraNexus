@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/artifacts/public.py
-last_verified: 2026-07-21
+last_verified: 2026-08-20
 stub: false
 ---
 
@@ -8,7 +8,7 @@ stub: false
 
 The fat part of `get_raw` (pointer lookup, flat→nested workspace fallback,
 path-escape confinement, workspace-root single-file rule, media-type choice)
-moved to `xyz_agent_context/artifact/_artifact_impl/raw_access.py` — see
+moved to `narranexus/platform/artifact/_artifact_impl/raw_access.py` — see
 [[raw_access.py]]. The handler keeps exactly the HTTP concerns: token
 verification (`_artifact_token.verify`) and response headers (CSP via
 `_csp_for_html` / `_non_html_csp` / `_app_origin`, which all stay in this
@@ -157,3 +157,17 @@ right now — re-registering an artifact silently swaps the served content.
   `Host` — robust enough.
 - Path confinement uses `os.path.realpath` + `startswith(workspace + os.sep)`
   so symlinks inside the workspace can't escape.
+
+## 2026-08-19 — entry html 的 edit_bridge 注入
+
+`?edit_bridge=1` 且 is_entry 且 kind=text/html → 读文本注入桥脚本
+(HTMLResponse,同一套 CSP/SAFE_HEADERS);资产与非 html 一律不注入。
+桥来自 artifact 包公共口 inject_edit_bridge(不直捅 _impl)。
+
+## 2026-08-20 — 桥注入前严格解码(#334 I4)
+
+errors="replace" 会把非 UTF-8 字节换成 U+FFFD,而编辑管线 PUT 回的是
+**整个**解码文本——改一个词毁全文件编码,且乐观锁看不见(它 hash 的是
+前端取到的字节)。改为读 bytes+严格 decode;解不动 → 不注入、落回
+FileResponse(可看、逐字节原样、不可编辑)——与 md 守卫同一降级纪律。
+GBK fixture 测试钉死字节恒等。

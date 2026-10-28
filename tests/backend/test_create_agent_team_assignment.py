@@ -17,8 +17,8 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.repository.user_repository import UserRepository
-from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
+from narranexus.platform.repository.user_repository import UserRepository
+from narranexus.platform.repository import TeamRepository, TeamMemberRepository
 
 
 async def _async_return(value):

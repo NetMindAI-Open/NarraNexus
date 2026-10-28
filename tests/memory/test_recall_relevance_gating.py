@@ -13,8 +13,8 @@ the documented recency fallback.
 """
 from datetime import datetime, timezone, timedelta
 
-from xyz_agent_context.memory.record import MemoryRecord
-from xyz_agent_context.memory._memory_impl.retrieval import rank_recall
+from narranexus.platform.memory.record import MemoryRecord
+from narranexus.platform.memory._memory_impl.retrieval import rank_recall
 
 NOW = datetime.now(timezone.utc)
 
@@ -81,7 +81,7 @@ def test_relevant_set_still_reordered_by_recency():
 # query leaked through the relevance gate (E2E follow-up, 2026-06-08: an asyncio
 # record surfaced for an outdoor query via shared 的/记/录). Stopword-filtering
 # those chars removes the spurious overlap while content chars still match.
-from xyz_agent_context.memory._memory_impl.retrieval import tokenize  # noqa: E402
+from narranexus.platform.memory._memory_impl.retrieval import tokenize  # noqa: E402
 
 
 def test_cjk_function_chars_are_stopworded():

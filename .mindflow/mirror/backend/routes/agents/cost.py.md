@@ -39,14 +39,14 @@ identity 通路。query-param 拒绝逻辑保留（防御 TDR-12 spoof）。
 
 ## 为什么存在
 
-每次 Agent 调用 LLM 时，`xyz_agent_context.utils.cost_tracker` 会把 token 消耗和费用记录到 `cost_records` 表。这个路由把这些原始记录聚合成前端可直接渲染的报表：总费用、按模型分类、按日期趋势，以及最近 N 条原始记录。
+每次 Agent 调用 LLM 时，`narranexus.platform.utils.cost_tracker` 会把 token 消耗和费用记录到 `cost_records` 表。这个路由把这些原始记录聚合成前端可直接渲染的报表：总费用、按模型分类、按日期趋势，以及最近 N 条原始记录。
 
 ## 上下游关系
 
 - **被谁用**：`backend/routes/agents/core.py` 聚合；前端 `CostPopover`
 - **依赖谁**：
   - `backend.auth._is_cloud_mode` / `get_local_user_id` — 拿当前 viewer 身份
-  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `cost_records` / `agents` 表
+  - `narranexus.platform.utils.db.db_factory.get_db_client` — 直接查询 `cost_records` / `agents` 表
 
 ## 设计决策
 

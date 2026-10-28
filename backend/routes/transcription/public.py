@@ -40,12 +40,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
-from xyz_agent_context.agent_framework.llm.transcription.url_signer import (
+from narranexus.platform.agent_framework.llm.transcription.url_signer import (
     SignedClaims,
     TokenError,
     verify,
 )
-from xyz_agent_context.utils.attachment_storage import resolve_attachment_path
+from narranexus.platform.utils.attachment_storage import resolve_attachment_path
 
 
 router = APIRouter()
@@ -80,7 +80,7 @@ def _resolve_path_for_variant(claims: SignedClaims) -> Path | None:
         # Fallback: team voice memos live in the per-user shared bus area, not
         # in an agent's user_upload_files. Still gated by the HMAC token +
         # user_id scoping in resolve_shared_file_by_id.
-        from xyz_agent_context.message_bus.attachments import (
+        from narranexus.platform.message_bus.attachments import (
             resolve_shared_file_by_id,
         )
         original = resolve_shared_file_by_id(claims.user_id, claims.file_id)

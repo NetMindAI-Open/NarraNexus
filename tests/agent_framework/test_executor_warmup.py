@@ -7,7 +7,7 @@ boot and the run wrongly drops into the fallback path.
 """
 import pytest
 
-from xyz_agent_context.agent_framework.loop import broker_client
+from narranexus.platform.agent_framework.loop import broker_client
 
 
 @pytest.mark.asyncio
@@ -18,7 +18,7 @@ async def test_wait_until_ready_polls_until_healthy(monkeypatch):
         calls["n"] += 1
         return calls["n"] >= 3  # becomes healthy on the 3rd poll (still booting before)
 
-    monkeypatch.setattr(broker_client, "_executor_healthy", _fake_healthy)
+    monkeypatch.setattr(broker_client, "executor_healthy", _fake_healthy)
     await broker_client.wait_until_ready("http://nx-exec-x:8020", timeout=5, interval=0.01)
     assert calls["n"] == 3  # waited, didn't give up early
 
@@ -28,7 +28,7 @@ async def test_wait_until_ready_returns_immediately_when_healthy(monkeypatch):
     async def _fake_healthy(url):
         return True
 
-    monkeypatch.setattr(broker_client, "_executor_healthy", _fake_healthy)
+    monkeypatch.setattr(broker_client, "executor_healthy", _fake_healthy)
     await broker_client.wait_until_ready("http://nx-exec-x:8020", timeout=5)  # no raise
 
 
@@ -37,7 +37,7 @@ async def test_wait_until_ready_raises_when_never_ready(monkeypatch):
     async def _fake_healthy(url):
         return False
 
-    monkeypatch.setattr(broker_client, "_executor_healthy", _fake_healthy)
+    monkeypatch.setattr(broker_client, "executor_healthy", _fake_healthy)
     with pytest.raises(RuntimeError):
         await broker_client.wait_until_ready(
             "http://nx-exec-x:8020", timeout=0.05, interval=0.01

@@ -1,13 +1,13 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactTabStrip.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
 
 ## 2026-07-30 — 原生 alert 换成应用内通知
 
 wry（Tauri webview）**不渲染** `window.alert`，调用直接返回、什么都不发生。所以桌面端
-删除制品失败时只有「确认弹窗没关」这一个弱信号，没有原因。改用 [[ConfirmDialog]] 的 `useNotice()`，与仓库既有的 20+ 处 confirm 先例同一条路。
+删除可视化产物失败时只有「确认弹窗没关」这一个弱信号，没有原因。改用 [[ConfirmDialog]] 的 `useNotice()`，与仓库既有的 20+ 处 confirm 先例同一条路。
 
 **chrome 不在调用点重复**：标题 / OK 文案 / danger 由 `useNotice` 提供，调用点只写
 message。第一版把这三行在 6 个文件里复制了 9 遍（评审点名），改文案要改 9 处。这同时把
@@ -116,3 +116,7 @@ Each tab `<div>` has an `onClick` that calls `setActive`. The pin and close `<bu
 ## Gotchas
 
 `ArtifactTabStrip` renders an "empty" message (`No artifacts yet`) when `artifacts.length === 0`. In practice, `ArtifactColumn` returns `null` before rendering the strip when there are no artifacts, so this empty state is a safety fallback that should never be visible to users. If the visibility logic in `ArtifactColumn` changes, this fallback becomes important.
+
+## 2026-08-19 — 未保存圆点
+
+TabButton 增 dirty prop(store editorDirtyIds)→ 琥珀圆点。

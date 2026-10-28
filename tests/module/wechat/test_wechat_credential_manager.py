@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.wechat_module._wechat_credential_manager import (
+from narranexus_plugins.wechat_module._wechat_credential_manager import (
     WeChatCredentialManager,
 )
 

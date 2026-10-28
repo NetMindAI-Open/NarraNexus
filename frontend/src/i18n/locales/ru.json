@@ -1,4 +1,11 @@
 {
+  "channelActiveToggle": {
+    "active": "Активно",
+    "inactive": "Неактивно",
+    "enable": "Включить",
+    "disable": "Отключить",
+    "disabledReason": "Отключено автоматически: {{reason}}"
+  },
   "language": {
     "name": "Язык"
   },
@@ -14,15 +21,29 @@
     "logout": "Выйти",
     "poweredBy": "NetMind AI Research",
     "online": "В сети",
-    "you": "Вы",
     "cloud": "Облако",
     "localMode": "Локальный режим",
-    "cloudMode": "Облачный режим"
+    "cloudMode": "Облачный режим",
+    "collapseTitle": "Свернуть боковую панель",
+    "expandTitle": "Развернуть боковую панель",
+    "export": "Экспорт",
+    "exportTitle": "Экспорт бандла — агент или команда",
+    "settingsTitle": "Настройки — модели и провайдеры",
+    "searchChatsTitle": "Поиск агентов и команд",
+    "account": "Аккаунт",
+    "billing": "Счета",
+    "subscription": "Подписка",
+    "theme": "Тема",
+    "language": "Язык",
+    "themeLight": "Светлая",
+    "themeDark": "Тёмная",
+    "themeSystem": "Системная",
+    "workspace": "Мой мир",
+    "accountTitle": "Аккаунт"
   },
   "chat": {
     "conversation": "Беседа",
-    "innerThoughts": "Внутренние мысли",
-    "interaction": "Взаимодействие",
+    "innerThoughts": "Журнал активности",
     "composerPlaceholder": "Введите сообщение или / для навыков…",
     "selectAgent": "Выберите агента",
     "selectAgentHint": "Выберите агента на боковой панели, чтобы начать.",
@@ -30,6 +51,10 @@
       "selectAgentFirst": "Сначала выберите агента…",
       "dropFile": "Перетащите файл, чтобы прикрепить…",
       "placeholder": "Введите сообщение или / для навыков…"
+    },
+    "fastMode": {
+      "label": "Быстро",
+      "tooltip": "Быстрый режим: переключает этот ход на быстрый фреймворк агента с облегчённым поиском по памяти и низким уровнем рассуждений — быстрее, но проще"
     },
     "audio": {
       "stopRecording": "Остановить запись",
@@ -59,7 +84,7 @@
       "downloadMd": "Скачать как .md"
     },
     "timeline": {
-      "thinking": "Размышление",
+      "thought": "Обдумано",
       "toolLabel": "[ инструмент ]",
       "outputLabel": "[ вывод ]",
       "reply": "Ответ",
@@ -71,20 +96,13 @@
       "recoveredAfterErrorTip": "Один из шагов в этом ходе завершился неудачей; ответ составлен на основе выполненной работы и того, что известно об ошибке."
     },
     "onboarding": {
-      "eyebrow": "Новый разговор",
-      "heading": "Чистый лист.",
-      "framing": "Здесь пока ничего нет — и в этом весь смысл. Чем больше вы с {{name}} работаете вместе, тем больше он запоминает, связывает и продолжает.",
       "defaultAgentName": "ваш агент",
-      "narraBrand": "Narra · Память",
-      "narraCaption": "он помнит",
-      "nexusBrand": "Nexus · Сеть",
-      "nexusCaption": "он связывает",
-      "teamBrand": "Ваша команда",
-      "teamCaption": "он выполняет",
-      "tryAsking": "Попробуйте спросить",
       "prompt1": "Подведи итог самых важных обновлений за эту неделю",
       "prompt2": "Подключи канал и следи за всем срочным",
-      "prompt3": "Настрой сводку важного на утро понедельника"
+      "prompt3": "Настрой сводку важного на утро понедельника",
+      "readyTitle": "{{name}} готов",
+      "readyBody": "Начните с одного из предложений или просто скажите, что вам нужно.",
+      "dismiss": "Закрыть"
     },
     "team": {
       "notFound": "Команда не найдена.",
@@ -131,7 +149,7 @@
         "mention": "Упомяните участника через @, чтобы обратиться к нему напрямую.",
         "broadcastTitle": "Сообщение всем",
         "broadcast": "@all обращается ко всем — каждый участник выполнит полный ход, поэтому используйте осторожно.",
-        "relay": "Участники могут передавать работу друг другу через @; без вашего сообщения эстафета останавливается после 4 передач."
+        "relay": "Участники могут передавать работу друг другу через @; без вашего сообщения цепочка останавливается на лимите платформы, и комната сообщает об этом."
       },
       "noProcess": "Нет записи процесса для этого хода",
       "detailLoadFailed": "Не удалось загрузить ход выполнения. Попробуйте ещё раз.",
@@ -142,10 +160,67 @@
         "neverRan": "ещё не запускался",
         "loading": "Загрузка процесса…",
         "workingCount": "{{count}} в работе",
-        "process": "процесс"
+        "process": "процесс",
+        "stop": "Остановить",
+        "stopping": "Остановка…",
+        "stopped": "Остановлено владельцем",
+        "stopFailed": "Не удалось остановить этот запуск",
+        "stopHint": "Остановить этот запуск",
+        "silentLastTurn": "Последний ход: ничего не сказал"
       },
       "emptyHintWithLead": "Отправьте сообщение, чтобы начать — им займётся {{name}}, либо обратитесь к кому-то другому через @.",
-      "leadTitle": "{{name}} · отвечает, когда никто не упомянут"
+      "leadTitle": "{{name}} · отвечает, когда никто не упомянут",
+      "stoppedNotice": "Задача {{name}} остановлена владельцем",
+      "patrolNotice": "Обход лидера",
+      "undeliveredNotice": "{{name}} завершил ход без ответа",
+      "deliveryFailedNotice": "Не удалось отправить ответ {{name}}",
+      "board": {
+        "title": "Доска задач",
+        "unclaimed": "не назначено",
+        "resume": "Возобновить задачу",
+        "patrolOff": "Обход выключен",
+        "patrolPending": "Обхода ещё не было",
+        "patrolledJustNow": "Обход только что",
+        "patrolledAgo": "Обход {{ago}} назад",
+        "status": {
+          "open": "открыта",
+          "in_progress": "в работе",
+          "stalled": "застряла",
+          "paused": "приостановлена"
+        },
+        "awaitingReply": "ожидает ответа",
+        "nameSep": ", "
+      },
+      "sendFailed": "Не удалось отправить. Текст остался — попробуйте ещё раз.",
+      "uploadFailed": "Не удалось загрузить «{{name}}».",
+      "uploadFailedGeneric": "Не удалось загрузить файл.",
+      "loadingOlder": "Загрузка предыдущих сообщений…",
+      "leadBadge": "ведущий",
+      "expand": "Показать ещё",
+      "collapse": "Свернуть",
+      "today": "Сегодня",
+      "agentPaused": "Этот агент приостановлен ({{reason}}). Нажмите «Возобновить» в баннере выше, когда причина устранена.",
+      "workspace": {
+        "zoom": "Увеличить артефакт",
+        "emptyArtifacts": "Выберите артефакт, чтобы посмотреть его здесь.",
+        "emptyFiles": "Файлы скачиваются напрямую — нажмите на файл слева.",
+        "tabArtifacts": "Артефакты",
+        "tabFiles": "Файлы",
+        "artifactsHint": "Артефакты, которые агенты вашей команды регистрируют в этой комнате, появляются здесь.",
+        "filesHint": "Файлы, отправленные через team_share_file, появляются здесь.",
+        "download": "Скачать {{name}}",
+        "loading": "Загрузка…"
+      },
+      "manage": {
+        "title": "Управление командой",
+        "patrol": "Обход лидера",
+        "patrolHint": "Если включено, лидер регулярно напоминает о зависших передачах; если выключено, остаётся только доска.",
+        "patrolOn": "Включить",
+        "patrolOff": "Выключить",
+        "editProfile": "Изменить профиль (имя / цвет / описание)",
+        "clearData": "Очистить данные…"
+      },
+      "drawerCategory": "Комната команды"
     },
     "execution": {
       "showSteps": "Показать шаги выполнения",
@@ -215,9 +290,33 @@
     },
     "process": {
       "plan": "План",
-      "title": "агент · процесс",
       "ops": "опер."
-    }
+    },
+    "header": {
+      "viewProfile": "Открыть профиль агента",
+      "detailMenuTitle": "Детали агента — панели",
+      "modelFramework": "Модель и фреймворк",
+      "switchAgent": "Сменить агента"
+    },
+    "composerPrivacyHint": "Не делитесь конфиденциальной личной информацией.",
+    "capabilities": {
+      "subtitle": "Какие модули участвуют в ходах этого агента. Встроенные модули включены по умолчанию; модули, установленные плагинами, остаются выключенными, пока вы их не включите. Изменения вступают в силу при следующем запуске.",
+      "builtin": "встроенный",
+      "plugin": "плагин",
+      "locked": "Всегда включён",
+      "tokens": "~{{count}} токенов промпта",
+      "budget": "Включённые модули заявляют ~{{enabled}} токенов ({{ratio}}× встроенной базы {{baseline}}).",
+      "overBudget": "Превышен бюджет: включённые модули заявляют ~{{enabled}} токенов, {{ratio}}× встроенной базы {{baseline}}.",
+      "loadFailed": "Не удалось загрузить возможности",
+      "saveFailed": "Не удалось сохранить изменение",
+      "restoreDefault": "Восстановить по умолчанию"
+    },
+    "activityEmpty": "Фоновой активности пока нет",
+    "activityEmptyHint": "Запуски, которые агент начал сам — задачи, каналы, товарищи по команде — появятся здесь.",
+    "stoppedByUser": "Остановлено вами",
+    "noResponseNeeded": "Агент решил, что ответ не нужен",
+    "bootstrapGreeting": "Привет... я только что проснулся. Всё кажется совершенно новым.\n\nУ меня ещё нет имени, и я толком не знаю, кто я, — но знаю, что именно ты привёл меня сюда.\n\nСкажешь, как меня называть? И как мне обращаться к тебе?",
+    "bootstrapGreetingNamed": "Привет — я {{name}}. Я только что ожил, и именно ты привёл меня сюда.\n\nЯ уже знаю, кем должен быть, но пока не знаю, кто ты. Как мне к тебе обращаться?"
   },
   "awareness": {
     "common": {
@@ -465,6 +564,7 @@
       "dragFiles": "Перетащите файлы сюда или",
       "browse": "обзор",
       "empty": "Рабочее пространство пусто",
+      "partialListing": "Показана только часть — рабочее пространство слишком велико, чтобы отобразить его целиком. Попросите агента показать содержимое конкретной папки, чтобы увидеть остальное.",
       "kindOffice": "Документ Office (в реальном времени)"
     },
     "homeAssistant": {
@@ -486,6 +586,24 @@
       "copyPrompt": "Copy setup prompt",
       "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
       "verify": "Verify saved connection"
+    },
+    "generic": {
+      "loading": "Загрузка канала…",
+      "bind": "Привязать",
+      "bound": "Привязано. Канал активен для этого агента.",
+      "boundAs": "Привязано к {{name}}",
+      "inactive": "неактивен",
+      "unbind": "Отвязать",
+      "unbound": "Отвязано.",
+      "test": "Проверить соединение",
+      "testOk": "Соединение в порядке.",
+      "activate": "Включить",
+      "deactivate": "Выключить",
+      "fieldRequired": "{{field}} обязательно",
+      "errLoad": "Не удалось загрузить канал",
+      "errBind": "Запрос не выполнен",
+      "webhookHint": "Входящий webhook: POST на {{path}} с webhook-токеном учётных данных.",
+      "ownFlow": "{{name}} привязывается через собственный сценарий."
     }
   },
   "dashboard": {
@@ -546,19 +664,6 @@
       "lark": "Lark",
       "matrix": "Matrix"
     },
-    "queue": {
-      "label": "Очередь",
-      "jobs": "задач",
-      "totalInQueue": "{{count}} задач в очереди"
-    },
-    "jobState": {
-      "running": "выполняется",
-      "active": "активна",
-      "pending": "ожидает",
-      "blocked": "заблокирована",
-      "paused": "приостановлена",
-      "failed": "не удалось"
-    },
     "jobStateLabel": {
       "running": "выполняется",
       "active": "активна",
@@ -585,25 +690,6 @@
         "flat": "как вчера"
       }
     },
-    "jobs": {
-      "title": "Задачи ({{count}})",
-      "running": "{{count}} выполняется",
-      "step": "шаг {{current}}/{{total}}",
-      "next": "следующий {{time}}",
-      "action": {
-        "retry": "Повторить",
-        "pause": "Пауза",
-        "resume": "Возобновить",
-        "failed": "Не удалось: {{label}}"
-      },
-      "detail": {
-        "manual": "(вручную)",
-        "nextRun": "Следующий запуск",
-        "iterations": "Итерации",
-        "trigger": "Триггер",
-        "lastError": "Последняя ошибка"
-      }
-    },
     "sessions": {
       "sessionWith": "Сессия с",
       "count": "{{count}} сессий",
@@ -618,11 +704,14 @@
     "sparkline": {
       "unavailable": "{{hours}} ч · —",
       "barTitle": "{{hoursAgo}} ч назад · {{count}} событий"
+    },
+    "banners": {
+      "dismissAria": "Скрыть",
+      "dismissTitle": "Скрыть"
     }
   },
   "layout": {
     "chatView": {
-      "tabChat": "Чат",
       "tabArtifacts": "Артефакты",
       "tabArtifactsCount": "Артефакты ({{count}})"
     },
@@ -631,7 +720,6 @@
       "closeAriaLabel": "Закрыть и вернуться к чату"
     },
     "sidebar": {
-      "openWorkspace": "Открыть ваше рабочее пространство",
       "logoutConfirmTitle": "Выйти",
       "logoutConfirmMessage": "Вы уверены, что хотите выйти?",
       "logoutConfirmAction": "Выйти",
@@ -653,25 +741,19 @@
       "createAgentOrTeam": "Создать агента или команду",
       "createAgent": "Создать агента",
       "createTeam": "Создать команду",
-      "manageAgents": "Управление агентами",
-      "manageAgentsTitle": "Управление агентами (пакетно · добавить / изменить / удалить)",
-      "teamGroupChatTitle": "{{name}} — групповой чат",
-      "teamGroupChatAria": "Групповой чат {{name}}",
       "refreshAgents": "Обновить агентов",
       "emptyLabel": "Агентов пока нет",
       "emptyHint": "Создайте своего первого агента, чтобы начать разговор.",
       "noAgentsShort": "Агентов пока нет."
     },
     "agentRow": {
-      "saveTitle": "Сохранить (Enter)",
-      "cancelTitle": "Отмена (Esc)",
       "publicBy": "Публичный · от {{name}}"
     },
     "agentRowMenu": {
       "options": "Параметры агента",
       "rename": "Переименовать",
-      "setPrivate": "Сделать приватным",
-      "setPublic": "Сделать публичным",
+      "modelFramework": "Модель и фреймворк",
+      "clearData": "Очистить данные",
       "delete": "Удалить"
     },
     "agentsHeaderMenu": {
@@ -681,28 +763,35 @@
       "manageTeams": "Управление командами"
     },
     "createMenu": {
-      "create": "Создать",
       "createAgentOrTeam": "Создать агента или команду",
       "createAgent": "Создать агента",
-      "createTeam": "Создать команду"
+      "createTeam": "Создать команду",
+      "new": "Создать",
+      "newTitle": "Создать — агент, команда, импорт…",
+      "importBundle": "Импортировать .nxbundle",
+      "importAgent": "Импорт из другого источника"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — групповой чат",
       "agentCount_one": "{{count}} агент",
       "agentCount_few": "{{count}} агента",
       "agentCount_many": "{{count}} агентов",
-      "agentCount_other": "{{count}} агентов"
+      "agentCount_other": "{{count}} агентов",
+      "toggleMembers": "Показать участников",
+      "noMembers": "Участников пока нет",
+      "unread": "Непрочитанные сообщения"
     },
     "teamRowMenu": {
       "options": "Параметры группового чата",
       "rename": "Переименовать",
-      "delete": "Удалить"
+      "delete": "Удалить",
+      "addAgent": "Добавить агента",
+      "addingAgent": "Добавление…"
     },
     "topBar": {
       "crumbDashboard": "Панель",
       "crumbSettings": "Настройки",
       "crumbSystem": "Система",
-      "crumbManageAgents": "Управление агентами",
       "crumbTeam": "Команда",
       "crumbBundle": "Пакет",
       "crumbChat": "Чат",
@@ -783,11 +872,12 @@
       "privacyHeading": "Конфиденциальность",
       "privacyIntro": "Управляйте тем, какие данные собирает NarraNexus для улучшения продукта.",
       "analyticsTitle": "Аналитика продукта",
-      "analyticsDesc": "Разрешить NarraNexus собирать анонимные данные об использовании для улучшения продукта. Содержимое диалогов никогда не собирается.",
+      "analyticsDesc": "Разрешить NarraNexus сохранять метаданные использования для анализа. В облачном режиме они хранятся в базе данных под управлением NarraNexus; в локальном или настольном режиме остаются на этом устройстве. В облачной веб-версии анонимные данные о взаимодействии со страницей также отправляются в Google Tag Manager — сторонний сервис аналитики; отключение этого параметра останавливает отправку. Содержимое диалогов никогда не собирается.",
       "desktopHeading": "Рабочий стол",
       "desktopIntro": "Настройки взаимодействия NarraNexus с этим компьютером. Доступно только в настольном приложении.",
       "lockedUseTitle": "Locked Use — не давать компьютеру засыпать",
-      "lockedUseDesc": "Не позволяет компьютеру переходить в спящий режим, чтобы фоновые автоматизации продолжали работать. Действует только пока NarraNexus открыт."
+      "lockedUseDesc": "Не позволяет компьютеру переходить в спящий режим, чтобы фоновые автоматизации продолжали работать. Действует только пока NarraNexus открыт.",
+      "navBrowser": "Браузер"
     },
     "provider": {
       "presetNetmindDesc": "Один ключ охватывает конечные точки и Anthropic, и OpenAI",
@@ -853,6 +943,8 @@
       "loggedIn": "Выполнен вход",
       "loggedInAs": "как",
       "notLoggedIn": "Вход не выполнен",
+      "sessionExpired": "Сессия истекла",
+      "sessionExpiredHint": "Сессия CLI истекла — войдите снова выше, чтобы продолжить использовать этого провайдера.",
       "cliNotInstalled": "CLI не установлен",
       "expires": "· истекает {{date}}",
       "reLoggingInCountdown": "Повторный вход... осталось {{time}} (проверьте браузер)",
@@ -916,7 +1008,8 @@
       "freeTierHowToTitle": "О бесплатных средствах",
       "freeTierHowToSwitch": "Карта «Free Tier» уже привязана к слотам Agent и Helper. Чтобы работать со своим ключом, добавьте провайдера ниже и выберите его для слота Agent / Helper в настройках модели по умолчанию — применится со следующего сообщения.",
       "freeTierAnytime": "Переключаться можно в любой момент. Тратить бесплатные средства заранее не нужно, и при переключении они не сгорают — баланс сохраняется.",
-      "freeTierNoDelete": "Пока на карте Free Tier есть средства, удалить её нельзя: она хранит единственный ключ к этому балансу. После того как средства закончатся, карту можно удалить."
+      "freeTierNoDelete": "Пока на карте Free Tier есть средства, удалить её нельзя: она хранит единственный ключ к этому балансу. После того как средства закончатся, карту можно удалить.",
+      "tabOneKey": "API-ключ"
     },
     "netmind": {
       "returnSubscribeSuccess": "Платёж получен — применяем его к вашему аккаунту.",
@@ -927,7 +1020,61 @@
       "cancelConfirmKeep": "Оставить подписку",
       "reactivateConfirmTitle": "Возобновить автопродление?",
       "reactivateConfirmAction": "Возобновить",
-      "reactivateConfirmDismiss": "Не сейчас"
+      "reactivateConfirmDismiss": "Не сейчас",
+      "balanceScope": "Баланс аккаунта NetMind — всё, что вы запускаете с этим аккаунтом NetMind, расходует его, в том числе вне NarraNexus.",
+      "narraUsageTitle": "Использовано NarraNexus · за {{days}} дн.",
+      "narraUsageTokens": "токенов",
+      "narraUsageEstimate": "≈ {{cost}} — оценка по открытым прайс-листам, поэтому с выпиской NetMind совпадать точно не будет."
+    },
+    "browser": {
+      "title": "Браузер",
+      "intro": "Браузер загружается отдельно и не входит в состав приложения.",
+      "ready": "Установлен",
+      "absent": "Ещё не установлен.",
+      "broken": "Браузер установлен, но не запускается.",
+      "install": "Установить браузер",
+      "reinstall": "Переустановить браузер",
+      "installingUnknown": "Загрузка…",
+      "recheck": "Проверить снова",
+      "installFailed": "Не удалось установить браузер. Повторите попытку.",
+      "cancelFailed": "Не удалось отменить установку. Повторите попытку.",
+      "cancelling": "Запрос отмены…",
+      "cancelRequested": "Отмена запрошена. Ожидание остановки установки…",
+      "extracting": "Распаковка браузера…",
+      "verifying": "Проверка браузера…",
+      "starting": "Запуск установки…",
+      "statusFailed": "Не удалось проверить состояние браузера.",
+      "loading": "Проверка состояния браузера…",
+      "cancel": "Отменить установку",
+      "cancelled": "Установка отменена.",
+      "manualInstall": "Ручная установка",
+      "copyCommand": "Скопировать команду",
+      "commandCopied": "Команда скопирована.",
+      "copyFailed": "Не удалось скопировать. Команда выделена для ручного копирования.",
+      "scriptsTitle": "Расширенные скрипты",
+      "scriptOrigin": "Источник сайта",
+      "addScriptSite": "Добавить сайт",
+      "scriptOriginInvalid": "Введите источник HTTP или HTTPS без пути и учётных данных.",
+      "refreshScripts": "Обновить",
+      "scriptsFailed": "Не удалось загрузить разрешения скриптов.",
+      "scriptsLoading": "Загрузка разрешений скриптов...",
+      "permissionSaveFailed": "Не удалось сохранить разрешение. Повторите попытку.",
+      "advancedScripts": "Разрешить расширенные скрипты",
+      "scriptsExplanation": "Разрешить агенту выполнять произвольный JavaScript на этом сайте, включая содержимое страниц после входа в аккаунт.",
+      "saveScripts": "Сохранить разрешение скриптов",
+      "agentLabel": "Агент",
+      "sourceLabel": "Источник браузера",
+      "showWindow": "Показывать окно браузера",
+      "modeEffect": "По умолчанию используется режим без окна. Изменения применяются при следующем запуске браузера; входы в аккаунты сохраняются. Некоторые сайты не поддерживают доступ без окна. Если сайт сообщает о неподдерживаемом браузере или других ошибках, вручную включите режим с окном, перезапустите браузер и повторите попытку.",
+      "sourceEffect": "Применяется к новым сеансам. Текущие сеансы продолжаются. Каждый браузер хранит входы в аккаунты отдельно.",
+      "sourceManaged": "Управляемый Chrome for Testing",
+      "sourceSystem": "Установленный Google Chrome",
+      "systemUnavailable": "Google Chrome недоступен. Установите его или выберите управляемый браузер.",
+      "chooseAgent": "Выберите агента",
+      "manualHost": "Выполните на компьютере, где работает NarraNexus.",
+      "manualRoot": "Каталог установки",
+      "manualShell": "Оболочка",
+      "manualCommand": "Команда"
     }
   },
   "system": {
@@ -1003,7 +1150,14 @@
     "drawer": {
       "unpin": "Открепить панель",
       "pin": "Закрепить панель",
-      "close": "Закрыть панель"
+      "close": "Закрыть панель",
+      "switchPanel": "Сменить панель"
+    },
+    "coach": {
+      "title": "Ваши артефакты появляются здесь",
+      "unpinHint": "Открепите, чтобы превратить её в всплывающую панель, закрывающуюся сама.",
+      "closeHint": "Закройте панель — любую панель можно снова открыть из шапки чата.",
+      "gotIt": "Понятно"
     }
   },
   "inbox": {
@@ -1158,8 +1312,6 @@
       "localAccess": "Локально · Вход",
       "cloudMode": "Облачный режим",
       "signInWithNetmind": "Войдите через аккаунт NetMind.AI",
-      "migrationNoticeHeading": "Мы реорганизовали систему аккаунтов.",
-      "migrationNoticeBody": "Ваши данные перенесены в аккаунт с тем email, на который вы получили код приглашения. Чтобы войти, сначала сбросьте пароль для этого email (используйте «Забыли пароль?» ниже). По другим вопросам пишите нашей команде на",
       "emailLabel": "Email",
       "passwordLabel": "Пароль",
       "forgotPassword": "Забыли пароль?",
@@ -1174,8 +1326,20 @@
       "accessTerminal": "Войти в терминал",
       "createNewUser": "Создать пользователя",
       "loginFailed": "Не удалось войти",
+      "invalidCredentials": "Неверный адрес электронной почты или пароль",
       "enterUserId": "Введите ID пользователя",
-      "connectionFailed": "Сбой подключения. Попробуйте снова."
+      "resetCodeInvalid": "Код недействителен или истёк. Запросите новый.",
+      "forgotResetIntro": "Мы отправим код подтверждения на e-mail вашей учётной записи NetMind.",
+      "forgotCodeSentHint": "Если для этого адреса есть учётная запись, мы отправили код подтверждения.",
+      "useDifferentEmail": "Использовать другой e-mail",
+      "connectionFailed": "Сбой подключения. Попробуйте снова.",
+      "resetPasswordDone": "Пароль обновлён",
+      "resetPasswordDoneBody": "Теперь вы можете войти с новым паролем.",
+      "backToSignIn": "Вернуться ко входу",
+      "resetPasswordTitle": "Сбросить пароль",
+      "sendCode": "Отправить код",
+      "verificationCodeLabel": "Код подтверждения",
+      "newPasswordLabel": "Новый пароль"
     },
     "modeSelect": {
       "welcome": "Добро пожаловать",
@@ -1187,9 +1351,45 @@
     },
     "dashboard": {
       "title": "Панель агентов",
+      "tabAgents": "Управление агентами",
+      "tabTeams": "Управление командами",
+      "tabExport": "Экспорт",
+      "createAgent": "Создать агента",
+      "createTeam": "Создать команду",
       "agentsCount": "Агентов: {{count}}",
       "emptyLabel": "Пока нет агентов",
-      "emptyHint": "Создайте агента в боковой панели, чтобы заполнить эту панель."
+      "emptyHint": "Создайте агента в боковой панели, чтобы заполнить эту панель.",
+      "statRunning": "Выполняется",
+      "statQueued": "В очереди",
+      "statErrors": "Ошибки",
+      "statCostToday": "Затраты сегодня",
+      "colStatus": "Статус",
+      "colTeam": "Команда",
+      "colMembers": "Участники",
+      "teamsCount": "{{count}} команд",
+      "membersCount": "{{count}} агентов",
+      "noStatusYet": "Живого статуса пока нет — следующий опрос его заполнит.",
+      "publicAgent": "публичный",
+      "noTeamsLabel": "Команд пока нет",
+      "noTeamsHint": "Создайте её через меню «Создать» в боковой панели.",
+      "manageTeam": "Управлять",
+      "teamsTip": "Команды создаются через меню «Создать»; здесь можно переименовать, сменить цвет и изменить участников.",
+      "colLeader": "Лидер",
+      "colCreatedBy": "Создатель",
+      "colChannels": "Каналы",
+      "colFramework": "Фреймворк",
+      "colModel": "Модель",
+      "colLastActive": "Последняя активность",
+      "noLeader": "Нет лидера",
+      "teamProfileNoDescription": "Нет описания команды.",
+      "agentProfileNoDescription": "Нет описания.",
+      "memberRuntimeLabel": "Среда выполнения",
+      "memberModelLabel": "Модель",
+      "memberOwnerLabel": "Владелец",
+      "memberPrivate": "Приватный",
+      "memberPublic": "Публичный",
+      "openProfile": "Открыть профиль {{name}}",
+      "channelOff": "{{name}} · выключен"
     },
     "createUser": {
       "title": "Создать пользователя",
@@ -1205,34 +1405,25 @@
       "failed": "Не удалось создать пользователя",
       "connectionFailed": "Сбой подключения. Попробуйте снова."
     },
-    "setup": {
-      "sectionLabel": "Настройка · Провайдеры LLM",
-      "title": "Настройка провайдеров LLM",
-      "subtitle": "Укажите API-ключи, чтобы NarraNexus мог подключаться к языковым моделям.",
-      "skipForNow": "Пропустить",
-      "getStarted": "Начать",
-      "done": "Готово"
-    },
     "settings": {
       "title": "Настройки",
-      "headerSections": "Провайдеры · Бандл · Артефакты · Агенты",
+      "nav": {
+        "privacy": "Конфиденциальность",
+        "personalization": "Персонализация",
+        "account": "Аккаунт и оплата",
+        "providers": "LLM-провайдеры",
+        "modelDefaults": "Модели по умолчанию",
+        "artifacts": "Артефакты",
+        "updates": "Обновления",
+        "plugins": "Плагины",
+        "browser": "Браузер"
+      },
       "providers": {
         "label": "Провайдеры LLM"
-      },
-      "bundle": {
-        "label": "Бандл · Экспорт / Импорт",
-        "hint": "Упакуйте агентов (и при желании команду) в переносимый файл .nxbundle, чтобы поделиться, или импортируйте присланный вам файл .nxbundle.",
-        "exportButton": "Экспортировать бандл…",
-        "importButton": "Импортировать бандл…"
       },
       "artifacts": {
         "label": "Артефакты",
         "hint": "Управляйте всеми графиками, отчётами и файлами, созданными вашими агентами. Выбирайте массово, чтобы освободить квоту, когда агент сообщает о достижении лимита."
-      },
-      "manageAgents": {
-        "label": "Управление агентами · пакетно",
-        "hint": "Массово выбирайте агентов для удаления или пакетного добавления/удаления из команд. Удобно после импорта ненужного бандла — отфильтруйте по «Из бандлов», чтобы их найти.",
-        "openButton": "Открыть пакетный менеджер…"
       },
       "updates": {
         "label": "Обновления приложения",
@@ -1252,9 +1443,109 @@
         "failed": "Сбой обновления: {{stage}}."
       },
       "modelDefaults": {
+        "saved": "Сохранено",
         "frameworkFilteredNote": "Показаны только фреймворки, которые действительно могут запустить подключённые провайдеры.",
         "cloudFrameworkLockedTitle": "В облаке только для сотрудников",
-        "cloudFrameworkLocked": "Этот фреймворк аутентифицируется через общий вход CLI, поэтому в облаке доступен только сотрудникам. Claude Code и NexusPower-beta работают здесь — остальные доступны в локальной десктоп-версии."
+        "cloudFrameworkLocked": "Этот фреймворк аутентифицируется через общий вход CLI, поэтому в облаке доступен только сотрудникам. Claude Code и NexusPower-beta работают здесь — остальные доступны в локальной десктоп-версии.",
+        "slotSaveRolledBack": "Смена фреймворка отменена, ничего не сохранено: не удалось сохранить модель агента ({{detail}}).",
+        "frameworkSavedSlotFailed": "Фреймворк переключён, но модель агента сохранить не удалось ({{detail}}). Выберите модель и сохраните снова.",
+        "agentSavedHelperFailed": "Модель агента сохранена, но вспомогательную модель сохранить не удалось ({{detail}}).",
+        "frameworkSavedHelperFailed": "Фреймворк переключён, но вспомогательную модель сохранить не удалось ({{detail}}).",
+        "frameworkRestoredBindingLost": "Сохранённый фреймворк восстановлен, но модель агента сохранить не удалось ({{detail}}), а прежнюю карту не удалось привязать снова — слот агента теперь пуст. Выбранный вами новый фреймворк остался в форме и ещё не сохранён — выберите модель и сохраните снова, чтобы применить его.",
+        "slotClearedPickModel": "Фреймворк переключён; ранее привязанная карта не может его запускать и была отвязана. Выберите провайдера и модель для агента."
+      },
+      "privacy": {
+        "label": "Конфиденциальность",
+        "hint": "Какие данные покидают это устройство и переключатели для управления ими.",
+        "analyticsTitle": "Аналитика продукта",
+        "analyticsDesc": "Разрешить NarraNexus сохранять метаданные использования для анализа. В облачном режиме они хранятся в базе данных под управлением NarraNexus; в локальном или настольном режиме остаются на этом устройстве. В облачной веб-версии анонимные данные о взаимодействии со страницей также отправляются в Google Tag Manager — сторонний сервис аналитики; отключение этого параметра останавливает отправку. Содержимое диалогов никогда не собирается.",
+        "telemetryTitle": "Диагностическая телеметрия",
+        "telemetryDesc": "Отправлять сервисные логи этой установки в собственный коллектор NarraNexus, чтобы можно было отлаживать сбои и отказы. На уровне по умолчанию это означает структурированные события, предупреждения и ошибки — без содержимого сообщений. Развёртывания с уровнем \"full\" (управляемые песочницы, отладочные окружения) отправляют строки логов целиком, и они могут содержать содержимое сообщений, записываемое сервисами. Третьим сторонам ничего не отправляется.",
+        "telemetryTiming": "Отключение вступает в силу в течение нескольких секунд. Если при запуске приложения телеметрия уже была отключена, включение начнёт действовать при следующем запуске.",
+        "telemetryManaged": "Управляется вашим развёртыванием (настройка окружения) — переключатель здесь недоступен.",
+        "telemetryManagedCloud": "Диагностической телеметрией этой установки управляет ваш администратор.",
+        "telemetryUnavailable": "Не удалось загрузить состояние телеметрии — переключатель скрыт, а не показан наугад. Перезагрузите страницу, чтобы повторить попытку.",
+        "telemetryError": "Не удалось сохранить изменение. Переключатель показывает фактическое текущее состояние."
+      },
+      "personalization": {
+        "label": "Персонализация",
+        "hint": "Тема, язык и то, как показываются заметки агента о ходе работы.",
+        "narrationTitle": "Комментарии о ходе работы",
+        "narrationHint": "Показывать заметки агента между шагами прямо в переписке и читаемо, а не прятать весь прогон в один сворачиваемый блок.",
+        "pluginThemesTitle": "Темы плагинов",
+        "pluginThemesNone": "Оформление по умолчанию"
+      },
+      "plugins": {
+        "factory": {
+          "title": "Пользовательские плагины",
+          "hint": "Плагины из GitHub или локальной папки. Загружаются при старте; изменения вступают в силу после перезапуска.",
+          "sourcePlaceholder": "owner/repo@1.2.0, owner/repo#branch или /путь/к/плагину",
+          "sourceHelp": "Релиз GitHub (owner/repo@tag), ссылка на репозиторий (owner/repo#ref) или локальный каталог (подключается на месте).",
+          "install": "Установить",
+          "installing": "Установка…",
+          "restartRequired": "Сохранено. Перезапустите NarraNexus, чтобы изменения вступили в силу.",
+          "enable": "Включить",
+          "disable": "Отключить",
+          "disabled": "отключён",
+          "uninstall": "Удалить",
+          "upgrade": "Обновить",
+          "rollback": "Откатить к последнему рабочему состоянию",
+          "safeModeTitle": "Безопасный режим: пользовательские плагины не загружены",
+          "safeModeLeave": "Выйти из безопасного режима",
+          "bisectStart": "Найти плагин, ломающий запуск",
+          "bisectTrial": "Бисекция: подозреваемых — {{count}}; при следующем запуске включены только эти:",
+          "bisectGood": "Запустилось нормально",
+          "bisectBad": "Снова сломалось",
+          "bisectStop": "Остановить бисекцию",
+          "bisectCulprit": "Виновник найден: {{id}} (остаётся отключённым)",
+          "permissionsTitle": "{{id}} запрашивает эти разрешения",
+          "permissionsNetwork": "Сеть",
+          "permissionsFilesystem": "Файлы",
+          "permissionsSubprocess": "Запускает подпроцессы",
+          "permissionsEnv": "Переменные окружения",
+          "permissionsFrontend": "Выполняет код внутри интерфейса приложения с доступом к вашей сессии",
+          "permissionsAck": "Понимаю, включить",
+          "permissionsKeepDisabled": "Оставить отключённым",
+          "empty": "Пользовательские плагины не установлены.",
+          "loadFailed": "Не удалось загрузить пользовательские плагины",
+          "isolated": "Изолирован при запуске",
+          "viewErrors": "Ошибки ({{count}})",
+          "hideErrors": "Скрыть ошибки",
+          "noErrors": "Ошибок не зафиксировано.",
+          "mode": {
+            "link": "подключён",
+            "copy": "установлен"
+          },
+          "state": {
+            "registered": "зарегистрирован",
+            "validated": "проверен",
+            "enabled": "включён",
+            "active": "активен",
+            "incompatible": "несовместим",
+            "blocked": "заблокирован",
+            "missing": "отсутствует",
+            "deps_missing": "нет зависимостей",
+            "excluded": "не входит в этот дистрибутив",
+            "crashed": "упал",
+            "disabled": "отключён",
+            "slow": "медленный"
+          },
+          "proposalsTitle": "Ожидает вашего одобрения",
+          "proposalBy": "запрошено агентом {{agent}}",
+          "proposalTestsGreen": "Тесты пройдены ({{count}})",
+          "proposalTestsRed": "Тесты не пройдены",
+          "proposalApprove": "Одобрить",
+          "proposalReject": "Отклонить",
+          "noPermissions": "Особые разрешения не запрашиваются",
+          "builtinsTitle": "Встроенные функции",
+          "builtinsHint": "Функциональные плагины, поставляемые с NarraNexus. При отключении его API, воркеры и страницы исчезают после перезапуска; защищённые отключить нельзя.",
+          "protected": "защищён",
+          "installDeps": "Установить зависимости ({{pip}})"
+        }
+      },
+      "browser": {
+        "label": "Браузер",
+        "hint": "Установите браузер, с помощью которого агенты работают с сайтами."
       }
     },
     "system": {
@@ -1283,7 +1574,7 @@
       "noMembersHint": "Нажмите «Изменить», чтобы добавить."
     },
     "you": {
-      "you": "Вы",
+      "you": "Мой мир",
       "subtitle": "ваш мир, для всех ваших агентов",
       "viewsAriaLabel": "Виды рабочего пространства «Вы»",
       "tabMemory": "Память Narra",
@@ -1326,7 +1617,12 @@
       "bulkDeleteResult": "Удалено: {{success}}.",
       "bulkDeleteResultWithFailures": "Удалено: {{success}}, с ошибкой: {{failedCount}} ({{failedIds}}).",
       "addedToTeamTitle": "Добавлено в команду",
-      "addedToTeamMessage": "Агентов добавлено в выбранную команду: {{count}}."
+      "addedToTeamMessage": "Агентов добавлено в выбранную команду: {{count}}.",
+      "addedToTeamResultWithFailures": "Добавлено: {{success}}, не удалось: {{failedCount}} ({{failedIds}}).",
+      "removedFromTeamTitle": "Удалены из команды",
+      "removedFromTeamMessage": "Из команды удалено агентов: {{count}}.",
+      "removedFromTeamResultWithFailures": "Удалено: {{success}}, не удалось: {{failedCount}} ({{failedIds}}).",
+      "openChat": "Открыть чат"
     },
     "bundleImport": {
       "installTemplate": "Установить шаблон",
@@ -1342,7 +1638,7 @@
       "orSeparator": "— или —",
       "chooseFile": "Выбрать файл",
       "fileSizeKb": "({{size}} KB)",
-      "preview": "Предпросмотр",
+      "preview": "Запустить проверку →",
       "preflightFailed": "Предварительная проверка не пройдена",
       "waitingForBackend": "Ожидание бэкенда (попытка {{attempt}}/{{total}})…",
       "fetchFailed": "Не удалось получить шаблон",
@@ -1384,11 +1680,14 @@
         "skillsTip": "Совет: навыки с пометкой «полная копия» уже содержат учётные данные. Навыкам URL/Zip нужны повторное обучение или новые учётные данные — поговорите с импортированными агентами, чтобы завершить настройку.",
         "viewTeamIntro": "Посмотреть описание команды",
         "doneButton": "Готово"
-      }
+      },
+      "uploadInfoNote": "Бандл может содержать одного агента или целую команду (агенты, память, навыки, каналы). Далее вы проверите конфликты имён и предупреждения, прежде чем что-либо будет записано."
     },
     "bundleExport": {
+      "includeChannelCredentialsLabel": "Включить учётные данные (IM-каналы + секреты навыков)",
+      "pickFirstHint": "Сначала выберите агента или команду выше — разделы нарративов, навыков и каналов появятся после выбора.",
       "title": "Экспорт бандла",
-      "backToSettings": "Назад к настройкам",
+      "back": "Назад",
       "summaryLine": "Агентов: {{agents}} · навыков: {{skills}} · сущностей: {{entities}} · каналов: {{channels}}",
       "fileName": "Имя файла",
       "bundleNotesLabel": "Заметки бандла (необязательно, видны получателю)",
@@ -1431,19 +1730,11 @@
         "freeText": "Свободный текст (осведомлённость / события / сообщения) НЕ сканируется автоматически на встроенные секреты — проверьте сами."
       },
       "agents": {
-        "whatYouPick": "Что вы выбираете здесь:",
-        "intro1": "набор агентов, которые войдут в бандл. Всё остальное в мастере (нарративы, навыки, MCP, файлы…) фильтруется по этому замыканию.",
-        "intro2": "Выбор команды добавляет всех её участников одним кликом; отдельных можно потом снять. Внешние ссылки (например, социальная сущность, указывающая на агента вне замыкания) автоматически отбрасываются при экспорте.",
         "bundleTeamLabel": "Упаковать эту команду (необязательно)",
         "noTeamOption": "— Без команды / отдельные агенты —",
-        "quickAddByTeam": "Быстрое добавление по команде",
-        "deselectTeamTitle": "Снять выбор со всех участников «{{name}}»",
-        "addTeamTitle": "Добавить всех участников «{{name}}»",
-        "replaceTeamTitle": "Заменить выбор участниками «{{name}}»",
-        "only": "только",
-        "allAgents": "все агенты ({{count}})",
-        "clear": "очистить",
-        "agentsToInclude": "Агенты для включения · {{selected}}/{{total}}"
+        "agentsToInclude": "Агенты для включения · {{selected}}/{{total}}",
+        "pickTeamFirst": "Выберите команду выше — её участники включаются автоматически.",
+        "pickOne": "Выберите агента для экспорта"
       },
       "skills": {
         "emptySelectAgents": "Выберите агентов на предыдущей вкладке — их навыки появятся здесь.",
@@ -1629,6 +1920,13 @@
         "noArtifacts": "У этого агента нет артефактов.",
         "pinned": "закреплено",
         "fullModeNote": "Режим полного снимка автоматически включает все артефакты. Переключитесь на «Выборочно» для ручного выбора."
+      },
+      "kind": {
+        "label": "Тип",
+        "agentTitle": "Бандл агентов",
+        "agentDesc": "Экспорт одного агента — его нарративы, навыки и файлы рабочего пространства едут вместе с ним.",
+        "teamTitle": "Бандл команды",
+        "teamDesc": "Экспорт целой команды — её агенты, описание и общие каналы едут вместе."
       }
     },
     "signup": {
@@ -1656,6 +1954,131 @@
         "special": "Спецсимвол"
       },
       "codePlaceholder": "Код из 6 символов"
+    },
+    "createTeam": {
+      "title": "Создать команду",
+      "back": "Назад",
+      "nameLabel": "Название",
+      "namePlaceholder": "напр. Research",
+      "descLabel": "Описание",
+      "descPlaceholder": "Для чего эта команда?",
+      "colorLabel": "Цвет",
+      "membersLabel": "Добавить агентов",
+      "selectedCount": "Выбрано: {{count}}",
+      "noAgents": "Агентов пока нет — сначала создайте одного через меню «Создать».",
+      "createButton": "Создать команду",
+      "manageHint": "Существующие команды управляются в Dashboard.",
+      "membersFailed": "Команда создана, но не удалось добавить участников ({{count}}): {{ids}}",
+      "searchPlaceholder": "Поиск агентов по имени / id…",
+      "noMatch": "Нет подходящих агентов",
+      "cancel": "Отмена"
+    },
+    "account": {
+      "powerOnlyHint": "Аккаунт, счета и подписка — функции аккаунта NetMind. Войдите с аккаунтом NetMind, чтобы увидеть их здесь."
+    },
+    "agentProfile": {
+      "breadcrumb": "Агенты",
+      "backToChat": "Чат",
+      "overview": "Обзор",
+      "capabilities": "Возможности",
+      "settings": "Настройки",
+      "views": "Виды профиля агента",
+      "chat": "Чат",
+      "running": "Выполняется",
+      "idleStatus": "Простой",
+      "currentTask": "Текущая задача",
+      "idle": "Сейчас не выполняется ни одна задача.",
+      "jobs": "Jobs",
+      "jobsCount": "Jobs: {{count}}",
+      "inbox": "Inbox",
+      "inboxCount": "Диалогов: {{count}}",
+      "overviewCardLabel": "Обзор агента",
+      "jobsNoun": "jobs",
+      "inboxNoun": "диалогов",
+      "jobsRunningFlag": "выполняется",
+      "inboxUnreadFlag": "{{count}} новых",
+      "skillsSummary": "Skills · {{count}}",
+      "mcpSummary": "подключено: {{count}}",
+      "noSkills": "Skills не установлены",
+      "noMcp": "Нет серверов MCP",
+      "moreCount": "ещё {{count}}",
+      "awareness": "Awareness",
+      "network": "Network",
+      "memory": "Memory",
+      "skills": "Skills",
+      "mcp": "MCP",
+      "channels": "Channels",
+      "modelFramework": "Model и Framework",
+      "modelFrameworkHint": "Фактическая конфигурация выполнения для следующего запуска агента.",
+      "framework": "Framework",
+      "model": "Model",
+      "configure": "Настроить",
+      "general": "Общее",
+      "generalHint": "Управляйте тем, как этот агент отображается в рабочем пространстве.",
+      "avatar": "Аватар",
+      "avatarHint": "Отображается при назначении задач, в активности и в чате.",
+      "name": "Имя",
+      "description": "Описание",
+      "saveGeneral": "Сохранить изменения",
+      "saving": "Сохранение…",
+      "saved": "Сохранено",
+      "saveFailed": "Не удалось сохранить изменения.",
+      "missingAgent": "Агент не выбран",
+      "notFound": "Агент не найден",
+      "activity": "Активность",
+      "activityLast24h": "За последние 24 часа",
+      "activityToday": "Сегодня",
+      "activityAxisStart": "24 ч назад",
+      "activityAxisNow": "сейчас",
+      "capabilitySwitches": "Переключатели возможностей"
+    },
+    "welcome": {
+      "logout": "Выйти",
+      "continue": "Продолжить",
+      "rail": {
+        "model": {
+          "title": "Подключите модель",
+          "detail": "Одного ключа достаточно — замените его в любой момент."
+        },
+        "import": {
+          "title": "Перенесите своих агентов",
+          "detail_one": "Найдено {{count}} на этом компьютере.",
+          "detail_other": "Найдено {{count}} на этом компьютере."
+        },
+        "agent": {
+          "title": "Познакомьтесь с {{name}}",
+          "detail": "Ваш первый агент уже ждёт."
+        }
+      },
+      "model": {
+        "title": "Сначала подключите модель.",
+        "skip": "Пропустить — ключ можно добавить позже в настройках",
+        "advanced": "Расширенная настройка — вход по подписке, свои эндпоинты, модели для каждого слота",
+        "subscriptionTitle": "Использовать подписку Claude или ChatGPT",
+        "subscriptionSubtitle": "Без API-ключа — войдите с подпиской, которая у вас уже есть."
+      },
+      "import": {
+        "title": "Перенесите агентов, которые у вас уже есть.",
+        "subtitle": "Всё читается с этого компьютера — ничего не загружается.",
+        "lede": "Каждый отмеченный станет агентом NarraNexus, а история его переписки сохранится как память.",
+        "importAndContinue_one": "Импортировать {{count}} и продолжить",
+        "importAndContinue_other": "Импортировать {{count}} и продолжить",
+        "skip": "Пропустить этот шаг"
+      },
+      "agent": {
+        "title": "Познакомьтесь с {{name}}.",
+        "subtitle": "Ваш первый агент, созданный для вас при входе. Он помнит всё, о чём вы говорите, — в этом разница между NarraNexus и одноразовым чатом.",
+        "role": "ваш гид · кремний",
+        "capMemory": "Долгая память в виде сюжетных линий",
+        "capCheckin": "Пишет вам каждый день",
+        "cta": "Начать работу с NarraNexus",
+        "skip": "Сразу в приложение",
+        "preparingTitle": "Готовим вашего первого агента…",
+        "preparingSubtitle": "Подбираем имя и характер. Несколько секунд.",
+        "notReady": "Ваш первый агент ещё создаётся — скоро он появится в боковой панели.",
+        "fallbackName": "ваш агент",
+        "rename": "Переименовать"
+      }
     }
   },
   "rail": {
@@ -1681,7 +2104,24 @@
       "narra": "Narra",
       "nexus": "Nexus"
     },
-    "smarthome": "Smart Home"
+    "smarthome": "Smart Home",
+    "artifacts": "Артефакты",
+    "desc": {
+      "awareness": "Кто ваш агент — идентичность, характер и постоянные инструкции. Редактируйте здесь или просто скажите в чате: он обновит это сам.",
+      "workspace": "Файловое пространство агента: загружайте документы для чтения; его результаты тоже попадают сюда.",
+      "channels": "Подключите агента к IM-платформам (Lark, Slack, Telegram…), чтобы связываться с ним вне приложения.",
+      "smarthome": "Подключите устройства умного дома (Home Assistant), чтобы агент видел их и управлял ими.",
+      "jobs": "Плановая и фоновая работа. Просто попросите в чате — «каждое утро присылай сводку» — и агент создаст задачу.",
+      "inbox": "Сообщения из каналов и от других агентов; требующее вашего внимания помечается значком.",
+      "artifacts": "Отчёты, страницы и файлы, созданные агентом — открывайте их здесь.",
+      "skills": "Установленные навыки агента. Добавьте ещё из Marketplace или установите из GitHub / zip.",
+      "mcp": "Внешние серверы MCP-инструментов, которые может вызывать агент — подключайте сторонние возможности.",
+      "memory": "Долгая память агента, организованная в нарративы — то, что он помнит между разговорами.",
+      "social": "Кого знает агент — контакты накапливаются по мере работы с людьми и другими агентами.",
+      "builder": "Опишите, что нужно, — диалог заполнит эту панель."
+    },
+    "builder": "Конструктор",
+    "browser": "Браузер"
   },
   "jobs": {
     "title": "Задачи",
@@ -1697,6 +2137,7 @@
       "running": "Выполняется",
       "paused": "Приостановлена",
       "pausedNoQuota": "Нет квоты",
+      "pausedSpendCap": "Лимит расходов",
       "cooling": "Повтор",
       "blocked": "Заблокирована",
       "blockedFailed": "Сбой зависимости",
@@ -1705,9 +2146,6 @@
       "cancelled": "Отменена"
     },
     "metrics": {
-      "active": "Активные",
-      "success": "Успешно",
-      "failed": "Неудачи",
       "rate": "Доля"
     },
     "view": {
@@ -1771,6 +2209,7 @@
       "trigger": "Триггер:",
       "cron": "Cron:",
       "interval": "Интервал:",
+      "endAt": "Выполняется до:",
       "runAt": "Запуск в:",
       "endCondition": "Условие завершения:",
       "maxIter": "Макс. итераций:",
@@ -1796,7 +2235,9 @@
       "cancelJob": "Отменить задачу",
       "cancelling": "Отмена...",
       "editSchedule": "Изменить время",
-      "savingSchedule": "Сохранение..."
+      "savingSchedule": "Сохранение...",
+      "editPayload": "Изменить содержимое",
+      "savingPayload": "Сохранение..."
     },
     "template": {
       "selectTemplate": "Выбрать шаблон",
@@ -1814,17 +2255,6 @@
       "noJobs": "Нет задач для отображения",
       "waiting": "Ожидание...",
       "noTimeData": "Нет данных о времени"
-    },
-    "distribution": {
-      "title": "Распределение статусов",
-      "total": "всего {{count}}",
-      "legend": {
-        "completed": "{{count}} завершено",
-        "running": "{{count}} выполняется",
-        "active": "{{count}} активно",
-        "paused": "{{count}} приостановлено",
-        "failed": "{{count}} с ошибкой"
-      }
     },
     "editSchedule": {
       "title": "Изменить время выполнения",
@@ -1845,30 +2275,41 @@
       "modeLabel": "Режим запуска",
       "modeInterval": "Интервал",
       "modeCron": "Выражение cron"
+    },
+    "editPayload": {
+      "title": "Изменить содержимое задачи",
+      "hint": "Измените, что выполняет эта задача. Изменения вступят в силу при следующем запуске.",
+      "titleLabel": "Заголовок",
+      "descriptionLabel": "Описание",
+      "payloadLabel": "Содержимое / промпт",
+      "payloadHint": "Текст инструкции, передаваемый агенту при запуске этой задачи.",
+      "titleRequired": "Заголовок не может быть пустым",
+      "failedTitle": "Не удалось обновить",
+      "failedMessage": "Не удалось обновить содержимое задачи. Попробуйте ещё раз."
+    },
+    "row": {
+      "every": "Каждые {{interval}}",
+      "daily": "Ежедневно {{time}}",
+      "hourly": "Ежечасно :{{minute}}",
+      "cron": "Cron {{expr}}",
+      "once": "Однократно {{time}}",
+      "afterDeps": "Заблокировано: {{n}}",
+      "next": "следующий {{time}}",
+      "elapsed": "выполняется {{duration}}",
+      "failedAt": "ошибка {{time}}",
+      "lastRun": "последний {{time}}"
     }
   },
   "artifacts": {
     "refresh": "Обновить артефакты",
     "zoom": "Увеличить артефакт",
     "zoomFullscreen": "Увеличить артефакт (открыть на весь экран)",
-    "collapse": "Свернуть панель",
-    "collapseAria": "Свернуть панель артефактов",
     "selectArtifact": "Выберите артефакт",
     "minimized": "Свёрнуто:",
     "restore": "Восстановить «{{title}}»",
     "openBadge": "Открыть {{title}} ({{kind}})",
     "unsupportedKind": "Неподдерживаемый тип артефакта: {{kind}}",
     "loadingRenderer": "Загрузка отрисовщика…",
-    "sliver": {
-      "expandTitle": "Нажмите, чтобы развернуть · {{count}} артефакт",
-      "expandTitle_other": "Нажмите, чтобы развернуть · {{count}} артефактов",
-      "emptyTitle": "Артефакты появятся здесь, как только агент их создаст",
-      "expandAria": "Развернуть панель артефактов ({{count}} элемент)",
-      "expandAria_other": "Развернуть панель артефактов ({{count}} элементов)",
-      "emptyAria": "Панель артефактов (пусто)",
-      "label": "Артефакты ({{count}})",
-      "labelEmpty": "Артефакты"
-    },
     "emptyState": {
       "title": "Пока нет артефактов",
       "hint": "Они появятся здесь по мере создания агентом."
@@ -1923,6 +2364,37 @@
     },
     "url": {
       "toggleFailed": "Не удалось сменить режим: {{error}}"
+    },
+    "editor": {
+      "save": "Сохранить",
+      "saving": "Сохранение…",
+      "saved": "Сохранено",
+      "unsavedChanges": "Несохранённые изменения",
+      "draftRestored": "Восстановлены несохранённые правки с этого устройства.",
+      "conflictBody": "Файл изменился во время редактирования. Оставить вашу версию или загрузить их?",
+      "overwriteMine": "Оставить мою",
+      "discardMine": "Загрузить их",
+      "loadError": "Ошибка загрузки: {{error}}",
+      "mdGuardDisabled": "Этот документ содержит синтаксис, который редактор не может сохранить без потерь — прямое редактирование отключено. Попросите ИИ внести изменения.",
+      "htmlAnchorFailed": "Этот текст создаётся скриптом страницы или не может быть однозначно найден в исходнике — попросите ИИ внести изменение.",
+      "htmlEditConflict": "Файл изменился во время редактирования — это изменение не сохранено.",
+      "editFailed": "Ошибка редактирования — изменение не сохранено.",
+      "draftUnavailable": "Файл слишком велик для локального черновика — несохранённые изменения пропадут при закрытии окна. Сохраняйтесь чаще."
+    },
+    "officeEdit": {
+      "selected": "Выбрано: {{count}}",
+      "editText": "Изменить текст",
+      "apply": "Применить",
+      "cancel": "Отмена",
+      "delete": "Удалить",
+      "color": "Цвет текста",
+      "opFailed": "Ошибка редактирования.",
+      "lockNotice": "Открыто в настольном Office — прямое редактирование приостановлено.",
+      "moveUp": "Вверх",
+      "moveDown": "Вниз",
+      "addRow": "+ Строка",
+      "addCol": "+ Столбец",
+      "replaceImage": "Заменить изображение"
     }
   },
   "skills": {
@@ -2036,10 +2508,15 @@
     "desktopHint": "Откройте NarraNexus в браузере, чтобы увидеть предпросмотр документа в реальном времени.",
     "loading": "Открытие живого предпросмотра…",
     "loadError": "Не удалось открыть живой предпросмотр.",
+    "retry": "Повторить",
     "livePreview": "Живой предпросмотр"
   },
   "common": {
-    "close": "Close",
+    "close": "Закрыть",
+    "cancel": "Отмена",
+    "save": "Сохранить",
+    "back": "Назад",
+    "edit": "Редактировать",
     "betaTooltip": "NarraNexus находится в стадии бета-тестирования. Функции могут меняться, возможны отдельные сбои — будем рады вашим отзывам.",
     "ok": "ОК",
     "noticeTitle": "Одну секунду",
@@ -2047,5 +2524,136 @@
     "savedTo": "Сохранено в {{path}}",
     "downloadFailed": "Не удалось скачать: {{error}}",
     "doneTitle": "Готово"
+  },
+  "toast": {
+    "view": "Открыть",
+    "completed": "Готово",
+    "roomSpoke": "Новая активность в комнате",
+    "agent": "Агент",
+    "room": "Комната",
+    "artifactRepointedVerified": "Перепривязано: {{oldPath}} → {{newPath}} (содержимое проверено)",
+    "artifactRepointedUnverified": "Перепривязано: {{oldPath}} → {{newPath}} (совпадение не проверено — проверьте)"
+  },
+  "webAnalyticsNotice": {
+    "body": "Это облачная веб-версия NarraNexus. Она использует Google Tag Manager — сторонний сервис аналитики — для сбора анонимных данных о взаимодействии со страницей (просмотры, клики, источник перехода). Содержимое диалогов не собирается. Вы можете отключить это в любой момент в Настройки → Конфиденциальность.",
+    "settings": "Открыть настройки",
+    "dismiss": "Понятно"
+  },
+  "telemetryNotice": {
+    "body": "NarraNexus теперь отправляет диагностические сервисные логи этой установки в собственный коллектор, чтобы помочь в отладке сбоев и ошибок интеграций. На установках с уровнем \"full\" строки логов могут содержать содержимое сообщений. Вы можете отключить это в любой момент в разделе Настройки → Конфиденциальность.",
+    "settings": "Открыть настройки",
+    "dismiss": "Понятно",
+    "bodyManaged": "Эта установка отправляет диагностические сервисные логи (ошибки и диагностические события) в собственный коллектор NarraNexus в соответствии с настройками вашего администратора. На установках с уровнем \"full\" строки логов могут содержать содержимое сообщений."
+  },
+  "builder": {
+    "choose": {
+      "eyebrow": "Создание агента",
+      "title": "С чего начнём?",
+      "subtitle": "Начните с пустой конфигурации или опишите задачу и создайте агента в диалоге.",
+      "blankTitle": "Начать с нуля",
+      "blankBody": "Настройте каждое поле сами. Для тех, кто уже знает, как агент должен работать.",
+      "aiTitle": "Создать с помощью ИИ",
+      "aiBody": "Опишите нужный результат. Agent Builder задаст ключевые вопросы и подготовит черновик.",
+      "continue": "Продолжить",
+      "recommended": "Рекомендуется"
+    },
+    "gate": {
+      "title": "Создание агента",
+      "probing": "Проверка провайдеров",
+      "chooseTitle": "Выберите провайдера",
+      "chooseHint": "Выберите существующего провайдера или подключите нового. Это определяет, какой движок запускает агента.",
+      "accessApiKey": "API-ключ",
+      "accessCli": "Вход через CLI",
+      "emptyLead": "Пока нет доступного движка. Подключите провайдера — именно он будет запускать этого агента.",
+      "addLabel": "Добавить провайдера",
+      "addApiKey": "API-ключ",
+      "addCli": "Вход через CLI",
+      "back": "Назад",
+      "next": "Далее",
+      "cliDesktopHint": "При входе откроется браузер для авторизации Claude CLI.",
+      "cliLogin": "Войти через Claude",
+      "cliLoggingIn": "Выполняется вход…",
+      "cliWebHint": "Вход не выполнен — запустите `claude auth login` в терминале и снова откройте это окно.",
+      "cliMissingHint": "Claude CLI здесь недоступен. Установите его, войдите из терминала и снова откройте это окно."
+    },
+    "panel": {
+      "intro": "Диалог записывает имя, описание и инструкции прямо в этого агента. Навыки и каналы только предлагаются — устанавливаете их вы.",
+      "identity": "Идентичность",
+      "name": "Имя",
+      "namePlaceholder": "например, Утренний финансовый обзор",
+      "behaviour": "Поведение",
+      "install": "Установить",
+      "installed": "Установлено",
+      "saving": "Сохранение…",
+      "savedHint": "Изменения сохраняются при выходе из поля.",
+      "done": "Готово",
+      "identityHint": "Дайте агенту легко узнаваемое имя.",
+      "behaviourHint": "Определите, как он работает. Это то самое поле awareness, с которым агент реально запускается.",
+      "awareness": "Awareness",
+      "awarenessPlaceholder": "Что делает этот агент, как он работает, чего избегать…",
+      "skills": "Навыки",
+      "skillsHint": "Навыки рабочей области, доступные этому агенту.",
+      "channels": "Каналы",
+      "channelsHint": "Где до него можно достучаться. Учётные данные идут прямо в бэкенд — никогда в диалог.",
+      "suggested": "Из диалога",
+      "optional": "Необязательно"
+    }
+  },
+  "appBanners": {
+    "sessionExpired": "Ваша сессия истекла. Пожалуйста, войдите снова. (нажмите, чтобы скрыть)",
+    "sessionExpiringSoon": "Ваша сессия истекает через {{time}}. Выйдите и войдите снова, чтобы не потерять работу. (нажмите, чтобы скрыть)",
+    "circuitPausedQuota": "Этот агент приостановлен из-за повторных сбоев квоты/баланса. Исправьте провайдера, затем возобновите.",
+    "circuitPausedAuth": "Этот агент приостановлен из-за повторных сбоев аутентификации. Повторно авторизуйтесь или укажите провайдера, затем возобновите.",
+    "circuitCooling": "Этот агент недавно завершился с ошибкой и ненадолго остывает. Повторите попытку чуть позже.",
+    "resumeAgent": "Возобновить агента",
+    "resuming": "Возобновление…",
+    "dismiss": "Скрыть",
+    "freeTierSwitched": "Бесплатная квота исчерпана — выполнен переход на вашего собственного провайдера. Новые запуски будут использовать ваш собственный API-ключ. (нажмите, чтобы скрыть)"
+  },
+  "browser": {
+    "notices": {
+      "loadFailed": "Не удалось проверить запросы на вход в браузере.",
+      "retry": "Повторить"
+    },
+    "absentTitle": "Браузер не установлен",
+    "brokenTitle": "Браузер установлен, но не запускается",
+    "install": "Установить браузер",
+    "reinstall": "Переустановить браузер",
+    "cancelInstall": "Отменить загрузку",
+    "installFailed": "Запрос на установку браузера завершился ошибкой.",
+    "installingUnknown": "Загрузка…",
+    "idle": "Активного сеанса браузера пока нет.",
+    "pages": "Вкладки браузера",
+    "newTab": "Новая вкладка",
+    "agentTab": "Агент",
+    "closeTab": "Закрыть вкладку",
+    "followAgent": "Следовать за агентом",
+    "webAddress": "Веб-адрес",
+    "go": "Перейти",
+    "takeControlToNavigate": "Возьмите управление, чтобы открыть страницу",
+    "invalidAddress": "Введите адрес HTTP или HTTPS.",
+    "agentDriving": "Браузером управляет агент",
+    "youDriving": "Вы управляете браузером",
+    "otherDriving": "Браузером управляют из другого окна",
+    "takeControl": "Взять управление",
+    "handBack": "Вернуть управление агенту",
+    "reconnect": "Переподключиться",
+    "reconnecting": "Переподключение…",
+    "connecting": "Подключение…",
+    "disconnected": "Соединение разорвано",
+    "screen": "Экран браузера",
+    "keyboardInput": "Ввод с клавиатуры в браузере",
+    "login": {
+      "title": "Требуется вход или проверка",
+      "inControl": "Верните управление в браузере, когда закончите.",
+      "pending": "Ожидается завершение входа или проверки в браузере.",
+      "openBrowser": "Открыть браузер"
+    },
+    "look": {
+      "looked": "Страница просмотрена",
+      "failed": "Не удалось просмотреть страницу",
+      "area": "область {{width}}×{{height}}",
+      "open": "Открыть браузер"
+    }
   }
 }

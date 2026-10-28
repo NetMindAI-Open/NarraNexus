@@ -6,7 +6,7 @@
 and has the expected shape (columns + unique index on user_id).
 """
 import pytest
-from xyz_agent_context.utils.db.schema_registry import get_registered_tables
+from narranexus.platform.utils.db.schema_registry import get_registered_tables
 
 
 def test_user_quotas_table_registered():

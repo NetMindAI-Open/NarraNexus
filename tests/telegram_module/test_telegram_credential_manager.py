@@ -14,15 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.telegram_module import (
+from narranexus_plugins.telegram_module import (
     _telegram_credential_manager as cm_mod,
 )
-from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+from narranexus_plugins.telegram_module._telegram_credential_manager import (
     TelegramCredentialManager,
-    _decode_token,
-    _encode_token,
 )
-from xyz_agent_context.module.telegram_module.telegram_sdk_client import (
+from narranexus_plugins.telegram_module.telegram_sdk_client import (
     TelegramSDKError,
 )
 
@@ -75,19 +73,8 @@ def _patch_ok(monkeypatch: pytest.MonkeyPatch, **kwargs) -> None:
     )
 
 
-# ── Encoding round-trip ────────────────────────────────────────────────
 
 
-def test_encode_decode_round_trip():
-    raw = "7981632450:AAH-secretpayload"
-    encoded = _encode_token(raw)
-    assert encoded != raw
-    assert _decode_token(encoded) == raw
-
-
-def test_encode_empty_returns_empty():
-    assert _encode_token("") == ""
-    assert _decode_token("") == ""
 
 
 # ── bind() ─────────────────────────────────────────────────────────────
@@ -106,12 +93,10 @@ async def test_bind_valid_inserts_row_and_returns_metadata(
     assert result["data"]["bot_user_id"] == "1001"
     assert result["data"]["bot_username"] == "acme_bot"
 
-    row = await db_client.get_one(
-        "channel_telegram_credentials", {"agent_id": "agent_a"}
-    )
+    row = await db_client.get_one("channel_credentials", {"channel": "telegram", "agent_id": "agent_a"})
     assert row is not None
-    assert row["bot_token_encoded"] != "7981632450:AAH-real-XXXXXXXXXXXXXXXX"
-    assert _decode_token(row["bot_token_encoded"]) == "7981632450:AAH-real-XXXXXXXXXXXXXXXX"
+    assert "7981632450:AAH-real-XXXXXXXXXXXXXXXX" not in row["secret_json"]  # encrypted at rest
+    assert (await mgr.get("agent_a")).bot_token == "7981632450:AAH-real-XXXXXXXXXXXXXXXX"
 
 
 @pytest.mark.asyncio
@@ -125,9 +110,7 @@ async def test_bind_rejects_invalid_token_prefix(
 
     assert result["success"] is False
     assert ":" in result["error"]
-    row = await db_client.get_one(
-        "channel_telegram_credentials", {"agent_id": "agent_a"}
-    )
+    row = await db_client.get_one("channel_credentials", {"channel": "telegram", "agent_id": "agent_a"})
     assert row is None
 
 
@@ -149,9 +132,7 @@ async def test_bind_propagates_get_me_failure(
     # not the raw Telegram description. Old assertion was
     # ``"Unauthorized" in result["error"]``.
     assert "Bot Token" in result["error"] and "rejected" in result["error"].lower()
-    row = await db_client.get_one(
-        "channel_telegram_credentials", {"agent_id": "agent_a"}
-    )
+    row = await db_client.get_one("channel_credentials", {"channel": "telegram", "agent_id": "agent_a"})
     assert row is None
 
 
@@ -201,11 +182,9 @@ async def test_bind_same_bot_same_agent_is_rebind_not_conflict(
     second = await mgr.bind("agent_a", "123456789:AAH-tok2-XXXXXXXXXXXXXXXX")
     assert second["success"] is True
 
-    rows = await db_client.get(
-        "channel_telegram_credentials", {"agent_id": "agent_a"}
-    )
+    rows = await db_client.get("channel_credentials", {"channel": "telegram", "agent_id": "agent_a"})
     assert len(rows) == 1
-    assert _decode_token(rows[0]["bot_token_encoded"]) == "123456789:AAH-tok2-XXXXXXXXXXXXXXXX"
+    assert (await mgr.get("agent_a")).bot_token == "123456789:AAH-tok2-XXXXXXXXXXXXXXXX"
 
 
 # ── Owner resolution via @username ─────────────────────────────────────
@@ -299,9 +278,7 @@ async def test_unbind_removes_row(db_client, monkeypatch: pytest.MonkeyPatch):
 
     assert removed is True
     assert (
-        await db_client.get_one(
-            "channel_telegram_credentials", {"agent_id": "agent_a"}
-        )
+        await db_client.get_one("channel_credentials", {"channel": "telegram", "agent_id": "agent_a"})
         is None
     )
 
@@ -332,9 +309,7 @@ async def test_list_active_filters_disabled_rows(
 
     await mgr.bind("agent_on", "123456789:AAH-tokon-XXXXXXXXXXXXXXX")
     await mgr.bind("agent_off", "123456790:AAH-tokoff-XXXXXXXXXXXXXX")
-    await db_client.update(
-        "channel_telegram_credentials", {"agent_id": "agent_off"}, {"enabled": 0}
-    )
+    await mgr.set_enabled("agent_off", False)
 
     active = await mgr.list_active()
 

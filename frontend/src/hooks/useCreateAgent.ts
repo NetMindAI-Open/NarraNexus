@@ -15,11 +15,13 @@
  * cloud-gated, the progress flag is harmless to record anywhere.
  */
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useConfigStore, useChatStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
 
 export function useCreateAgent() {
   const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
 
   /** Create a fresh agent, wire it into the stores, select it. Returns the
    *  new agent_id on success, or null on failure.
@@ -44,6 +46,9 @@ export function useCreateAgent() {
             status: res.agent.status,
             created_at: res.agent.created_at,
             created_by: userId,
+            // A brand-new agent has no channel bound yet; the next
+            // refreshAgents() replaces this row with the server's projection.
+            bound_channels: [],
             bootstrap_active: res.agent.bootstrap_active,
           };
           setAgents([newAgent, ...agents]);
@@ -55,6 +60,9 @@ export function useCreateAgent() {
             useTeamsStore.getState().refresh().catch(() => {
               /* grouping refresh is best-effort — never block agent create */
             });
+            navigate(`/app/teams/${opts.teamId}/chat`);
+          } else if (window.location.pathname !== '/app/chat' && window.location.pathname !== '/app') {
+            navigate('/app/chat');
           }
           if (userId) {
             api.markOnboardingStep(userId, 'first_agent_created').catch(() => {
@@ -72,7 +80,7 @@ export function useCreateAgent() {
         setCreating(false);
       }
     },
-    [],
+    [navigate],
   );
 
   return { createAgent, creating };

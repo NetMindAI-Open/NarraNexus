@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from xyz_agent_context.agent_runtime._thinking_batcher import _ThinkingBatcher
+from narranexus.platform.agent_runtime._thinking_batcher import _ThinkingBatcher
 
 
 def test_single_small_chunk_buffered_no_flush():

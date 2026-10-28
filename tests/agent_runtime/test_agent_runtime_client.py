@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_runtime.client import (
+from narranexus.platform.agent_runtime.client import (
     AgentRuntimeClient,
     InProcessAgentRuntimeClient,
     get_agent_runtime_client,
 )
-from xyz_agent_context.schema.runtime_message import MessageType
+from narranexus.platform.schema.runtime_message import MessageType
 
 
 class _FakeMsg:
@@ -48,7 +48,7 @@ class _FakeRuntime:
 def patch_runtime(monkeypatch):
     _FakeRuntime.last_kwargs = None
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+        "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
         _FakeRuntime,
     )
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 
 def test_template_has_no_raw_user_id_placeholder():
-    from xyz_agent_context.module.job_module.prompts import JOB_TASK_INFO_TEMPLATE
+    from narranexus_plugins.job_module.prompts import JOB_TASK_INFO_TEMPLATE
 
     # Human-readable identity placeholders, not the raw {user_id} key.
     assert "{task_creator}" in JOB_TASK_INFO_TEMPLATE

@@ -1,0 +1,14 @@
+{
+  "api": {
+    "mcp_server": 0
+  },
+  "hosts": [
+    "backend",
+    "mcp"
+  ],
+  "provides": {
+    "agent.capabilities.mcp_servers": [
+      "nxplugins.__PLUGIN_PKG__:MCP_SERVERS"
+    ]
+  }
+}

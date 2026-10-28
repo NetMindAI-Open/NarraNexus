@@ -10,12 +10,12 @@ response_processor.ResponseProcessor.process consumes.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     ResponseProcessor,
     ResponseType,
 )
-from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
+from narranexus.platform.agent_framework.loop.output_transfer import output_transfer
 
 
 def _t(event: dict) -> list[dict]:
@@ -212,6 +212,32 @@ def test_item_completed_mcp_tool_call_jsonifies_dict_result():
     # Result becomes JSON string
     assert "success" in item["output"]
     assert "true" in item["output"].lower()
+
+
+def test_item_completed_mcp_tool_call_describes_images_without_base64():
+    """An MCP image (e.g. browser_look) reaches Codex's model natively; the
+    persisted output keeps the text metadata and an image descriptor only."""
+    data = "iVBORw0KGgo" + "A" * 200_000
+    evs = _t({
+        "type": "item.completed",
+        "item": {
+            "type": "mcp_tool_call",
+            "id": "m2",
+            "server": "browser_module",
+            "tool": "browser_look",
+            "result": {
+                "content": [
+                    {"type": "text", "text": '{"observation_id": "view_1"}'},
+                    {"type": "image", "data": data, "mimeType": "image/png"},
+                ],
+                "structured_content": None,
+            },
+        },
+    })
+    output = evs[0]["item"]["output"]
+    assert data not in output
+    assert len(output) < 500
+    assert "view_1" in output and "image/png" in output
 
 
 def test_item_started_web_search_uses_websearch_name():

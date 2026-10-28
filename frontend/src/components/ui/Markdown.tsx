@@ -7,19 +7,39 @@ import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import type { PluggableList } from 'unified';
 import { cn } from '@/lib/utils';
 
 interface MarkdownProps {
   content: string;
   className?: string;
   compact?: boolean;
+  /**
+   * Extra rehype plugins, appended after `rehypeRaw`.
+   *
+   * Exists so a caller can transform the rendered tree instead of rewriting the
+   * markdown SOURCE. The team room learned the difference the hard way: a
+   * regex over the source cannot tell prose from a code block, so highlighting
+   * @mentions put literal `<span …>` markup inside every fence that mentioned
+   * `@all`. The AST knows what code is.
+   *
+   * Pass a STABLE array (module constant or `useMemo`) — this component is
+   * `memo`'d on shallow equality, and a fresh array each render would re-parse
+   * the whole body on every keystroke of a streaming reply.
+   */
+  rehypePlugins?: PluggableList;
 }
 
 // memo matters here: remark/rehype re-parse the whole string on every
 // render, and chat surfaces re-render on every WebSocket delta. All props
 // are primitives, so shallow equality skips the re-parse for content that
 // didn't change (e.g. earlier segments while the last one streams).
-export const Markdown = memo(function Markdown({ content, className, compact = false }: MarkdownProps) {
+export const Markdown = memo(function Markdown({
+  content,
+  className,
+  compact = false,
+  rehypePlugins,
+}: MarkdownProps) {
   return (
     <div className={cn(
       'markdown-content',
@@ -28,7 +48,7 @@ export const Markdown = memo(function Markdown({ content, className, compact = f
     )}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
+        rehypePlugins={[rehypeRaw, ...(rehypePlugins ?? [])]}
         components={{
           // Custom link handling - open external links in new tab
           a: ({ href, children, ...props }) => {

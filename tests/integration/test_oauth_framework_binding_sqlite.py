@@ -15,16 +15,16 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService,
 )
 
 
 @pytest.fixture
 async def service(tmp_path):
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     backend = SQLiteBackend(str(tmp_path / "providers.db"))
     await backend.initialize()

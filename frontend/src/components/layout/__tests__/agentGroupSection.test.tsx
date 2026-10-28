@@ -1,17 +1,15 @@
 /**
- * Tests for AgentGroupSection (collapse toggle, unread aggregation, nav arrow)
- * and AgentRowMenu (kebab menu entries: rename, delete, public toggle).
- * Also tests the AGENTS header ⋯ menu entries.
+ * Tests for AgentGroupSection (collapse toggle, unread aggregation, and the
+ * agent row's ⋯ menu — Owner-required, reinstated 2026-09-11 after #383
+ * removed it: owner rows get Rename / Model & framework / Delete, other
+ * users' public agents stay display-only).
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-// We import the file under test (will fail until the file is created).
 import { AgentGroupSection } from '../AgentGroupSection';
-import { AgentRowMenu } from '../AgentRowMenu';
-import { AgentsHeaderMenu } from '../AgentsHeaderMenu';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,18 +39,7 @@ describe('AgentGroupSection', () => {
     getRowMeta: () => ({ preview: '', time: '', unread: 0 }),
     getIsStreaming: () => false,
     completedAgentIds: [] as string[],
-    onStartEdit: vi.fn(),
-    onEditAgent: vi.fn(),
-    onClearData: vi.fn(),
-    onDelete: vi.fn(),
-    onTogglePublic: vi.fn(),
-    deletingAgentId: null,
-    editingAgentId: null,
-    editingName: '',
-    onEditNameChange: vi.fn(),
-    onSaveEdit: vi.fn(),
-    onCancelEdit: vi.fn(),
-    savingName: false,
+    currentUserId: 'u1',
   };
 
   it('renders the team name in the section header', () => {
@@ -143,182 +130,136 @@ describe('AgentGroupSection', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AgentRowMenu (kebab ⋮)
+// Row ⋯ menu (Owner-required, reinstated 2026-09-11)
 // ---------------------------------------------------------------------------
 
-describe('AgentRowMenu', () => {
-  const defaultProps = {
-    agentId: 'a1',
-    agentName: 'Analyst',
-    isOwner: true,
-    isPublic: false,
-    onStartEdit: vi.fn(),
-    onEditAgent: vi.fn(),
-    onClearData: vi.fn(),
+describe('agent row ⋯ menu', () => {
+  const makeActions = () => ({
+    onRename: vi.fn(),
+    onOpenModelConfig: vi.fn(),
     onDelete: vi.fn(),
-    onTogglePublic: vi.fn(),
-    showPublicToggle: true,
-  };
-
-  it('exposes a rename entry', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} />));
-    // Click the kebab trigger to open the menu.
-    const trigger = screen.getByRole('button', { name: /agent options/i });
-    fireEvent.click(trigger);
-    expect(screen.getByText(/rename/i)).toBeInTheDocument();
   });
-
-  it('exposes a delete entry', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} />));
-    const trigger = screen.getByRole('button', { name: /agent options/i });
-    fireEvent.click(trigger);
-    expect(screen.getByText(/delete/i)).toBeInTheDocument();
-  });
-
-  it('calls onStartEdit when rename is clicked', () => {
-    const onStartEdit = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onStartEdit={onStartEdit} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/rename/i));
-    expect(onStartEdit).toHaveBeenCalled();
-  });
-
-  it('calls onEditAgent when the edit entry is clicked', () => {
-    const onEditAgent = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onEditAgent={onEditAgent} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/^edit/i));
-    expect(onEditAgent).toHaveBeenCalled();
-  });
-
-  it('calls onDelete when delete is clicked', () => {
-    const onDelete = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onDelete={onDelete} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/delete/i));
-    expect(onDelete).toHaveBeenCalled();
-  });
-
-  it('calls onClearData when the clear-data entry is clicked', () => {
-    const onClearData = vi.fn();
-    render(wrapRouter(<AgentRowMenu {...defaultProps} onClearData={onClearData} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    fireEvent.click(screen.getByText(/clear data/i));
-    expect(onClearData).toHaveBeenCalled();
-  });
-
-  it('shows public toggle entry when showPublicToggle=true and isOwner', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} showPublicToggle={true} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    expect(screen.getByText(/public|private/i)).toBeInTheDocument();
-  });
-
-  it('hides public toggle entry when showPublicToggle=false', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} showPublicToggle={false} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    expect(screen.queryByText(/set to public|set to private/i)).not.toBeInTheDocument();
-  });
-
-  it('hides owner-only actions when isOwner=false', () => {
-    render(wrapRouter(<AgentRowMenu {...defaultProps} isOwner={false} />));
-    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
-    expect(screen.queryByText(/delete/i)).not.toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AgentsHeaderMenu (⋯ menu on AGENTS header)
-// ---------------------------------------------------------------------------
-
-describe('AgentsHeaderMenu', () => {
-  const defaultProps = {
-    onImport: vi.fn(),
-    onExport: vi.fn(),
-    onManageTeams: vi.fn(),
-  };
-
-  it('exposes an Import entry', () => {
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} />));
-    const trigger = screen.getByRole('button', { name: /agents menu/i });
-    fireEvent.click(trigger);
-    expect(screen.getByText(/import/i)).toBeInTheDocument();
-  });
-
-  it('exposes an Export entry', () => {
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    expect(screen.getByText(/export/i)).toBeInTheDocument();
-  });
-
-  it('exposes a Manage Teams entry', () => {
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    expect(screen.getByText(/manage teams/i)).toBeInTheDocument();
-  });
-
-  it('calls onImport when Import is clicked', () => {
-    const onImport = vi.fn();
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} onImport={onImport} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    fireEvent.click(screen.getByText(/import/i));
-    expect(onImport).toHaveBeenCalled();
-  });
-
-  it('calls onManageTeams when Manage Teams is clicked', () => {
-    const onManageTeams = vi.fn();
-    render(wrapRouter(<AgentsHeaderMenu {...defaultProps} onManageTeams={onManageTeams} />));
-    fireEvent.click(screen.getByRole('button', { name: /agents menu/i }));
-    fireEvent.click(screen.getByText(/manage teams/i));
-    expect(onManageTeams).toHaveBeenCalled();
-  });
-});
-
-
-describe('kebab menu stacking (2026-06-11 fix)', () => {
   const props = {
-    teamId: 't1',
-    teamName: 'Trading Desk',
-    teamColor: '#e56',
+    teamId: null,
+    teamName: '',
+    teamColor: null,
     agents: [
       { agent_id: 'a1', name: 'Analyst', created_by: 'u1' },
-      { agent_id: 'a2', name: 'Risk Officer', created_by: 'u1' },
+      { agent_id: 'p1', name: 'Public Bot', created_by: 'someone-else', is_public: true },
     ],
     agentId: null,
     collapsed: false,
+    hideHeader: true,
     currentUserId: 'u1',
-    showPublicToggle: false,
     onToggleCollapse: vi.fn(),
     onSelectAgent: vi.fn(),
     getRowMeta: () => ({ preview: '', time: '', unread: 0 }),
     getIsStreaming: () => false,
     completedAgentIds: [] as string[],
-    onStartEdit: vi.fn(),
-    onEditAgent: vi.fn(),
-    onClearData: vi.fn(),
-    onDelete: vi.fn(),
-    onTogglePublic: vi.fn(),
-    deletingAgentId: null,
-    editingAgentId: null,
-    editingName: '',
-    onEditNameChange: vi.fn(),
-    onSaveEdit: vi.fn(),
-    onCancelEdit: vi.fn(),
-    savingName: false,
   };
 
-  it('opening the row menu lifts the row above sibling stacking contexts', () => {
+  it('offers Rename / Model & framework / Delete on the owner\'s row only', () => {
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={makeActions()} />));
+    // One kebab: the owner's row. Someone else's public agent has none.
+    const kebabs = screen.getAllByLabelText(/agent options/i);
+    expect(kebabs).toHaveLength(1);
+    fireEvent.click(kebabs[0]);
+    const labels = ['Rename', 'Model & framework', 'Delete'];
+    for (const label of labels) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('routes each item to the host with the row\'s agent id, without selecting the row', () => {
+    const actions = makeActions();
+    const onSelectAgent = vi.fn();
+    render(wrapRouter(<AgentGroupSection {...props} onSelectAgent={onSelectAgent} rowActions={actions} />));
+
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Model & framework' }));
+    expect(actions.onOpenModelConfig).toHaveBeenCalledWith('a1');
+
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(actions.onDelete).toHaveBeenCalledWith('a1');
+
+    expect(onSelectAgent).not.toHaveBeenCalled();
+  });
+
+  it('Rename opens an inline input; Enter commits a changed name once, Escape cancels', () => {
+    const actions = makeActions();
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={actions} />));
+
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByLabelText('Rename') as HTMLInputElement;
+    expect(input.value).toBe('Analyst');
+    fireEvent.change(input, { target: { value: '  Chief Analyst ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
+    expect(actions.onRename).toHaveBeenCalledWith('a1', 'Chief Analyst');
+    expect(screen.queryByLabelText('Rename')).toBeNull();
+
+    // Escape: no call, input gone.
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const again = screen.getByLabelText('Rename');
+    fireEvent.change(again, { target: { value: 'Something else' } });
+    fireEvent.keyDown(again, { key: 'Escape' });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('Rename')).toBeNull();
+  });
+
+  it('an unchanged or blank name is not sent', () => {
+    const actions = makeActions();
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={actions} />));
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.keyDown(screen.getByLabelText('Rename'), { key: 'Enter' });
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Rename'), { target: { value: '   ' } });
+    fireEvent.blur(screen.getByLabelText('Rename'));
+    expect(actions.onRename).not.toHaveBeenCalled();
+  });
+
+  it('a blur fired by the unmounting input does not commit a second time (WebKit)', () => {
+    // WebKit dispatches blur when the focused input is removed; that handler
+    // runs before React re-renders, from the same closure as Enter/Escape.
+    // Firing both inside one act() reproduces it (no render in between).
+    const actions = makeActions();
+    render(wrapRouter(<AgentGroupSection {...props} rowActions={actions} />));
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const input = screen.getByLabelText('Rename');
+    fireEvent.change(input, { target: { value: 'Chief Analyst' } });
+    act(() => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+      fireEvent.blur(input);
+    });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
+
+    // Escape followed by the same unmount blur must not commit the draft.
+    fireEvent.click(screen.getByLabelText(/agent options/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    const again = screen.getByLabelText('Rename');
+    fireEvent.change(again, { target: { value: 'Discarded' } });
+    act(() => {
+      fireEvent.keyDown(again, { key: 'Escape' });
+      fireEvent.blur(again);
+    });
+    expect(actions.onRename).toHaveBeenCalledTimes(1);
+  });
+
+  it('no host actions → no menu at all', () => {
     render(wrapRouter(<AgentGroupSection {...props} />));
+    expect(screen.queryByLabelText(/agent options/i)).toBeNull();
+  });
 
-    const kebab = screen.getAllByLabelText('Agent options')[0];
-    fireEvent.click(kebab);
-
-    // The row container must carry the z-lift while the menu is open —
-    // without it, the next row's retained-transform stacking context
-    // paints over the panel and Delete becomes unclickable.
-    const row = kebab.closest('div.group');
-    expect(row?.className).toContain('z-30');
-
-    fireEvent.click(kebab);
-    expect(row?.className).not.toContain('z-30');
+  it('still selects the agent when the row is clicked', () => {
+    const onSelectAgent = vi.fn();
+    render(wrapRouter(<AgentGroupSection {...props} onSelectAgent={onSelectAgent} rowActions={makeActions()} />));
+    fireEvent.click(screen.getByText('Analyst'));
+    expect(onSelectAgent).toHaveBeenCalledWith('a1');
   });
 });

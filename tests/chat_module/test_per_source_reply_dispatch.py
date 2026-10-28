@@ -3,13 +3,13 @@
 @author: Bin Liang
 @date: 2026-05-11
 @description: Integration tests for MessageSource dispatch in
-ChatModule.hook_after_event_execution.
+ChatModule.after_turn.
 
 Validates that for each WorkingSource value, the right reply tool is
 recognised (so the row gets written as a real chat message rather than
 a lossy `(Agent decided no response needed)` activity placeholder).
 
-Pre-fix: only send_message_to_user_directly was recognised → Lark turns
+Pre-fix: only reply_owner was recognised → Lark turns
 where the agent really replied via `lark_cli +messages-send` ended up as
 `message_type=activity` with content rewritten to "Handled a message
 from X +N" — actual reply text lost at write time, the root cause of
@@ -25,17 +25,17 @@ import pytest
 
 # Import the lark_module so it registers its handler. We rely on
 # import-time registration here, mirroring how production backends boot.
-import xyz_agent_context.module.lark_module  # noqa: F401
-import xyz_agent_context.message_bus  # noqa: F401
+import narranexus_plugins.lark_module  # noqa: F401
+import narranexus.platform.message_bus  # noqa: F401
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -53,16 +53,36 @@ def chat_module(db_client):
     )
 
 
+def _progress_notify_owner(content: str) -> ProgressMessage:
+    """The owner-facing tool as it appears on a NON-chat turn.
+
+    `reply_owner` and `notify_owner` are the same delivery split in two so the
+    register is unambiguous; the desk carries exactly one per turn, so a bus or
+    job turn can only ever produce THIS name. A test that emitted the chat name
+    on a bus turn would be asserting against a call the agent cannot make.
+    """
+    return ProgressMessage(
+        step="3.4.1",
+        title="Tool call",
+        description="notify_owner",
+        status=ProgressStatus.COMPLETED,
+        details={
+            "tool_name": "mcp__chat_module__notify_owner",
+            "arguments": {"content": content},
+        },
+    )
+
+
 def _progress_send_message(content: str) -> ProgressMessage:
-    """Standard send_message_to_user_directly tool call. Recognised by
+    """Standard reply_owner tool call. Recognised by
     the default and Lark handlers alike."""
     return ProgressMessage(
         step="3.4.1",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
         },
     )
@@ -119,12 +139,12 @@ def _hook_params(
     )
 
 
-# --------- chat trigger: default handler, send_message_to_user_directly --------
+# --------- chat trigger: default handler, reply_owner --------
 
 
 @pytest.mark.asyncio
 async def test_chat_trigger_send_message_recognised_as_reply(chat_module):
-    """Baseline: chat trigger + send_message_to_user_directly → real
+    """Baseline: chat trigger + reply_owner → real
     chat row written, no activity tag."""
     reply = _progress_send_message("hello from chat trigger")
     params = _hook_params(
@@ -132,7 +152,7 @@ async def test_chat_trigger_send_message_recognised_as_reply(chat_module):
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -169,7 +189,7 @@ async def test_lark_trigger_lark_cli_send_recognised_as_reply(chat_module):
         },
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -205,7 +225,7 @@ async def test_lark_trigger_non_send_lark_cli_does_not_count_as_reply(chat_modul
         agent_loop_response=[list_call],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -222,16 +242,16 @@ async def test_lark_trigger_non_send_lark_cli_does_not_count_as_reply(chat_modul
 
 @pytest.mark.asyncio
 async def test_message_bus_trigger_send_message_recognised(chat_module):
-    """message_bus trigger registered to use send_message_to_user_directly
+    """message_bus trigger registered to use notify_owner
     (the trigger prompt explicitly instructs agents to call it for Owner
     Relay). Verify a real reply is preserved, not flagged activity."""
-    reply = _progress_send_message("relay back from bus turn")
+    reply = _progress_notify_owner("relay back from bus turn")
     params = _hook_params(
         working_source=WorkingSource.MESSAGE_BUS,
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -253,7 +273,7 @@ async def test_message_bus_trigger_no_reply_writes_activity(chat_module):
         agent_loop_response=[],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -269,16 +289,16 @@ async def test_message_bus_trigger_no_reply_writes_activity(chat_module):
 
 @pytest.mark.asyncio
 async def test_job_trigger_send_message_recognised(chat_module):
-    """Job trigger likewise uses send_message_to_user_directly (no
+    """Job trigger likewise uses notify_owner (no
     handler registered, default fallback). When a scheduled job decides
     to message the user, the reply must be persisted."""
-    reply = _progress_send_message("job finished, here's the result")
+    reply = _progress_notify_owner("job finished, here's the result")
     params = _hook_params(
         working_source=WorkingSource.JOB,
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -297,27 +317,120 @@ async def test_filtered_activity_row_invisible_to_long_term(chat_module):
     """End-to-end: write one chat row + one activity row, then load.
     long_term must drop the activity row."""
     # First turn: real chat reply.
-    await chat_module.hook_persist_turn(_hook_params(
+    await chat_module.persist_turn(_hook_params(
         working_source=WorkingSource.CHAT,
         agent_loop_response=[_progress_send_message("real chat")],
         input_content="user msg 1",
     ))
     # Second turn: lark trigger, no reply → activity row.
-    await chat_module.hook_persist_turn(_hook_params(
+    await chat_module.persist_turn(_hook_params(
         working_source=WorkingSource.LARK,
         agent_loop_response=[],  # no reply tool
         input_content="lark trigger payload",
     ))
 
-    # Now hook_data_gathering should drop the activity row.
-    from xyz_agent_context.schema import ContextData
+    # Now gather should drop the activity row.
+    from narranexus.platform.schema import ContextData
     ctx_data = ContextData(
         agent_id="a_disp",
         user_id="u_disp",
         input_content="next turn",
     )
-    ctx_data = await chat_module.hook_data_gathering(ctx_data)
+    ctx_data = await chat_module.gather(ctx_data)
     history = ctx_data.chat_history or []
     activities = [m for m in history
                   if (m.get("meta_data") or {}).get("message_type") == "activity"]
     assert activities == [], f"activity rows leaked into chat_history: {activities!r}"
+
+
+@pytest.mark.asyncio
+async def test_a_delivered_team_turn_lands_as_a_real_assistant_row(chat_module):
+    """The claim this whole change rests on, tested end to end at last.
+
+    The earlier tests in this file checked the origin extractor and the
+    summary wording in isolation and passed, which is how "the row shape
+    follows delivery" went unverified. It does not: the branch selector reads
+    `is_no_response`, which comes from the OWNER-visible extractor, and that one
+    returns None for `message_team` before it ever looks at
+    `_platform_reply_text`. So a delivered team turn still filed as `activity`,
+    and both history loaders still dropped it.
+
+    What has to hold: the row carries what the agent actually said, and is not
+    an activity row — otherwise the next turn starts cold no matter what the
+    accounting says.
+    """
+    from narranexus.platform.channel.message_source_handler import (
+        PLATFORM_REPLY_TEXT_KEY,
+    )
+    from narranexus.platform.schema import ProgressMessage, ProgressStatus
+
+    frame = ProgressMessage(
+        step="3.4.team_room",
+        title="Reply (team room auto-post)",
+        description="posted",
+        status=ProgressStatus.COMPLETED,
+        details={
+            "tool_name": "mcp__message_bus_module__message_team",
+            "arguments": {
+                "content": "the OCR is done",
+                "channel_id": "ch_1",
+                PLATFORM_REPLY_TEXT_KEY: "the OCR is done",
+            },
+            "reply_via": "team_room_autopost",
+        },
+    )
+    params = _hook_params(
+        working_source=WorkingSource.MESSAGE_BUS, agent_loop_response=[frame],
+    )
+
+    await chat_module.persist_turn(params)
+
+    memory = await chat_module.event_memory_module.search_instance_json_format_memory(
+        "ChatModule", "chat_disp_instance"
+    )
+    rows = [m for m in memory.get("messages", []) if m["role"] == "assistant"]
+    assert len(rows) == 1
+    assert rows[0]["content"] == "the OCR is done"
+    assert rows[0]["meta_data"].get("message_type") != "activity"
+
+
+@pytest.mark.asyncio
+async def test_the_next_turn_can_see_what_it_said_in_the_room(chat_module):
+    """The other half of the chain, and the one the PRD actually asks for.
+
+    Writing the right row is only half of it — the loaders are what decide
+    whether the next turn sees it. Testing the write alone is exactly how this
+    shipped once already looking finished.
+    """
+    from narranexus.platform.channel.message_source_handler import (
+        PLATFORM_REPLY_TEXT_KEY,
+    )
+    from narranexus.platform.schema import ContextData, ProgressMessage, ProgressStatus
+
+    frame = ProgressMessage(
+        step="3.4.team_room", title="Reply (team room auto-post)",
+        description="posted", status=ProgressStatus.COMPLETED,
+        details={
+            "tool_name": "mcp__message_bus_module__message_team",
+            "arguments": {
+                "content": "I finished the OCR and posted the folio table",
+                "channel_id": "ch_1",
+                PLATFORM_REPLY_TEXT_KEY: "I finished the OCR and posted the folio table",
+            },
+        },
+    )
+    await chat_module.persist_turn(_hook_params(
+        working_source=WorkingSource.MESSAGE_BUS,
+        agent_loop_response=[frame],
+        input_content="[Team] how is the OCR going?",
+    ))
+
+    ctx_data = ContextData(
+        agent_id="a_disp", user_id="u_disp", input_content="and the index?",
+    )
+    ctx_data = await chat_module.gather(ctx_data)
+
+    said = " ".join(
+        str(m.get("content") or "") for m in (ctx_data.chat_history or [])
+    )
+    assert "posted the folio table" in said

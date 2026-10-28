@@ -1,0 +1,58 @@
+{
+  "id": "narranexus.desktop",
+  "displayName": "NarraNexus Desktop",
+  "description": "The official desktop distribution: every builtin, local auth, runtime plugins allowed.",
+  "engine": ">=1.15 <2",
+  "plugins": {
+    "builtin.frameworks.nexus_power": "^1.0",
+    "builtin.frameworks.claude_code": "^1.0",
+    "builtin.frameworks.codex_cli": "^1.0",
+    "builtin.providers": "^1.0",
+    "builtin.llm_clients": "^1.0",
+    "builtin.memory_kinds": "^1.0",
+    "builtin.nexus_plugins_module": "^1.0",
+    "builtin.turn": "^1.0",
+    "builtin.awareness": "^1.0",
+    "builtin.basic_info": "^1.0",
+    "builtin.chat": "^1.0",
+    "builtin.social_network": "^1.0",
+    "builtin.job": "^1.0",
+    "builtin.skills": "^1.0",
+    "builtin.message_bus": "^1.0",
+    "builtin.common_tools": "^1.0",
+    "builtin.general_memory": "^1.0",
+    "builtin.browser": "^1.0",
+    "builtin.home_assistant": "^1.0",
+    "builtin.channels.lark": "^1.0",
+    "builtin.channels.slack": "^1.0",
+    "builtin.channels.telegram": "^1.0",
+    "builtin.channels.wechat": "^1.0",
+    "builtin.channels.narramessenger": "^1.0",
+    "builtin.channels.discord": "^1.0",
+    "builtin.teams": "^1.0",
+    "builtin.auth.local": "^1.0",
+    "builtin.prompts": "^1.0",
+    "builtin.ui": "^1.0"
+  },
+  "excludes": [
+    "builtin.auth.netmind"
+  ],
+  "branding": {
+    "name": "NarraNexus Desktop",
+    "logo": "",
+    "theme": ""
+  },
+  "auth": "builtin.auth.local",
+  "defaults": {
+    "pipelineProfile": "default",
+    "agentSpec": "",
+    "locale": "en"
+  },
+  "runtime": {
+    "userPlugins": true,
+    "deployment": "desktop"
+  },
+  "targets": [
+    "desktop"
+  ]
+}

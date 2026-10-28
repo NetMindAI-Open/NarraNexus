@@ -23,14 +23,15 @@ from pydantic import BaseModel, Field
 
 from backend.auth import _is_cloud_mode
 from backend.routes.quota import balance_to_dict
-from xyz_agent_context.agent_framework.providers.free_tier import (
+from narranexus.platform.agent_framework.providers.free_tier import (
     is_free_tier_enabled,
 )
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletClient,
     WalletError,
     WalletMissing,
 )
+from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 
 router = APIRouter(prefix="/api/admin/quota", tags=["admin", "quota"])
 
@@ -54,7 +55,7 @@ def _require_staff_or_raise(request: Request) -> str:
     role = getattr(request.state, "role", None)
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
     if role != "staff":
         raise HTTPException(status_code=403, detail="staff role required")
     return user_id
@@ -98,11 +99,10 @@ async def topup(request: Request, payload: TopupRequest) -> dict:
         raise HTTPException(status_code=503, detail="wallet service unavailable") from e
 
     # Edge-triggered recovery: fresh headroom can make the user runnable again —
-    # revive their PAUSED_NO_QUOTA jobs in the background (non-blocking).
-    from xyz_agent_context.module.job_module.job_recovery import (
-        schedule_user_no_quota_rearm,
-    )
-    schedule_user_no_quota_rearm(payload.user_id)
+    # builtin.job revives their PAUSED_NO_QUOTA jobs in the background.
+    from backend.host_events import notify_user_runnability_changed
+
+    await notify_user_runnability_changed(payload.user_id)
     return balance_to_dict(balance)
 
 

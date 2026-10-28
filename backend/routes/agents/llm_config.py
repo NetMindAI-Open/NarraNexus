@@ -32,10 +32,10 @@ from loguru import logger
 from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
-from xyz_agent_context.schema.provider_schema import SlotName
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.agent_framework.providers.cloud_policy import CloudPolicyViolation
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.schema.provider_schema import SlotName
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.agent_framework.providers.cloud_policy import CloudPolicyViolation
 
 router = APIRouter()
 
@@ -87,7 +87,7 @@ def _slot_view(slot_name: str, row: Optional[dict]) -> Optional[dict]:
         "reasoning_effort": reasoning_effort,
     }
     if slot_name == SlotName.AGENT.value:
-        view["agent_framework"] = row.get("agent_framework") or "claude_code"
+        view["agent_framework"] = row.get("agent_framework") or "nexus_power"
     return view
 
 
@@ -103,11 +103,7 @@ class SetAgentSlotRequest(BaseModel):
 @router.get("/{agent_id}/llm-config")
 async def get_agent_llm_config(agent_id: str, request: Request):
     """Per-slot view: is the agent inheriting the owner default, what is the
-    effective config, and (if any) the raw override + owner default.
-
-    Also carries a ``free_tier`` block: while the owner's cloud free tier has
-    budget, runs are pinned to the fixed system model and per-agent overrides
-    are ignored — the UI uses this to render an honest read-only model chip."""
+    effective config, and (if any) the raw override + owner default."""
     user_id, _ = await _require_owner(agent_id, request)
     db = await get_db_client()
 

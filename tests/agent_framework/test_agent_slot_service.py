@@ -12,49 +12,18 @@ resolution and upsert/get/clear round-trip are covered here too.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
-from xyz_agent_context.agent_framework.providers.user_service import (
+from tests.fake_db import FakeDB
+
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService,
 )
 
 
-class _FakeDB:
-    def __init__(self):
-        self.tables: dict[str, list[dict]] = defaultdict(list)
-
-    async def get(self, table, filters=None):
-        filters = filters or {}
-        return [
-            r for r in self.tables[table]
-            if all(r.get(k) == v for k, v in filters.items())
-        ]
-
-    async def get_one(self, table, filters):
-        rows = await self.get(table, filters)
-        return rows[0] if rows else None
-
-    async def insert(self, table, data):
-        self.tables[table].append(dict(data))
-
-    async def update(self, table, filters, data):
-        rows = await self.get(table, filters)
-        for r in rows:
-            r.update(data)
-        return len(rows)
-
-    async def delete(self, table, filters):
-        before = len(self.tables[table])
-        self.tables[table] = [
-            r for r in self.tables[table]
-            if not all(r.get(k) == v for k, v in filters.items())
-        ]
-        return before - len(self.tables[table])
-
-
+_FakeDB = FakeDB
 async def _owned_agent(db, agent_id="ag1", owner="u1"):
     await db.insert("agents", {"agent_id": agent_id, "created_by": owner})
     return UserProviderService(db)

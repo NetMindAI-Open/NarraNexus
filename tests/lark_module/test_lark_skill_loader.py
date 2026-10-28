@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.lark_module import _lark_skill_loader as loader
+from narranexus_plugins.lark_module import _lark_skill_loader as loader
 
 
 @pytest.fixture()

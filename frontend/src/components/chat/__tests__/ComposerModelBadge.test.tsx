@@ -11,8 +11,9 @@
  * is no longer any state in which a switch would be a false promise.
  */
 import { describe, expect, test, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { ComposerModelBadge } from '../ComposerModelBadge';
+import { useConfigStore } from '@/stores/configStore';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
@@ -28,6 +29,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     getAgentLlmConfig: (...a: unknown[]) => mockGetAgentLlmConfig(...a),
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
+    getProviderCatalog: () => Promise.resolve({ success: true, onboard_defaults: {} }),
   },
 }));
 
@@ -80,5 +82,45 @@ describe('ComposerModelBadge — the model chip is always live', () => {
     expect(btn).toBeInTheDocument();
     expect(screen.getByText('my-own-model')).toBeInTheDocument();
     expect(screen.queryByText('chat.model.freeTierTag')).toBeNull();
+  });
+});
+
+describe('ComposerModelBadge — follows model changes made through other doors', () => {
+  test('re-reads when the agent list reports a new model for THIS agent, not for others', async () => {
+    // The sidebar ⋯ menu and the profile page save through their own
+    // AgentLlmConfigPanel and then refresh the agent list; the chip must pick
+    // that up instead of showing the replaced model until a remount.
+    wireConfig();
+    useConfigStore.setState({
+      agents: [
+        { agent_id: 'agent_x', name: 'X', model: 'my-own-model', agent_framework: 'nexus_power' } as never,
+        { agent_id: 'agent_y', name: 'Y', model: 'm', agent_framework: 'nexus_power' } as never,
+      ],
+    });
+    render(<ComposerModelBadge agentId="agent_x" />);
+    await waitFor(() => expect(mockGetAgentLlmConfig).toHaveBeenCalledTimes(1));
+
+    // Another agent's change: no re-read.
+    act(() => {
+      useConfigStore.setState({
+        agents: [
+          { agent_id: 'agent_x', name: 'X', model: 'my-own-model', agent_framework: 'nexus_power' } as never,
+          { agent_id: 'agent_y', name: 'Y', model: 'changed', agent_framework: 'nexus_power' } as never,
+        ],
+      });
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockGetAgentLlmConfig).toHaveBeenCalledTimes(1);
+
+    // This agent's model changed behind the chip: re-read.
+    act(() => {
+      useConfigStore.setState({
+        agents: [
+          { agent_id: 'agent_x', name: 'X', model: 'other-model', agent_framework: 'nexus_power' } as never,
+          { agent_id: 'agent_y', name: 'Y', model: 'changed', agent_framework: 'nexus_power' } as never,
+        ],
+      });
+    });
+    await waitFor(() => expect(mockGetAgentLlmConfig).toHaveBeenCalledTimes(2));
   });
 });

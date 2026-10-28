@@ -1,6 +1,6 @@
 ---
 code_file: backend/config.py
-last_verified: 2026-06-11
+last_verified: 2026-09-11
 stub: false
 ---
 
@@ -54,7 +54,7 @@ Invite-code mechanism retired (see routes/auth.py.md); the cap setting and its e
 ## Gotcha / 边界情况
 
 - **`Settings` 类属性赋值是模块加载时执行的**：如果在 `config.py` 被 import 之前就设置了某个环境变量，它会被正确读取。但如果在 import 之后才设置（比如测试 fixture 里），`settings` 里的值不会更新，需要重新导入或直接修改 `settings.*` 属性。
-- **`max_upload_bytes` 默认 50MB**：这个限制在文件上传路由里被手动检查（`enforce_max_bytes`），而不是通过 FastAPI/Starlette 的 `LimitUploadSize` 中间件。这意味着大文件仍然会被完整读入内存，只是在读完之后才报错。如果需要在流级别拒绝大文件，需要换方案。
+- **`max_upload_bytes` 默认 50MB**（env 名与默认值取自 `narranexus.contracts.web`，与 workers / MCP 进程里 `sdk.web.host_settings()` 的回落共用一处定义）：这个限制在文件上传路由里被手动检查（`enforce_max_bytes`），而不是通过 FastAPI/Starlette 的 `LimitUploadSize` 中间件。这意味着大文件仍然会被完整读入内存，只是在读完之后才报错。如果需要在流级别拒绝大文件，需要换方案。
 
 ## 新人易踩的坑
 

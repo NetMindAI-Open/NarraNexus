@@ -1,8 +1,13 @@
 ---
 code_file: backend/integrations/netmind/netmind_provisioner.py
-last_verified: 2026-07-28
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 抽出 `NETMIND_SOURCE` 常量
+
+给 [[../../routes/providers.py]] 的 `auto_provisioned` 标记引用；三处 `"netmind"` 字面量
+改走它。
 
 ## 2026-07-16 — 铸 key 时捕获 NetMind 账户身份
 

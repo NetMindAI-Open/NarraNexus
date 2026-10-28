@@ -22,15 +22,15 @@ from __future__ import annotations
 
 import inspect
 
-from xyz_agent_context.agent_runtime import agent_runtime as ar_mod
+from narranexus_plugins.turn.ingress import DefaultIngress
 
 
 def test_llm_resolver_error_handler_does_not_use_logger_exception():
-    """White-box check on the AgentRuntime.run source: the
+    """White-box check on the Ingress stage strategy source (the block moved there from AgentRuntime.run): the
     `except LLMResolverError` branch must not call `logger.exception`
     (which always emits ERROR + traceback). It must use a level <= WARNING.
     """
-    src = inspect.getsource(ar_mod.AgentRuntime.run)
+    src = inspect.getsource(DefaultIngress.run)
     # Locate the `except LLMResolverError` block and read up to the
     # blank line / next `except` to scope the assertion.
     marker = "except LLMResolverError"

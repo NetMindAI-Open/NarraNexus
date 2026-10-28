@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import xyz_agent_context.utils.workspace_paths as wp
+import pytest
+import narranexus.platform.utils.workspace_paths as wp
 
 
 def test_flat_layout_matches_legacy(monkeypatch):
@@ -26,7 +27,7 @@ def test_nested_layout_is_user_then_agent(monkeypatch):
 
 def test_default_base_uses_settings(monkeypatch):
     monkeypatch.setattr(wp, "_LAYOUT", "flat")
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     p = wp.agent_workspace_path("a", "u")
     assert str(p) == str(Path(settings.base_working_path) / "a_u")
 
@@ -141,3 +142,94 @@ def test_resolve_file_missing_returns_direct(tmp_path, monkeypatch):
     monkeypatch.setattr(wp, "_LAYOUT", "nested")
     got = wp.resolve_workspace_relative_file("u/agent_x/nope.html", "agent_x", "u", str(tmp_path))
     assert got == tmp_path / "u/agent_x/nope.html"
+
+
+# --- 2026-10-28: id segments can never escape the base dir ---------------------
+
+@pytest.mark.parametrize("bad", ["", ".", "..", "...", "..;", ".hidden", "a/b", "a\\b", "a\x00b", "../x"])
+def test_agent_id_segment_rejected(bad, monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "nested")
+    with pytest.raises(ValueError):
+        wp.agent_workspace_relpath(bad, "user")
+    with pytest.raises(ValueError):
+        wp.agent_workspace_path(bad, "user", base="/base")
+    with pytest.raises(ValueError):
+        wp.resolve_existing_workspace(bad, "user", base="/base")
+
+
+@pytest.mark.parametrize("bad", ["", "..", "x/y", ".dot"])
+def test_user_and_team_id_segments_rejected(bad):
+    with pytest.raises(ValueError):
+        wp.agent_workspace_relpath("agent_x", bad)
+    with pytest.raises(ValueError):
+        wp.user_shared_root(bad, base="/base")
+    with pytest.raises(ValueError):
+        wp.team_shared_dir("user", bad, base="/base")
+
+
+def test_flat_layout_also_rejects_escaping_ids(monkeypatch):
+    monkeypatch.setattr(wp, "_LAYOUT", "flat")
+    with pytest.raises(ValueError):
+        wp.agent_workspace_relpath("../x", "user")
+
+
+def test_legacy_shaped_ids_still_accepted():
+    # Real rows on disk: user ids with spaces, agent ids like agent_a_abb17376.
+    assert wp.agent_workspace_relpath("agent_a_abb17376", "Shan Zhang") == "Shan Zhang/agent_a_abb17376"
+
+
+# --- resolve_inside_workspace: lexical root, realpath candidate (2026-10-28) ---
+
+
+def _victim_and_link(tmp_path):
+    """Owner's workspace dir replaced by a symlink to another user's workspace."""
+    import os
+    base = tmp_path.resolve()
+    victim = base / "user_victim" / "agent_v"
+    victim.mkdir(parents=True)
+    (victim / "secret.txt").write_text("victim", encoding="utf-8")
+    own = base / "user_owner" / "agent_o"
+    own.parent.mkdir(parents=True)
+    os.symlink(victim, own)
+    return own, victim
+
+
+def test_resolve_inside_workspace_accepts_relative_and_absolute(tmp_path):
+    ws = tmp_path.resolve() / "u" / "a"
+    (ws / "d").mkdir(parents=True)
+    (ws / "d" / "f.txt").write_text("x", encoding="utf-8")
+    assert wp.resolve_inside_workspace(ws, "d/f.txt") == ws / "d" / "f.txt"
+    assert wp.resolve_inside_workspace(ws, ws / "d" / "f.txt") == ws / "d" / "f.txt"
+
+
+@pytest.mark.parametrize("bad", ["../x.txt", "d/../../x.txt", "/etc/passwd"])
+def test_resolve_inside_workspace_rejects_escapes(tmp_path, bad):
+    ws = tmp_path.resolve() / "u" / "a"
+    (ws / "d").mkdir(parents=True)
+    with pytest.raises(ValueError):
+        wp.resolve_inside_workspace(ws, bad)
+
+
+def test_resolve_inside_workspace_rejects_a_link_inside_pointing_out(tmp_path):
+    import os
+    ws = tmp_path.resolve() / "u" / "a"
+    ws.mkdir(parents=True)
+    (tmp_path / "outside.txt").write_text("x", encoding="utf-8")
+    os.symlink(tmp_path / "outside.txt", ws / "leak.txt")
+    with pytest.raises(ValueError):
+        wp.resolve_inside_workspace(ws, "leak.txt")
+
+
+def test_resolve_inside_workspace_refuses_a_symlinked_workspace(tmp_path):
+    own, _ = _victim_and_link(tmp_path)
+    with pytest.raises(ValueError):
+        wp.resolve_inside_workspace(own, "secret.txt")
+
+
+def test_resolve_inside_workspace_does_not_resolve_the_root(tmp_path, monkeypatch):
+    """Even with the explicit symlink refusal neutered, the lexical root keeps
+    the realpath-ed candidate (inside the victim's tree) out."""
+    own, _ = _victim_and_link(tmp_path)
+    monkeypatch.setattr(wp, "refuse_symlinked_dir", lambda *a, **k: None)
+    with pytest.raises(ValueError):
+        wp.resolve_inside_workspace(own, "secret.txt")

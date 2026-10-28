@@ -21,13 +21,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 
 ROOM = "!bigroom:h"

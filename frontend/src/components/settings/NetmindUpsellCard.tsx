@@ -20,7 +20,10 @@ import type { SubscriptionPlan } from '@/types';
 
 interface NetmindUpsellCardProps {
   proPlan: SubscriptionPlan | null;
-  onUpgrade: () => void;
+  /** Optional because `subscribed` renders no CTA — a required callback there
+   *  was a handler nothing could ever invoke, and it kept a duplicate purchase
+   *  implementation alive to satisfy the type. */
+  onUpgrade?: () => void;
   busy: boolean;
   /** Render as the current plan (state chip instead of the upgrade CTA). */
   subscribed?: boolean;
@@ -41,7 +44,7 @@ export function NetmindUpsellCard({ proPlan, onUpgrade, busy, subscribed = false
   const hasMemberPrice = proPlan?.features?.member_price !== false;
 
   return (
-    <div className="rounded-md border border-[var(--border-default)] p-3.5 space-y-3 bg-[var(--bg-sunken)]">
+    <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] p-3.5 space-y-3 bg-[var(--bg-sunken)]">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
           {t('settings.netmind.upsellCardName', 'Nexus Pro')}

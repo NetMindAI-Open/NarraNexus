@@ -116,6 +116,75 @@ def test_env_override_extends_allowlist(monkeypatch):
     assert r.status_code == 200
 
 
+def _stub_fetch(monkeypatch, bundle_mod, calls):
+    async def fake_download(url, dst):
+        calls.append(url)
+        dst.write_bytes(b"x")
+
+    async def fake_preflight(path, user_id):
+        return {"preflight_token": "pf", "manifest": {}}
+
+    monkeypatch.setattr(bundle_mod, "_stream_download", fake_download)
+    monkeypatch.setattr(bundle_mod, "preflight", fake_preflight)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://narra.nexus/templates/x.nxbundle",        # plain http
+        "https://narra.nexus:22/templates/x.nxbundle",    # non-default port
+        "https://narra.nexus:8443/templates/x.nxbundle",
+        "https://narra.nexus:99999/templates/x.nxbundle", # invalid port
+    ],
+)
+def test_cloud_requires_https_on_default_port(monkeypatch, url):
+    """An allowlisted host is not enough in cloud: http or a non-443 port turns
+    the endpoint into a port scanner against that host — refused before fetch."""
+    monkeypatch.delenv("BUNDLE_FETCH_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    client, bundle_mod = _build(monkeypatch)
+    calls: list[str] = []
+    _stub_fetch(monkeypatch, bundle_mod, calls)
+
+    r = client.post("/api/bundle/import/from-url", json={"url": url})
+
+    assert r.status_code == 400
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://narra.nexus/templates/x.nxbundle", "https://narra.nexus:443/templates/x.nxbundle"],
+)
+def test_cloud_accepts_https_default_port(monkeypatch, url):
+    monkeypatch.delenv("BUNDLE_FETCH_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    client, bundle_mod = _build(monkeypatch)
+    calls: list[str] = []
+    _stub_fetch(monkeypatch, bundle_mod, calls)
+
+    r = client.post("/api/bundle/import/from-url", json={"url": url})
+
+    assert r.status_code == 200
+    assert calls == [url]
+
+
+def test_local_mode_keeps_http_dev_website(monkeypatch):
+    """Local/desktop installs from the dev website on http://localhost:3001."""
+    monkeypatch.delenv("BUNDLE_FETCH_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    client, bundle_mod = _build(monkeypatch)
+    calls: list[str] = []
+    _stub_fetch(monkeypatch, bundle_mod, calls)
+
+    r = client.post(
+        "/api/bundle/import/from-url",
+        json={"url": "http://localhost:3001/templates/x.nxbundle"},
+    )
+
+    assert r.status_code == 200
+
+
 # ─── sha256 verification ────────────────────────────────────────────────────
 
 

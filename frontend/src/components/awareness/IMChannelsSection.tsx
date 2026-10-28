@@ -5,24 +5,18 @@
  *   Level 2 (expanded):   ▼ IM Channels                            [list of channel cards]
  *   Level 3 (one open):   ▼ IM Channels                            [card with config inline]
  *
- * Adding a future channel (e.g. Telegram) is just one entry in
- * IM_CHANNELS — no other change required here.
+ * Adding a future channel is one registration in the `ui.channels` registry
+ * (see `registerBuiltinChannels.ts` for the builtin pattern, or a channel
+ * plugin's own `activate(host)`) — no change required here.
  */
 
-import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, MessageCircle, QrCode, Bot, Link as LinkIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
-import { api } from '@/lib/api';
 
-import { LarkConfig } from './LarkConfig';
-import { SlackConfig } from './SlackConfig';
-import { TelegramConfig } from './TelegramConfig';
-import { WeChatConfig } from './WeChatConfig';
-import { NarramessengerConfig } from './NarramessengerConfig';
-import { DiscordConfig } from './DiscordConfig';
 
 /**
  * Props every IM-channel config component must accept. The parent passes
@@ -30,118 +24,14 @@ import { DiscordConfig } from './DiscordConfig';
  * the parent's connected-badge refresh — otherwise the parent badge stays
  * stale until the user manually clicks "Refresh status".
  */
-export interface ChannelConfigProps {
-  onBindStateChange?: () => void;
-}
-
-/** Tri-state: a credential can exist but be inactive (e.g. imported from a
- * bundle, which lands disabled awaiting manual activation), which is NOT the
- * same as having no credential at all. */
-type ChannelStatus = 'active' | 'inactive' | 'unbound';
-
-interface ChannelEntry {
-  key: string;
-  label: string;
-  Icon: ComponentType<{ className?: string }>;
-  Component: ComponentType<ChannelConfigProps>;
-  /** Bound + active / bound-but-inactive / no credential, for the active agent. */
-  fetchStatus: (agentId: string) => Promise<ChannelStatus>;
-}
-
-const IM_CHANNELS: ChannelEntry[] = [
-  {
-    key: 'lark',
-    label: 'Lark / Feishu',
-    Icon: MessageSquare,
-    Component: LarkConfig,
-    fetchStatus: async (agentId) => {
-      try {
-        const res = await api.getLarkCredential(agentId);
-        if (!res.success || !res.data) return 'unbound';
-        return res.data.is_active ? 'active' : 'inactive';
-      } catch {
-        return 'unbound';
-      }
-    },
-  },
-  {
-    key: 'slack',
-    label: 'Slack',
-    Icon: Hash,
-    Component: SlackConfig,
-    fetchStatus: async (agentId) => {
-      try {
-        const res = await api.getSlackCredential(agentId);
-        if (!res.success || !res.data) return 'unbound';
-        return res.data.enabled ? 'active' : 'inactive';
-      } catch {
-        return 'unbound';
-      }
-    },
-  },
-  {
-    key: 'telegram',
-    label: 'Telegram',
-    Icon: Send,
-    Component: TelegramConfig,
-    fetchStatus: async (agentId) => {
-      try {
-        const res = await api.getTelegramCredential(agentId);
-        if (!res.success || !res.data) return 'unbound';
-        return res.data.enabled ? 'active' : 'inactive';
-      } catch {
-        return 'unbound';
-      }
-    },
-  },
-  {
-    key: 'wechat',
-    label: 'WeChat',
-    Icon: QrCode,
-    Component: WeChatConfig,
-    fetchStatus: async (agentId) => {
-      try {
-        const res = await api.getWeChatCredential(agentId);
-        if (!res.success || !res.data) return 'unbound';
-        return res.data.enabled ? 'active' : 'inactive';
-      } catch {
-        return 'unbound';
-      }
-    },
-  },
-  {
-    key: 'narramessenger',
-    label: 'NarraMessenger',
-    Icon: MessageCircle,
-    Component: NarramessengerConfig,
-    fetchStatus: async (agentId) => {
-      try {
-        const res = await api.getNarramessengerCredential(agentId);
-        if (!res.success || !res.data) return 'unbound';
-        return res.data.enabled ? 'active' : 'inactive';
-      } catch {
-        return 'unbound';
-      }
-    },
-  },
-  {
-    key: 'discord',
-    label: 'Discord',
-    Icon: Bot,
-    Component: DiscordConfig,
-    fetchStatus: async (agentId) => {
-      try {
-        const res = await api.getDiscordCredential(agentId);
-        if (!res.success || !res.data) return 'unbound';
-        return res.data.enabled ? 'active' : 'inactive';
-      } catch {
-        return 'unbound';
-      }
-    },
-  },
-];
+import { CHANNELS, sortedChannels, useRegistryEntries, type ChannelStatus } from '@/platform/registries';
+import './registerBuiltinChannels';
 
 export function IMChannelsSection() {
+  // Rows come from the ui.channels registry: builtins register in
+  // registerBuiltinChannels.ts (owner = the channel plugin), channel plugins
+  // add theirs; a disabled builtin's row is gone with the plugin.
+  const channels = sortedChannels(useRegistryEntries(CHANNELS));
   const { t } = useTranslation();
   const { agentId } = useConfigStore();
   // Expanded by default: opening Channels should show the channel list, not a
@@ -153,10 +43,10 @@ export function IMChannelsSection() {
   const refreshConnected = useCallback(async () => {
     if (!agentId) return;
     const entries = await Promise.all(
-      IM_CHANNELS.map(async (ch) => [ch.key, await ch.fetchStatus(agentId)] as const),
+      channels.map(async (ch) => [ch.id, await ch.value.fetchStatus(agentId)] as const),
     );
     setStatusMap(Object.fromEntries(entries));
-  }, [agentId]);
+  }, [agentId, channels]);
 
   // Pre-fetch on mount and whenever the active agent changes, so the
   // Level-1 collapsed summary ("X/Y connected") shows the real count
@@ -202,8 +92,8 @@ export function IMChannelsSection() {
     });
   }, [refreshConnected]);
 
-  const connectedCount = IM_CHANNELS.filter((c) => statusMap[c.key] === 'active').length;
-  const totalCount = IM_CHANNELS.length;
+  const connectedCount = channels.filter((c) => statusMap[c.id] === 'active').length;
+  const totalCount = channels.length;
 
   const toggleChannel = (key: string) => {
     setExpandedChannel((prev) => (prev === key ? null : key));
@@ -238,28 +128,28 @@ export function IMChannelsSection() {
       {/* Levels 2 + 3 */}
       {sectionOpen && (
         <div className="mt-3 space-y-2">
-          {IM_CHANNELS.map((ch) => {
-            const isExpanded = expandedChannel === ch.key;
-            const status = statusMap[ch.key];
-            const Icon = ch.Icon;
-            const Component = ch.Component;
+          {channels.map((ch) => {
+            const isExpanded = expandedChannel === ch.id;
+            const status = statusMap[ch.id];
+            const Icon = ch.value.icon;
+            const Component = ch.value.component;
             return (
               <div
-                key={ch.key}
+                key={ch.id}
                 className="border border-[var(--border-default)] rounded"
               >
                 <button
-                  onClick={() => toggleChannel(ch.key)}
-                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-tertiary)] transition-colors text-left"
+                  onClick={() => toggleChannel(ch.id)}
+                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--nm-paper-warm)] transition-colors text-left"
                   aria-expanded={isExpanded}
                 >
                   <span className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
                     <Icon className="w-4 h-4 text-[var(--text-secondary)]" />
-                    {ch.label}
+                    {ch.value.labelIsKey ? t(ch.value.label) : ch.value.label}
                     {status === 'active' ? (
-                      <span className="ml-2 text-xs text-[var(--color-green-500)]">{t('awareness.channels.connectedBadge')}</span>
+                      <span className="ml-2 text-xs text-[var(--color-success)]">{t('awareness.channels.connectedBadge')}</span>
                     ) : status === 'inactive' ? (
-                      <span className="ml-2 text-xs text-[var(--color-yellow-500)] inline-flex items-center gap-1">
+                      <span className="ml-2 text-xs text-[var(--color-warning)] inline-flex items-center gap-1">
                         <LinkIcon className="w-3 h-3" /> {t('awareness.channels.inactiveBadge')}
                       </span>
                     ) : (

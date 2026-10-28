@@ -22,9 +22,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 import backend.routes.agents.bus_failures as bus_failures_mod
 
@@ -51,7 +51,7 @@ def _build_client(db_client, viewer_id: str = "user_x"):
     async def _get_db_override():
         return db_client
 
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
 
     original = db_factory_mod.get_db_client
     db_factory_mod.get_db_client = _get_db_override
@@ -189,7 +189,7 @@ async def test_retry_clears_failure_record_and_lets_pending_pick_it_up(db_client
     )
     assert remaining == []
 
-    from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+    from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
     bus = LocalMessageBus(backend=db_client._backend)
     pending = await bus.get_pending_messages("agent_a")
@@ -226,7 +226,7 @@ async def test_retry_rejects_non_owner(db_client):
 
 @pytest.fixture(autouse=True)
 def _restore_get_db():
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
 
     original = db_factory_mod.get_db_client
     yield

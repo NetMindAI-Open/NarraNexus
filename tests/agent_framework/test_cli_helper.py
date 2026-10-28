@@ -14,18 +14,18 @@ import contextvars
 import pytest
 from pydantic import BaseModel
 
-from xyz_agent_context.agent_framework import api_config as ac
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework import api_config as ac
+from narranexus.platform.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
     CliHelperConfig,
     OpenAIConfig,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.llm.cli_helper import HelperUsage, CliHelperSDK
-from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
-from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+from narranexus_plugins.llm_clients.anthropic_helper import AnthropicHelperSDK
+from narranexus_plugins.llm_clients.cli_helper import HelperUsage, CliHelperSDK
+from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
+from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
 
 def _run_isolated(fn):
@@ -108,7 +108,7 @@ def test_resolve_model_slot_wins_over_percall():
 # ---------------------------------------------------------------------------
 
 def _card(**kw):
-    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+    from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
     base = dict(
         provider_id="p1", user_id="u1", name="n", source="claude_oauth",
         protocol="anthropic", auth_type="oauth", api_key="", base_url="",
@@ -119,7 +119,7 @@ def _card(**kw):
 
 
 def test_claude_oauth_driver_builds_cli_helper():
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     cfg = ClaudeOAuthDriver(_card()).build_cli_helper_config("haiku")
@@ -131,7 +131,7 @@ def test_claude_oauth_driver_builds_cli_helper():
 
 
 def test_codex_oauth_driver_builds_cli_helper():
-    from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
+    from narranexus_plugins.providers.codex_oauth import (
         CodexOAuthDriver,
     )
     card = _card(source="codex_oauth", protocol="openai", driver_type="codex_oauth")
@@ -145,7 +145,7 @@ def test_codex_oauth_driver_builds_cli_helper():
 # ---------------------------------------------------------------------------
 
 def test_resolver_routes_oauth_helper_to_cli():
-    from xyz_agent_context.agent_framework.providers.driver.resolver import (
+    from narranexus.platform.agent_framework.providers.driver.resolver import (
         _resolve_slot_target,
     )
     method, key = _resolve_slot_target("helper_llm", "claude_code", _card())
@@ -154,7 +154,7 @@ def test_resolver_routes_oauth_helper_to_cli():
 
 
 def test_resolver_apikey_helper_still_openai():
-    from xyz_agent_context.agent_framework.providers.driver.resolver import (
+    from narranexus.platform.agent_framework.providers.driver.resolver import (
         _resolve_slot_target,
     )
     card = _card(source="user", protocol="openai", auth_type="api_key", api_key="sk-x")
@@ -243,7 +243,7 @@ class _FakeCodexDriver:
         self._captured["mcp_servers"] = mcp_servers
         # Capture the ambient codex_config the driver would actually read — the
         # helper must install its OWN slot model + creds here, not the agent's.
-        from xyz_agent_context.agent_framework.api_config import codex_config
+        from narranexus.platform.agent_framework.api_config import codex_config
         self._captured["codex_model"] = codex_config.model
         self._captured["codex_auth_ref"] = codex_config.auth_ref
         for ev in self._events:
@@ -251,7 +251,7 @@ class _FakeCodexDriver:
 
 
 def _use_codex_driver(monkeypatch, events, captured):
-    import xyz_agent_context.agent_framework as af
+    import narranexus.platform.agent_framework as af
     monkeypatch.setattr(
         af, "get_agent_loop_driver",
         lambda framework, **_kw: _FakeCodexDriver(events, captured),
@@ -306,7 +306,7 @@ async def test_codex_oneshot_passes_instructions_as_system_message(monkeypatch):
 async def test_codex_oneshot_raises_classifiable_error_on_response_error(monkeypatch):
     """A terminal response.error (e.g. expired OAuth token) must raise an error
     that is_credential_error can classify — not silently return empty text."""
-    from xyz_agent_context.agent_framework.llm.failure import is_credential_error
+    from narranexus.platform.agent_framework.llm.failure import is_credential_error
 
     captured = {}
     events = [{
@@ -333,14 +333,14 @@ async def test_codex_oneshot_installs_helper_model_and_creds(monkeypatch):
     agent slot's config (which is the flagship when agent==codex, and empty /
     credential-less when agent==claude). Regression for the review finding that
     _run_codex_oneshot ignored cli_helper_config entirely."""
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.api_config import (
         CodexConfig,
         codex_config,
     )
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         CODEX_CLI_CREDENTIALS_REF,
     )
-    import xyz_agent_context.agent_framework as af
+    import narranexus.platform.agent_framework as af
 
     captured = {}
     monkeypatch.setattr(
@@ -371,7 +371,7 @@ async def test_codex_oneshot_installs_helper_model_and_creds(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_probe_ok_via_keychain_when_file_missing(monkeypatch, tmp_path):
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     missing = tmp_path / "nope" / ".credentials.json"
@@ -389,7 +389,7 @@ async def test_probe_ok_via_keychain_when_file_missing(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_probe_fails_when_neither_file_nor_keychain(monkeypatch, tmp_path):
-    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
+    from narranexus_plugins.providers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     missing = tmp_path / "nope" / ".credentials.json"

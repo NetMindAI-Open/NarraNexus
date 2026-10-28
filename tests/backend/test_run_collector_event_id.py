@@ -7,8 +7,8 @@
 """
 import pytest
 
-from xyz_agent_context.agent_runtime.run_collector import collect_run
-from xyz_agent_context.schema.runtime_message import ProgressMessage, ProgressStatus
+from narranexus.platform.agent_runtime.run_collector import collect_run
+from narranexus.platform.schema.runtime_message import ProgressMessage, ProgressStatus
 
 
 class _FakeRuntime:

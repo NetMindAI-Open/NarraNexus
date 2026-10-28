@@ -1,66 +1,120 @@
 /**
- * SegmentedReply — 一轮多次回复渲染成多个气泡；过程详情按段分隔，
- * 且直播期间不显示（那时过程在 ProcessPanel 里）。
+ * SegmentedReply — one turn that spoke m times renders as m bubbles, each
+ * carrying the process that led to it. `showProcess` gates whether the
+ * process draws at all — the chat now passes it in both directions, but the
+ * off case stays a supported contract for callers that want answers only.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SegmentedReply } from '../SegmentedReply';
 import type { Segment } from '@/types';
+import { useUIStore } from '@/stores/uiStore';
 
+/** Reasoning + tools, NO narration — the shape a claude/codex driver produces. */
 const segments: Segment[] = [
   {
-    process: [{ id: 't1', ts: 1, type: 'thinking', content: '先看素材' }],
-    reply: { content: '开始了' },
+    process: [{ id: 't1', ts: 1, type: 'thinking', content: 'check the material' }],
+    reply: { content: 'starting' },
   },
   {
     process: [
       { id: 'c2', ts: 2, type: 'tool_call', tool_name: 'bash', tool_input: {} },
       { id: 'o2', ts: 3, type: 'tool_output', tool_name: 'bash', output: 'ok' },
     ],
-    reply: { content: '做完了' },
+    reply: { content: 'done' },
   },
 ];
 
+beforeEach(() => useUIStore.setState({ interimNarration: true }));
+
 describe('SegmentedReply', () => {
-  it('m 段回复渲染成 m 个气泡', () => {
+  it('renders m bubbles for m replies', () => {
     render(<SegmentedReply segments={segments} />);
-    expect(screen.getByText('开始了')).toBeInTheDocument();
-    expect(screen.getByText('做完了')).toBeInTheDocument();
+    expect(screen.getByText('starting')).toBeInTheDocument();
+    expect(screen.getByText('done')).toBeInTheDocument();
   });
 
-  it('showProcess 时每段各有一个折叠入口，数量标注各自的过程条数', () => {
+  it('there is ONE shape: the process is in the flow, with no drawer, either way', () => {
+    // The preference controls tone, never layout (2026-08-30 second pass) —
+    // keeping a drawer for some turns meant two transcript shapes in one
+    // product, and it hid the narration this whole branch exists to surface.
+    useUIStore.setState({ interimNarration: false });
     render(<SegmentedReply segments={segments} showProcess />);
-    const entries = screen.getAllByTestId(/segment-details-/);
-    expect(entries).toHaveLength(2);
-    expect(entries[0]).toHaveTextContent('(1)');
-    expect(entries[1]).toHaveTextContent('(2)');
+    expect(screen.getAllByTestId(/segment-details-/)).toHaveLength(2);
+    expect(screen.queryByText(/\(1\)/)).toBeNull();
+    expect(screen.queryByText(/Reasoning & tools/i)).toBeNull();
   });
 
-  it('直播期间不显示过程——那时它在 ProcessPanel 里，两处都画就重复了', () => {
+  it('preference on + the turn narrates: process is inline, with no outer drawer', () => {
+    const narrated: Segment[] = [{
+      process: [{ id: 't1', ts: 1, type: 'thinking', content: 'check the material', monologue: true }],
+      reply: { content: 'starting' },
+    }];
+    render(<SegmentedReply segments={narrated} showProcess />);
+    // The segment container is still there (the process renders inside it),
+    // but there is no "Reasoning & tools (N)" master toggle — which is the
+    // whole point: readable without clicking anything.
+    expect(screen.getAllByTestId(/segment-details-/)).toHaveLength(1);
+    expect(screen.queryByText(/\(1\)/)).toBeNull();
+    expect(screen.getByText('check the material')).toBeInTheDocument();
+  });
+
+  it('a turn that never narrates gets the same shape (claude/codex emit no monologue)', () => {
+    // Its reasoning is collapsed rather than drawered — one click, same as
+    // everywhere else, instead of a second shape for a whole class of agents.
+    render(<SegmentedReply segments={segments} showProcess />);
+    expect(screen.queryByText(/\(1\)/)).toBeNull();
+    expect(screen.queryByText('check the material')).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { expanded: false })[0]);
+    expect(screen.getByText('check the material')).toBeInTheDocument();
+  });
+
+  it('promotion is decided per TURN, not per segment', () => {
+    // A turn whose first segment narrates and whose second does not must not
+    // render half inline and half behind a drawer — two shapes in one reply
+    // reads as a rendering bug.
+    const mixed: Segment[] = [
+      {
+        process: [{ id: 't1', ts: 1, type: 'thinking', content: 'narrating here', monologue: true }],
+        reply: { content: 'first' },
+      },
+      {
+        process: [{ id: 't2', ts: 2, type: 'thinking', content: 'reasoning only' }],
+        reply: { content: 'second' },
+      },
+    ];
+    render(<SegmentedReply segments={mixed} showProcess />);
+    // Neither segment shows the drawer's count label.
+    expect(screen.queryByText(/\(1\)/)).toBeNull();
+    expect(screen.getByText('narrating here')).toBeInTheDocument();
+  });
+
+  it('showProcess off draws answers only, streaming or not', () => {
     render(<SegmentedReply segments={segments} isStreaming />);
     expect(screen.queryByTestId(/segment-details-/)).toBeNull();
-    expect(screen.getByText('做完了')).toBeInTheDocument();
+    expect(screen.getByText('done')).toBeInTheDocument();
   });
 
-  it('无回复的段不渲染气泡，但过程入口仍在', () => {
+  it('a segment with no reply renders no bubble, but keeps its process', () => {
     const noReply: Segment[] = [
-      { process: [{ id: 't1', ts: 1, type: 'thinking', content: '想了想' }], reply: null },
+      { process: [{ id: 't1', ts: 1, type: 'thinking', content: 'thought about it' }], reply: null },
     ];
     render(<SegmentedReply segments={noReply} showProcess />);
     expect(screen.queryByTestId('segment-reply-0')).toBeNull();
     expect(screen.getByTestId('segment-details-0')).toBeInTheDocument();
   });
 
-  // helper_llm 恢复徽标原先在 TurnTimeline 的 ReplyBlock 上；答案层迁到
-  // 这里后徽标跟着走（含 legacy tag 兼容——改名前的持久化行不 backfill）。
-  it('helper_llm_no_reply 显示 info 徽标', () => {
+  // The helper_llm recovery badges used to live on TurnTimeline's ReplyBlock;
+  // they moved here with the answer tier (legacy tag kept — persisted rows
+  // from before the rename are not backfilled).
+  it('helper_llm_no_reply shows the info badge', () => {
     render(<SegmentedReply segments={[
       { process: [], reply: { content: 'Recovered reply', via: 'helper_llm_no_reply' } },
     ]} />);
     expect(screen.getByText(/helper_llm fallback/i)).toBeInTheDocument();
   });
 
-  it('helper_llm_after_error 显示 warning 徽标，且不显示 info 徽标', () => {
+  it('helper_llm_after_error shows the warning badge and not the info one', () => {
     render(<SegmentedReply segments={[
       { process: [], reply: { content: 'Partial recovery', via: 'helper_llm_after_error' } },
     ]} />);
@@ -68,7 +122,7 @@ describe('SegmentedReply', () => {
     expect(screen.queryByText(/helper_llm fallback/i)).toBeNull();
   });
 
-  it('legacy helper_llm_fallback tag 仍显示 info 徽标', () => {
+  it('the legacy helper_llm_fallback tag still shows the info badge', () => {
     render(<SegmentedReply segments={[
       { process: [], reply: { content: 'Legacy recovered reply', via: 'helper_llm_fallback' } },
     ]} />);
@@ -82,7 +136,7 @@ describe('SegmentedReply streaming render path', () => {
   // exact catch ThinkingBlock and the old ReplyBlock already documented).
   // While a segment streams, render plain pre-wrap text; markdown only on
   // settle.
-  it('渲染中的最后一段是 plain text（markdown 不解析）', () => {
+  it('the streaming last segment is plain text (markdown not parsed)', () => {
     const segs: Segment[] = [
       { process: [], reply: { content: '**bold** text', streaming: true } },
     ];
@@ -91,7 +145,7 @@ describe('SegmentedReply streaming render path', () => {
     expect(screen.getByText('**bold** text')).toBeInTheDocument();
   });
 
-  it('落定后同样内容走 markdown（字面星号消失）', () => {
+  it('the same content goes through markdown once settled', () => {
     const segs: Segment[] = [
       { process: [], reply: { content: '**bold** text' } },
     ];
@@ -101,18 +155,16 @@ describe('SegmentedReply streaming render path', () => {
   });
 });
 
-describe('SegmentedReply defaultOpen', () => {
-  // History path: the user already clicked "View reasoning" once to
-  // trigger the fetch — landing on ANOTHER collapsed toggle would make it
-  // two clicks to see anything. defaultOpen renders the process expanded.
-  it('defaultOpen 时过程区直接展开，无需第二次点击', () => {
-    render(<SegmentedReply segments={segments} showProcess defaultOpen />);
-    expect(screen.getByText(/先看素材/)).toBeInTheDocument();
-  });
+describe('reasoning stays folded', () => {
+  // Owner's call, 2026-08-31: no path auto-expands the provider's reasoning.
+  // Opening a turn's process asks for its conclusions — the scratch paper is
+  // bulkier than all of them and would bury what the reader came for.
+  it('the reasoning is folded, and one click reaches it', () => {
+    useUIStore.setState({ interimNarration: false });
+    render(<SegmentedReply segments={segments} showProcess />);
+    expect(screen.queryByText(/check the material/)).toBeNull();
 
-  it('defaultOpen 下仍可点击收起', () => {
-    render(<SegmentedReply segments={segments} showProcess defaultOpen />);
-    fireEvent.click(screen.getAllByRole('button')[0]);
-    expect(screen.queryByText(/先看素材/)).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { expanded: false })[0]);
+    expect(screen.getByText(/check the material/)).toBeInTheDocument();
   });
 });

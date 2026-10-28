@@ -1,0 +1,98 @@
+---
+code_file: src/narranexus/platform/module_system/run_channel_triggers.py
+stub: false
+last_verified: 2026-09-07
+---
+
+## 2026-07-22 — now launched BY the worker supervisor, not the startup paths
+
+`start_channel_triggers` is unchanged and remains the testable channel core, but
+this file's `main()` / `__main__` is no longer the entry the startup paths wire.
+The channels group is now one worker inside [[run_worker_supervisor.py]] (the
+process that also runs the module poller + job + message-bus triggers), which
+calls `start_channel_triggers` directly and owns the shared signal/DB/loguru
+shutdown. `main()` survives as a standalone / cloud `--only channels` entrypoint.
+Consequently the last gotcha bullet below ("JobTrigger and MessageBusTrigger …
+keep their own processes") is HISTORY — those two, and this one, are now
+co-resident in the worker supervisor.
+
+## Why it exists
+
+The consolidated supervisor for ALL IM channel triggers. Replaces the six
+near-identical `run_<channel>_trigger.py` entrypoints (deleted 2026-07-08) with
+one process running every `ChannelTriggerBase` subclass in a single event loop.
+
+Motivation (trigger-consolidation redesign, 2026-07-08):
+- Memory: the heavy package import graph was resident six times; now once.
+- SQLite: six processes each opened the same file, multiplying lock contention
+  (handoff issue #5); one process = one opener.
+- Maintenance: the six-process fact was hard-coded across run.sh, dev-local.sh,
+  deploy-cloud.sh, and the Tauri desktop factories.
+
+## Design decisions
+
+- **`start_channel_triggers(db, only, trigger_map)` is the testable core.** It is
+  extracted from `main()` (which owns DB acquisition + the infinite keepalive
+  loop) so unit tests exercise selection / isolation / pre_start ordering with a
+  fake map and no DB. Tests: `tests/channel/test_channel_supervisor.py`.
+- **Per-channel startup isolation.** Each channel's instantiate → `pre_start` →
+  `start` is wrapped in try/except; one channel failing never aborts the others.
+  This is the supervisor's replacement for the process-level isolation lost by
+  consolidating (the base class already isolates per-task failures at runtime).
+- **`--only lark,slack` selects a subset.** Lets cloud split a high-volume
+  channel into its own container with zero code change. Default (empty) = all.
+- **Relies on `ChannelTriggerBase.start()` being non-blocking.** `start()` spawns
+  the credential watcher + workers as asyncio tasks and returns, so N triggers
+  coexist in one loop. The `while True: sleep(1)` only keeps the process alive.
+- **`pre_start` hook** runs each channel's one-off migration (e.g. Lark's legacy
+  `auth_status`) before `start`, keeping channel-specific logic in the channel
+  (rule #4) instead of the shared entrypoint.
+
+## Upstream / downstream
+
+- **Upstream**: launched by run.sh / dev-local.sh / .dev-local-safe.sh /
+  deploy-cloud.sh / Tauri `state.rs` (both factories).
+- **Downstream**: `CHANNEL_TRIGGER_MAP`, each trigger's `pre_start`/`start`/`stop`,
+  and `channel_health_server.start_channel_health_server` (one aggregated
+  /healthz for all channels).
+
+## Gotchas
+
+Three shutdown hazards caught by the 2026-07-08 end-to-end run (all fixed):
+
+- **The supervisor MUST own signal handling.** The aggregated health server's
+  uvicorn installs its own SIGINT handler by default and swallows Ctrl+C, so the
+  supervisor tells uvicorn `install_signal_handlers = lambda: None` and installs
+  its own `loop.add_signal_handler` for BOTH SIGINT and SIGTERM. Shutdown waits
+  on an `asyncio.Event`, not a `while True` loop.
+- **SIGTERM must be handled explicitly.** `asyncio.run()` handles SIGINT but NOT
+  SIGTERM; without an explicit handler, systemd/`docker stop` would hard-kill the
+  process instead of letting each channel `stop()`.
+- **The DB client MUST be closed on shutdown.** This used to be justified by
+  aiosqlite's connection thread keeping the process alive after `main()`
+  returns, turning a clean signal into a hang. **That reason expired on
+  2026-08-17**: [[db_backend_sqlite.py]] makes the worker a daemon thread, so it
+  no longer blocks exit. The requirement stands on what outlived the hang — a
+  daemon thread is KILLED wherever it stands at interpreter exit, so
+  `close_db_client()` is the only point at which pending writes are drained and
+  SQLite locks released deliberately. The old per-channel entrypoints never
+  closed it but exited via a propagating `KeyboardInterrupt`; the supervisor
+  returns normally, so it must close explicitly.
+- `loguru.complete()` is drained inside the same `asyncio.run` scope on shutdown;
+  a fresh `asyncio.run` would bind it to a closed loop (inherited from the old
+  per-channel entrypoints).
+- Out of scope: `JobTrigger` and `MessageBusTrigger` are NOT `ChannelTriggerBase`
+  subclasses and keep their own processes.
+
+## 2026-09-04 · ingress triggers (batch 3c.3)
+
+`main()` calls `boot_channel_plugins()` after `auto_migrate` and before `start_channel_triggers`: the trigger map is a registry view now, and a disabled builtin must already be gone. `start_channel_triggers` itself is unchanged (still takes an injectable `trigger_map`).
+
+
+## 2026-09-07 — marks the plugin boot healthy only once it serves (round-2 🟡-6)
+
+The plugin boot no longer declares itself healthy on its last line; this
+entrypoint calls `plugins_boot.mark_host_healthy(<role>)` after the process is
+actually serving, which is the only moment that may clear the boot-crash marker
+and move the last-known-good registry snapshot. Reaching the boot and then dying
+must count as a failed boot.

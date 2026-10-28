@@ -6,7 +6,7 @@
               correctly when agents compose markdown commands.
 """
 
-from xyz_agent_context.module.lark_module._lark_command_security import (
+from narranexus_plugins.lark_module._lark_command_security import (
     sanitize_command,
 )
 

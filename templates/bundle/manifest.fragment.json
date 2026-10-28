@@ -1,0 +1,10 @@
+{
+  "api": {
+    "bundle": 0
+  },
+  "provides": {
+    "content.bundles": [
+      "nxplugins.__PLUGIN_PKG__:BUNDLES"
+    ]
+  }
+}

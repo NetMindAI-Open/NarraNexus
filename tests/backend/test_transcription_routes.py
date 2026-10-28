@@ -17,7 +17,7 @@ from backend.routes.transcription import (
     routes as availability_route,
     public as public_route,
 )
-from xyz_agent_context.agent_framework.llm.transcription import (
+from narranexus.platform.agent_framework.llm.transcription import (
     service as svc_mod,
     url_signer,
 )

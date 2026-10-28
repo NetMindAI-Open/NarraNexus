@@ -18,10 +18,10 @@ is_runnable, and a classifier error stays conservatively False.
 """
 import pytest
 
-from xyz_agent_context.agent_framework.providers.resolver import ProviderAvailability
-from xyz_agent_context.module.job_module.job_trigger import JobTrigger
+from narranexus.platform.agent_framework.providers.resolver import ProviderAvailability
+from narranexus_plugins.job_module.job_trigger import JobTrigger
 
-_PATH = "xyz_agent_context.agent_framework.providers.resolver.classify_provider_for_user"
+_PATH = "narranexus.platform.agent_framework.providers.resolver.classify_provider_for_user"
 
 
 @pytest.mark.asyncio

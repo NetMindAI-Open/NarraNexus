@@ -18,7 +18,7 @@ JSON 列。新增一个 model 之后，老用户的 row 不会自动跟上，他
 
 ## 上下游关系
 
-读：`xyz_agent_context.agent_framework.providers.model_catalog.get_default_models()`
+读：`narranexus.platform.agent_framework.providers.model_catalog.get_default_models()`
    —— 当前默认 model 列表的唯一权威来源。
 读+写：`user_providers` 表（SQLite / MySQL 任一，靠 `db_factory` 自动选）。
 

@@ -4,7 +4,7 @@ import base64
 import httpx
 import pytest
 
-from xyz_agent_context.module.wechat_module.wechat_sdk_client import (
+from narranexus_plugins.wechat_module.wechat_sdk_client import (
     WeChatSDKClient,
     WeChatSDKError,
     extract_text,
@@ -126,7 +126,7 @@ async def test_send_message_stops_after_chunk_failure(monkeypatch):
     """A chunk that fails both attempts must abort the send — sending later
     chunks would deliver a truncated / out-of-order reply under an ok=False."""
     monkeypatch.setattr(
-        "xyz_agent_context.module.wechat_module.wechat_sdk_client.asyncio.sleep",
+        "narranexus_plugins.wechat_module.wechat_sdk_client.asyncio.sleep",
         _noop_sleep,
     )
     attempts: list[str] = []

@@ -23,10 +23,11 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils.timezone import utc_now
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.timezone import utc_now
+from backend.auth_errors import IDENTITY_UNRESOLVED, AuthError
 
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -69,7 +70,7 @@ async def list_my_notifications(
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
 
     db = await get_db_client()
 
@@ -105,7 +106,7 @@ async def mark_notification_read(
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
 
     db = await get_db_client()
     row = await db.get_one(
@@ -129,7 +130,7 @@ async def mark_all_read(request: Request) -> dict:
     """Mark every unread notification of the current user as read."""
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        raise AuthError(IDENTITY_UNRESOLVED, "Authentication required")
 
     db = await get_db_client()
     unread = await db.get(

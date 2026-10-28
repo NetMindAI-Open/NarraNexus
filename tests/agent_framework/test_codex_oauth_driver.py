@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
-from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
+from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
+from narranexus_plugins.providers.codex_oauth import (
     CodexOAuthDriver,
 )
-from xyz_agent_context.agent_framework.providers.driver.registry import DRIVER_REGISTRY
+from narranexus.platform.agent_framework.providers.driver.registry import driver_registry, get_driver_class
 
 
 def _stub_card(auth_ref: str | None = "codex-cli:~/.codex/auth.json") -> ProviderCard:
@@ -34,8 +34,8 @@ def _stub_card(auth_ref: str | None = "codex-cli:~/.codex/auth.json") -> Provide
 
 
 def test_driver_registered_under_codex_oauth_key():
-    assert "codex_oauth" in DRIVER_REGISTRY
-    assert DRIVER_REGISTRY["codex_oauth"] is CodexOAuthDriver
+    assert "codex_oauth" in driver_registry()
+    assert get_driver_class("codex_oauth") is CodexOAuthDriver
 
 
 def test_driver_type_classmethod():
@@ -65,11 +65,14 @@ async def test_probe_returns_not_ok_when_credentials_missing(tmp_path, monkeypat
 
 @pytest.mark.asyncio
 async def test_probe_returns_not_ok_when_auth_ref_missing():
-    """A card with no auth_ref is malformed — probe surfaces that."""
+    """A card with no auth_ref is malformed — probe says what to DO about it
+    (remove + re-add the provider), never the internal column name (P1,
+    2026-08-27: "auth_ref is missing" leaked into the Test dialog)."""
     card = _stub_card(auth_ref=None)
     health = await CodexOAuthDriver(card).probe()
     assert health.ok is False
-    assert "auth_ref" in health.detail
+    assert "auth_ref" not in health.detail
+    assert "re-add" in health.detail
 
 
 @pytest.mark.asyncio
@@ -111,7 +114,7 @@ def test_codex_oauth_build_codex_config_forces_cli_credential_ref():
     """The agent slot now goes through build_codex_config (no resolver
     free-function). OAuth must force the canonical CLI auth-ref, blank
     the api_key, and thread the reasoning knobs through."""
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         CODEX_CLI_CREDENTIALS_REF,
     )
 
@@ -129,7 +132,7 @@ def test_codex_oauth_build_codex_config_forces_cli_credential_ref():
 def test_custom_openai_driver_build_codex_config_uses_api_key():
     """A user's plain OpenAI key (custom_openai) drives a codex agent via
     the generic _DriverBase.build_codex_config — api-key path, no ref."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers.custom_openai import (
+    from narranexus_plugins.providers.custom_openai import (
         CustomOpenAIDriver,
     )
 
@@ -149,7 +152,7 @@ def test_custom_openai_driver_build_codex_config_uses_api_key():
 def test_non_openai_driver_build_codex_config_raises():
     """An anthropic-protocol card cannot drive a codex agent — Codex CLI
     has no anthropic endpoint."""
-    from xyz_agent_context.agent_framework.providers.driver.drivers.custom_anthropic import (
+    from narranexus_plugins.providers.custom_anthropic import (
         CustomAnthropicDriver,
     )
 

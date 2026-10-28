@@ -14,12 +14,15 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
+from narranexus.platform.channel.credential_store import GenericCredentialStore
 from fastapi import FastAPI, Request
 from httpx import ASGITransport
 
 import backend.routes.manyfold.sync as mod
-from xyz_agent_context.module.job_module.job_trigger import JobTrigger
-from xyz_agent_context.repository.job_repository import JobRepository
+from narranexus_plugins.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module import run_once as ro
+from narranexus.platform.repository.job_repository import JobRepository
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +56,13 @@ def test_classify_config_path():
     assert mod._classify_config_path("/api/jobs/complex") == "jobs"
     # Provider mutations edge-trigger PAUSED_NO_QUOTA resume → job state.
     assert mod._classify_config_path("/api/providers") == "jobs"
+    # the generic channel router (every channel binds here since batch 4d.3) …
+    assert mod._classify_config_path("/api/channels/acme_chat/bind") == "channels"
+    assert mod._classify_config_path("/api/channels") == "channels"
+    # … and each registered channel's own router (Lark OAuth, WeChat QR), read from the registry
     for p in ("lark", "slack", "telegram", "wechat", "discord", "narramessenger"):
-        assert mod._classify_config_path(f"/api/{p}/bind") == "channels"
+        assert mod._classify_config_path(f"/api/{p}/auth/login") == "channels"
+    assert mod._classify_config_path("/api/larkx/bind") is None
     assert mod._classify_config_path("/api/agents") is None
     assert mod._classify_config_path("/api/jobsx") is None
 
@@ -130,17 +138,8 @@ async def test_jobs_endpoint_excludes_terminal_jobs(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_channels_endpoint_decodes_telegram_binding(db_client, monkeypatch):
-    await db_client.insert(
-        "channel_telegram_credentials",
-        {
-            "agent_id": "agent_1",
-            "bot_token_encoded": base64.b64encode(
-                b"123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            ).decode(),
-            "bot_user_id": "42",
-            "bot_username": "nx_bot",
-            "enabled": 1,
-        },
+    await GenericCredentialStore(db_client).upsert(  # telegram persists in channel_credentials (batch 4d)
+        "telegram", "agent_1", {"bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ", "bot_user_id": "42", "bot_username": "nx_bot"}, enabled=True
     )
     app = _make_app(db_client, monkeypatch, authed=True)
     resp = await _get(app, "/manyfold/channels")
@@ -154,6 +153,33 @@ async def test_channels_endpoint_decodes_telegram_binding(db_client, monkeypatch
     assert tg[0]["config"]["bot_username"] == "nx_bot"
 
 
+@pytest.mark.asyncio
+async def test_channels_rows_declare_agent_managed_reply(db_client, monkeypatch):
+    """Every binding row carries an EXPLICIT agent_managed_reply boolean.
+
+    Absent would mean "platform default", which is managed-ON since
+    manyfold #504 — an explicit false is what keeps rollout under our
+    declaration's control. Flipping a provider is a config change
+    (NEXUS_MANAGED_REPLY_PROVIDERS), not a code change.
+    """
+    await GenericCredentialStore(db_client).upsert(  # telegram persists in channel_credentials (batch 4d)
+        "telegram", "agent_1", {"bot_token": "123:tok", "bot_user_id": "42", "bot_username": "nx_bot"}, enabled=True
+    )
+    monkeypatch.delenv("NEXUS_MANAGED_REPLY_PROVIDERS", raising=False)
+    app = _make_app(db_client, monkeypatch, authed=True)
+    resp = await _get(app, "/manyfold/channels")
+    rows = resp.json()["data"]
+    assert rows, "expected at least the telegram row"
+    assert all(r["config"]["agent_managed_reply"] is False for r in rows)
+
+    monkeypatch.setenv("NEXUS_MANAGED_REPLY_PROVIDERS", "telegram, wechat")
+    resp = await _get(app, "/manyfold/channels")
+    tg = next(
+        r for r in resp.json()["data"] if r["provider"] == "telegram"
+    )
+    assert tg["config"]["agent_managed_reply"] is True
+
+
 async def test_channels_endpoint_decodes_lark_binding(db_client, monkeypatch):
     # Regression: the endpoint used cred.has_secret / cred.app_secret, which
     # LarkCredential does not expose (it has app_secret_encoded +
@@ -161,18 +187,19 @@ async def test_channels_endpoint_decodes_lark_binding(db_client, monkeypatch):
     # original test only covered telegram, which is why it slipped — hit
     # live during the 2026-08-03 local managed-IM E2E (fix ported from the
     # feat/manyfold-cloud experiment branch).
-    await db_client.insert(
-        "lark_credentials",
-        {
-            "agent_id": "agent_1",
-            "app_id": "cli_abc123",
-            "app_secret_ref": "appsecret:cli_abc123",
-            "app_secret_encrypted": base64.b64encode(b"the_app_secret").decode(),
-            "brand": "feishu",
-            "profile_name": "agent_agent_1",
-            "auth_status": "user_logged_in",  # bot-active → listed
-            "is_active": 1,
-        },
+    from narranexus_plugins.lark_module._lark_credential_manager import LarkCredential, LarkCredentialManager
+
+    await LarkCredentialManager(db_client).save_credential(  # lark persists in channel_credentials (batch 4d)
+        LarkCredential(
+            agent_id="agent_1",
+            app_id="cli_abc123",
+            app_secret_ref="appsecret:cli_abc123",
+            app_secret_encoded=base64.b64encode(b"the_app_secret").decode(),
+            brand="feishu",
+            profile_name="agent_agent_1",
+            auth_status="user_logged_in",  # bot-active → listed
+            is_active=True,
+        )
     )
     app = _make_app(db_client, monkeypatch, authed=True)
     resp = await _get(app, "/manyfold/channels")
@@ -255,6 +282,7 @@ async def test_middleware_ignores_reads_other_paths_and_errors(monkeypatch):
 class _FakeAsyncClient:
     posts: list = []
     fail = False
+    fail_times = 0  # fail this many posts, then succeed (retry tests)
 
     def __init__(self, *a, **kw):
         pass
@@ -269,6 +297,9 @@ class _FakeAsyncClient:
         _FakeAsyncClient.posts.append({"url": url, "json": json, "headers": headers})
         if _FakeAsyncClient.fail:
             raise httpx.ConnectError("down")
+        if _FakeAsyncClient.fail_times > 0:
+            _FakeAsyncClient.fail_times -= 1
+            raise httpx.ConnectError("down")
         return SimpleNamespace(raise_for_status=lambda: None)
 
 
@@ -278,8 +309,11 @@ def webhook_env(monkeypatch):
     monkeypatch.setenv("MANYFOLD_SYNC_WEBHOOK_TOKEN", "tok")
     monkeypatch.setenv("MANYFOLD_RUNTIME_ID", "rt_1")
     monkeypatch.setattr(mod.httpx, "AsyncClient", _FakeAsyncClient)
+    # Collapse the real backoff (1s/5s/25s) so retry tests finish fast.
+    monkeypatch.setattr(mod, "_NOTIFY_RETRY_BACKOFF_S", (0.01, 0.02, 0.03))
     _FakeAsyncClient.posts = []
     _FakeAsyncClient.fail = False
+    _FakeAsyncClient.fail_times = 0
     mod._pending_kinds.clear()
 
 
@@ -296,10 +330,57 @@ async def test_notify_coalesces_bursts_into_one_post(webhook_env):
 
 @pytest.mark.asyncio
 async def test_notify_failure_never_raises(webhook_env):
+    # Always-fail: initial attempt + every backoff retry fires, then gives up
+    # quietly — the caller never sees an exception either way.
     _FakeAsyncClient.fail = True
     mod.notify_manyfold_config_changed({"jobs"})
     await asyncio.sleep(0.7)
+    assert len(_FakeAsyncClient.posts) == 1 + len(mod._NOTIFY_RETRY_BACKOFF_S)
+
+
+@pytest.mark.asyncio
+async def test_notify_retries_then_succeeds(webhook_env):
+    # Two transient failures → third attempt lands; no further retries.
+    _FakeAsyncClient.fail_times = 2
+    mod.notify_manyfold_config_changed({"jobs"})
+    await asyncio.sleep(0.7)
+    assert len(_FakeAsyncClient.posts) == 3
+    assert _FakeAsyncClient.posts[-1]["json"]["kinds"] == ["jobs"]
+
+
+@pytest.mark.asyncio
+async def test_notify_total_failure_restores_kinds_for_next_flush(webhook_env):
+    # All attempts fail → the batch (incl. anything absorbed during the
+    # retry window) goes back into _pending_kinds, so the NEXT config
+    # write resends it instead of the kinds dying with the doomed batch.
+    _FakeAsyncClient.fail = True
+    mod.notify_manyfold_config_changed({"jobs"})
+    await asyncio.sleep(0.7)
+    assert mod._pending_kinds >= {"jobs"}
+    # Next write picks the restored kinds up alongside its own.
+    _FakeAsyncClient.fail = False
+    _FakeAsyncClient.posts = []
+    mod.notify_manyfold_config_changed({"channels"})
+    await asyncio.sleep(0.7)
     assert len(_FakeAsyncClient.posts) == 1
+    assert _FakeAsyncClient.posts[0]["json"]["kinds"] == ["channels", "jobs"]
+
+
+@pytest.mark.asyncio
+async def test_notify_retry_merges_kinds_arriving_between_attempts(
+    webhook_env, monkeypatch
+):
+    # A kind queued while the first attempt is failing rides the retry
+    # instead of waiting for its own flush cycle. Backoff wide enough
+    # (0.3s) to inject a notify between failure (t≈0.5) and retry (t≈0.8).
+    monkeypatch.setattr(mod, "_NOTIFY_RETRY_BACKOFF_S", (0.3,))
+    _FakeAsyncClient.fail_times = 1
+    mod.notify_manyfold_config_changed({"jobs"})
+    await asyncio.sleep(0.6)  # first attempt has fired (and failed)
+    mod.notify_manyfold_config_changed({"channels"})
+    await asyncio.sleep(0.5)
+    assert len(_FakeAsyncClient.posts) == 2
+    assert _FakeAsyncClient.posts[-1]["json"]["kinds"] == ["channels", "jobs"]
 
 
 @pytest.mark.asyncio
@@ -337,6 +418,8 @@ def job_stubs(db_client, monkeypatch):
         return db_client
 
     monkeypatch.setattr(mod, "get_db_client", _fake_db)
+    # The execution body lives in builtin.job's run_once module (jobs.run_once service).
+    monkeypatch.setattr(ro, "get_db_client", _fake_db)
 
     async def _get_job(self, job_id):
         job = state["job"]
@@ -363,8 +446,8 @@ def job_stubs(db_client, monkeypatch):
     monkeypatch.setattr(JobTrigger, "_rearm_cooled_jobs", _rearm)
     monkeypatch.setattr(JobTrigger, "_resume_eligible_no_quota_jobs", _resume)
     # Collapse the drain window so the no-more-due exit is immediate.
-    monkeypatch.setattr(mod, "_DRAIN_WINDOW_S", 0)
-    monkeypatch.setattr(mod, "_DRAIN_POLL_INTERVAL_S", 0)
+    monkeypatch.setattr(ro, "_DRAIN_WINDOW_S", 0)
+    monkeypatch.setattr(ro, "_DRAIN_POLL_INTERVAL_S", 0)
     return state
 
 
@@ -403,16 +486,16 @@ async def test_execute_job_once_skips(job_stubs):
 
 @pytest.mark.asyncio
 async def test_execute_job_once_drains_due_jobs_up_to_cap(job_stubs, monkeypatch):
-    monkeypatch.setattr(mod, "_DRAIN_WINDOW_S", 5)
+    monkeypatch.setattr(ro, "_DRAIN_WINDOW_S", 5)
     job_stubs["job"] = _fake_job()
     job_stubs["due"] = [
-        _fake_job(job_id=f"dep_{i}") for i in range(mod._DRAIN_LIMIT + 2)
+        _fake_job(job_id=f"dep_{i}") for i in range(ro._DRAIN_LIMIT + 2)
     ]
     outcome = await mod.execute_job_once("agent_1", "j1")
     assert outcome.ok is True
-    assert outcome.drained == mod._DRAIN_LIMIT
+    assert outcome.drained == ro._DRAIN_LIMIT
     assert job_stubs["executed"][0] == "j1"
-    assert len(job_stubs["executed"]) == 1 + mod._DRAIN_LIMIT
+    assert len(job_stubs["executed"]) == 1 + ro._DRAIN_LIMIT
 
 
 @pytest.mark.asyncio

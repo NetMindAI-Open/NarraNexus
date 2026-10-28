@@ -10,12 +10,12 @@ W1 num_turns chain the field rides along).
 """
 from types import SimpleNamespace
 
-from xyz_agent_context.agent_framework.loop.output_transfer import (
+from narranexus.platform.agent_framework.loop.output_transfer import (
     _convert_result_to_stream_event,
 )
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import ResponseProcessor
-from xyz_agent_context.schema.decision_schema import PathExecutionResult
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import ResponseProcessor
+from narranexus.platform.schema.decision_schema import PathExecutionResult
 
 
 def _result_message(**overrides) -> SimpleNamespace:

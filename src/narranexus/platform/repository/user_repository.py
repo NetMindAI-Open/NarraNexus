@@ -1,0 +1,306 @@
+"""
+@file_name: user_repository.py
+@author: NetMind.AI
+@date: 2025-12-02
+@description: User Repository - Data access layer for user data
+
+Responsibilities:
+- CRUD operations for User
+- User status management
+- Login time updates
+"""
+
+import json
+from datetime import datetime, timezone as dt_timezone
+from typing import List, Dict, Any, Optional
+from loguru import logger
+
+from .base import BaseRepository
+from narranexus.platform.schema import User, UserStatus
+# repository -> utils is downwards; utils/timezone depends only on stdlib +
+# loguru, so this cannot cycle.
+from narranexus.platform.utils.timezone import resolve_timezone
+
+
+class UserRepository(BaseRepository[User]):
+    """
+    User Repository implementation
+
+    Usage example:
+        repo = UserRepository(db_client)
+
+        # Get a user
+        user = await repo.get_user("user_123")
+
+        # Add a user
+        await repo.add_user(user_id, user_type, display_name)
+
+        # Update login time
+        await repo.update_last_login("user_123")
+    """
+
+    table_name = "users"
+    id_field = "id"
+
+    _json_fields = {"metadata"}
+
+    async def get_display_name(self, user_id: Optional[str]) -> str:
+        """Resolve a user_id to a human-readable name for agent prompts / UI.
+
+        Returns the user's display_name, falling back to the user_id itself
+        when there is no display name (or no such user). This is the single
+        place where the opaque user_id (in cloud mode, a 32-hex NetMind
+        userSystemCode) is turned into something a human / the LLM reads;
+        everywhere else user_id stays an internal scoping key. Never raises.
+        """
+        if not user_id:
+            return ""
+        try:
+            user = await self.get_user(user_id)
+        except Exception:  # noqa: BLE001 — identity display must never break callers
+            user = None
+        return (user.display_name or user_id) if user else user_id
+
+    async def get_user(self, user_id: str) -> Optional[User]:
+        """Get a user (case-sensitive)"""
+        logger.debug(f"    → UserRepository.get_user({user_id})")
+        rows = await self._db.execute(
+            f"SELECT * FROM {self.table_name} WHERE BINARY user_id = %s LIMIT 1",
+            params=(user_id,),
+            fetch=True,
+        )
+        if rows:
+            return self._row_to_entity(rows[0])
+        return None
+
+    async def add_user(
+        self,
+        user_id: str,
+        user_type: str,
+        display_name: Optional[str] = None,
+        email: Optional[str] = None,
+        phone_number: Optional[str] = None,
+        nickname: Optional[str] = None,
+        timezone: str = "UTC",
+        status: UserStatus = UserStatus.ACTIVE,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> int:
+        """Add a new user"""
+        logger.debug(f"    → UserRepository.add_user({user_id})")
+
+        user = User(
+            user_id=user_id,
+            user_type=user_type,
+            display_name=display_name,
+            email=email,
+            phone_number=phone_number,
+            nickname=nickname,
+            timezone=timezone,
+            status=status,
+            metadata=metadata,
+        )
+
+        return await self.insert(user)
+
+    async def upsert_netmind_user(
+        self,
+        user_system_code: str,
+        email: str,
+        display_name: Optional[str] = None,
+    ) -> tuple[User, bool]:
+        """Lazily create or refresh the local row for a NetMind user.
+
+        NetMind login has no separate registration step: the first verified
+        login creates the local user (keyed by user_id = userSystemCode);
+        subsequent logins mirror email / display_name drift from NetMind and
+        bump last_login_time. Incoming None values never clobber existing
+        fields.
+
+        Returns:
+            (user, is_new) — the fresh row and whether it was just created.
+        """
+        logger.debug(f"    → UserRepository.upsert_netmind_user({user_system_code})")
+
+        existing = await self.get_user(user_system_code)
+        if existing is None:
+            await self.add_user(
+                user_id=user_system_code,
+                user_type="individual",
+                display_name=display_name,
+                email=email,
+            )
+            await self.update_last_login(user_system_code)
+            created = await self.get_user(user_system_code)
+            return created, True
+
+        updates: Dict[str, Any] = {
+            "last_login_time": datetime.now(dt_timezone.utc)
+        }
+        if email and existing.email != email:
+            updates["email"] = email
+        if display_name and existing.display_name != display_name:
+            updates["display_name"] = display_name
+        # Backfill the NetMind marker: a row that pre-existed as a pure-local
+        # ("local") user — e.g. a username user on a local dual-mode install who
+        # later logs in with their Power account — must become "individual" so
+        # is_power_account() (billing gate) recognises them. Only upgrade; never
+        # clobber an already-individual row.
+        if getattr(existing, "user_type", None) != "individual":
+            updates["user_type"] = "individual"
+        await self.update_user(user_system_code, updates)
+        refreshed = await self.get_user(user_system_code)
+        return refreshed, False
+
+    async def update_user(self, user_id: str, updates: Dict[str, Any]) -> int:
+        """Update user information"""
+        logger.debug(f"    → UserRepository.update_user({user_id})")
+
+        # Serialize JSON fields
+        if "metadata" in updates and not isinstance(updates["metadata"], str):
+            updates["metadata"] = json.dumps(updates["metadata"], ensure_ascii=False)
+
+        # Handle enum types
+        if "status" in updates and isinstance(updates["status"], UserStatus):
+            updates["status"] = updates["status"].value
+
+        query = f"""
+            UPDATE {self.table_name}
+            SET {', '.join(f'`{k}` = %s' for k in updates.keys())}
+            WHERE BINARY user_id = %s
+        """
+
+        params = list(updates.values()) + [user_id]
+        result = await self._db.execute(query, params=tuple(params), fetch=False)
+        return result if isinstance(result, int) else 0
+
+    async def update_last_login(self, user_id: str) -> int:
+        """Update last login time"""
+        logger.debug(f"    → UserRepository.update_last_login({user_id})")
+
+        return await self.update_user(user_id, {
+            "last_login_time": datetime.now(dt_timezone.utc)
+        })
+
+    async def update_timezone(self, user_id: str, timezone: str) -> int:
+        """
+        Update user timezone
+
+        Args:
+            user_id: User ID
+            timezone: IANA timezone string (e.g. 'Asia/Shanghai')
+
+        Returns:
+            Number of affected rows
+        """
+        logger.debug(f"    → UserRepository.update_timezone({user_id}, {timezone})")
+
+        return await self.update_user(user_id, {"timezone": timezone})
+
+    async def get_user_timezone(self, user_id: str) -> str:
+        """
+        Get user timezone — always a USABLE IANA zone.
+
+        The docstring used to promise "returns 'UTC' if user does not exist"
+        while the implementation returned `user.timezone` verbatim for any
+        user that DID exist, blank or malformed included. The promise was
+        therefore kept by each caller remembering to wrap the result in
+        `resolve_timezone`, and by 2026-08-18 three of six had not.
+
+        Most of those got away with it because something downstream wrapped
+        the value again before use. `services/instance_sync_service` did not:
+        it freezes this value into a Job's `trigger_config` at creation, so a
+        malformed zone was PERSISTED and re-read on every later schedule
+        computation, where it reaches `ZoneInfo()` and raises.
+
+        Normalising here makes the contract true at the source, so the next
+        caller cannot get it wrong by forgetting a wrapper. Callers that
+        already wrap are unaffected — `resolve_timezone` is idempotent.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            A valid IANA timezone string; 'UTC' when the user is unknown or
+            their stored value is empty/invalid.
+        """
+        user = await self.get_user(user_id)
+        return resolve_timezone(user.timezone if user else None)
+
+    async def delete_user(self, user_id: str, soft_delete: bool = True) -> int:
+        """Delete a user (soft delete by default)"""
+        logger.debug(f"    → UserRepository.delete_user({user_id}, soft={soft_delete})")
+
+        if soft_delete:
+            return await self.update_user(user_id, {"status": UserStatus.DELETED.value})
+        else:
+            query = f"DELETE FROM {self.table_name} WHERE BINARY user_id = %s"
+            result = await self._db.execute(query, params=(user_id,), fetch=False)
+            return result if isinstance(result, int) else 0
+
+    async def list_users(
+        self,
+        user_type: Optional[str] = None,
+        status: Optional[UserStatus] = None,
+        limit: int = 100
+    ) -> List[User]:
+        """List users"""
+        logger.debug("    → UserRepository.list_users()")
+
+        filters = {}
+        if user_type:
+            filters["user_type"] = user_type
+        if status:
+            filters["status"] = status.value
+
+        return await self.find(
+            filters=filters if filters else {},
+            limit=limit,
+            order_by="create_time DESC"
+        )
+
+    def _row_to_entity(self, row: Dict[str, Any]) -> User:
+        """Convert a database row to a User object"""
+        metadata = self._parse_json_field(row.get("metadata"), None)
+
+        return User(
+            id=row.get("id"),
+            user_id=row["user_id"],
+            user_type=row["user_type"],
+            display_name=row.get("display_name"),
+            email=row.get("email"),
+            phone_number=row.get("phone_number"),
+            nickname=row.get("nickname"),
+            timezone=row.get("timezone", "UTC"),
+            status=UserStatus(row.get("status", "active")),
+            metadata=metadata,
+            last_login_time=row.get("last_login_time"),
+            create_time=row.get("create_time"),
+            update_time=row.get("update_time"),
+        )
+
+    def _entity_to_row(self, entity: User) -> Dict[str, Any]:
+        """Convert a User object to a database row"""
+        return {
+            "user_id": entity.user_id,
+            "user_type": entity.user_type,
+            "display_name": entity.display_name,
+            "email": entity.email,
+            "phone_number": entity.phone_number,
+            "nickname": entity.nickname,
+            "timezone": entity.timezone,
+            "status": entity.status.value,
+            "metadata": json.dumps(entity.metadata, ensure_ascii=False) if entity.metadata else None,
+            "last_login_time": entity.last_login_time,
+        }
+
+    @staticmethod
+    def _parse_json_field(value: Any, default: Any) -> Any:
+        """Parse a JSON field"""
+        if value is None:
+            return default
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return default
+        return value

@@ -26,13 +26,13 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.driver import (
+from narranexus.platform.agent_framework.loop.driver import (
     AgentLoopDriver,
     available_agent_loop_frameworks,
     get_agent_loop_driver,
 )
-from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import CodexSDK
-from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
+from narranexus_plugins.frameworks_codex_cli.cli_sdk import CodexSDK
+from narranexus_plugins.frameworks_codex_cli.official_sdk import (
     CodexSDKv2,
     _build_codex_config_overrides,
     _prepare_codex_notification,
@@ -341,17 +341,17 @@ def test_response_processor_recognises_thinking_item():
     """
     import inspect as _inspect
 
-    from xyz_agent_context.agent_runtime.response_processor import (
+    from narranexus.platform.agent_runtime.response_processor import (
         ResponseProcessor,
     )
 
-    from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_THINKING
+    from narranexus.contracts.agent_events import ITEM_TYPE_THINKING
 
     handler_src = _inspect.getsource(
         ResponseProcessor._handle_run_item_stream_event
     )
     # 2026-07-27: the handler now branches on the shared constant from
-    # loop/events.py instead of an inline literal. The contract chain is:
+    # narranexus/contracts/agent_events.py instead of an inline literal. The contract chain is:
     # translator emits ITEM_TYPE_THINKING → handler matches
     # ITEM_TYPE_THINKING → the constant's VALUE stays "thinking_item"
     # (pinned here and in test_loop_event_contract.py).
@@ -386,7 +386,7 @@ def test_v2_item_type_table_covers_known_sdk_types():
     """
     import openai_codex.generated.v2_all as v2
 
-    from xyz_agent_context.agent_framework.loop.output_transfer import (
+    from narranexus.platform.agent_framework.loop.output_transfer import (
         _CODEX_ITEM_TYPES_TEXT,
         _CODEX_ITEM_TYPES_THINKING,
         _CODEX_ITEM_TYPES_TOOL,
@@ -456,7 +456,7 @@ def test_method_constants_match_sdk_notification_registry():
     """
     from openai_codex.generated.notification_registry import NOTIFICATION_MODELS
 
-    from xyz_agent_context.agent_framework.loop import output_transfer as ot
+    from narranexus.platform.agent_framework.loop import output_transfer as ot
 
     method_constants = {
         name: getattr(ot, name)

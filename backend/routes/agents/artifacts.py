@@ -14,7 +14,7 @@ Endpoints:
 - DELETE /{agent_id}/artifacts/{aid}                 remove DB row (workspace files are NOT touched)
 
 This router is a thin HTTP shell: business logic (registration validation,
-heal recovery strategy) lives in `xyz_agent_context.artifact.ArtifactService`;
+heal recovery strategy) lives in `narranexus.platform.artifact.ArtifactService`;
 plain CRUD goes through `ArtifactRepository`. Handlers only do auth, HTTP
 mapping, and response shaping.
 
@@ -29,17 +29,28 @@ via the workspace section in the config panel.
 
 from __future__ import annotations
 
+import os
+import re
+import uuid
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.artifact import ArtifactError, ArtifactService
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.artifact import (
+    MAX_ARTIFACT_BYTES,
+    ArtifactEditConflict,
+    ArtifactError,
+    ArtifactService,
+    ArtifactPathEscape,
+)
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.settings import settings
+from narranexus.platform.schema import Artifact, EmbedMode, HealResult
+from narranexus.platform.utils.db.db_factory import get_db_client
 
+from backend.middleware.body_size import MAX_OFFICE_ASSET_BYTES, PUT_CONTENT_MARGIN
 from backend.routes.artifacts import _token as _artifact_token
 
 
@@ -91,6 +102,14 @@ class PatchArtifact(BaseModel):
     title: Optional[str] = None
 
 
+class PutContentRequest(BaseModel):
+    """A user edit from an editing surface: the FULL new file content plus the
+    sha256 the editor's copy was based on (optimistic lock)."""
+
+    content: str
+    base_hash: str
+
+
 class RegisterRequest(BaseModel):
     file_path: str = Field(..., description="Workspace-relative or absolute path to the entry file")
     kind: str
@@ -132,7 +151,7 @@ class EmbedModeRequest(BaseModel):
 async def list_artifacts(
     request: Request,
     agent_id: str,
-    scope: Literal["session", "pinned"] = Query("session"),
+    scope: Literal["session", "pinned", "context"] = Query("session"),
     session_id: Optional[str] = Query(None),
 ):
     """
@@ -140,12 +159,20 @@ async def list_artifacts(
 
     Args:
         scope: 'session' (default) returns non-pinned artifacts for the given
-               session_id; 'pinned' returns all pinned artifacts for the agent.
+               session_id; 'pinned' returns all pinned artifacts for the agent;
+               'context' returns the agent's full awareness surface — own
+               pinned ∪ every team it belongs to (list_for_agent_context),
+               the same union the agent's state block draws from. This is the
+               frontend's full-pull on open/switch/reconnect (spec
+               artifact-events §3.3), so what the panel shows and what the
+               agent believes exists can never disagree.
         session_id: Required when scope='session'.
     """
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
+    if scope == "context":
+        return await repo.list_for_agent_context(agent_id)
     if scope == "pinned":
         return await repo.list_pinned(agent_id)
     if not session_id:
@@ -332,6 +359,164 @@ async def get_artifact(request: Request, agent_id: str, artifact_id: str):
     db = await get_db_client()
     repo = ArtifactRepository(db)
     return await _get_owned_artifact(repo, agent_id, artifact_id)
+
+
+@router.put("/{agent_id}/artifacts/{artifact_id}/content", response_model=Artifact)
+async def put_artifact_content(request: Request, agent_id: str, artifact_id: str):
+    """
+    Persist a user edit onto the artifact's entry file (spec A §3.1).
+
+    NO Pydantic body field, deliberately (review #334 r3 I1): FastAPI reads
+    and parses any declared body BEFORE dependencies run, so a body field
+    would turn every size gate into an after-the-fact check. The body is
+    read STREAMED here with an accumulation cap; the declared-length fast
+    reject lives in backend/middleware/body_size.py (the only layer that
+    truly runs first). Adding a body field back re-opens the unbounded
+    buffering hole.
+
+    The service commits it as one atomic edit: optimistic lock against the
+    on-disk content, temp-file + atomic-rename write, hash/size/updated_at
+    refresh, history action="user_edited", staged "updated" event.
+
+    409 carries {current_hash} in the detail so the editor can offer the
+    re-base choice ("overwrite anyway" resends with it; "discard mine"
+    reloads). Session-authed only — view tokens stay read-only.
+
+    Request body: {"content": str, "base_hash": str} — hand-parsed, so this
+    endpoint has no OpenAPI requestBody schema and its 422 detail is a plain
+    string, not FastAPI's [{loc, msg, type}] shape.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    cap = MAX_ARTIFACT_BYTES + PUT_CONTENT_MARGIN
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > cap:
+            raise HTTPException(413, "content too large")
+        chunks.append(chunk)
+    try:
+        parsed = PutContentRequest.model_validate_json(b"".join(chunks))
+    except ValueError:
+        raise HTTPException(422, "body must be JSON with content and base_hash")
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        return await service.save_user_content(
+            agent_id=agent_id,
+            artifact_id=artifact_id,
+            content=parsed.content,
+            base_hash=parsed.base_hash,
+        )
+    except ArtifactEditConflict as e:
+        # Structured detail, not a plain string: current_hash is data the
+        # editor needs, not a message for a human.
+        raise HTTPException(
+            status_code=e.code,
+            detail={"error": str(e), "current_hash": e.current_hash},
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
+
+
+@router.post("/{agent_id}/artifacts/{artifact_id}/office-edit-commit", response_model=Artifact)
+async def office_edit_commit(request: Request, agent_id: str, artifact_id: str):
+    """
+    Commit point for an office watch-page user edit (spec B §3.2).
+
+    The bytes were already written by the officecli watch server (single
+    resident writer); this refreshes the registry — hash/size/updated_at,
+    history action="user_edited", staged event — so the agent's state block
+    and other open surfaces learn about the change. Idempotent on an
+    unchanged hash.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        return await service.commit_office_user_edit(
+            agent_id=agent_id, artifact_id=artifact_id
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
+
+
+@router.post("/{agent_id}/artifacts/{artifact_id}/office-asset")
+async def upload_office_asset(
+    request: Request, agent_id: str, artifact_id: str, file: UploadFile
+):
+    """
+    Land an asset (an image for a T2 replace) next to an office artifact's
+    entry file and return its absolute server path — the watch server resolves
+    `set … src=<path>` against ITS filesystem, which is the same one the
+    entry lives on.
+
+    The filename is reduced to a sanitized basename with a random prefix: the
+    upload can never escape the entry's directory or overwrite the document.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    db = await get_db_client()
+    repo = ArtifactRepository(db)
+    art = await _get_owned_artifact(repo, agent_id, artifact_id)
+    if art.kind != "application/vnd.officecli-live":
+        raise HTTPException(400, "office-asset only applies to office artifacts")
+    if not art.file_path:
+        raise HTTPException(410, "artifact has no entry file")
+
+    try:
+        entry_abs = ArtifactService(db).resolve_owned_entry(art)
+    except ArtifactPathEscape:
+        raise HTTPException(404, "artifact not found")
+    entry_dir = os.path.dirname(entry_abs)
+    if not os.path.isdir(entry_dir):
+        raise HTTPException(410, "entry directory is gone")
+
+    # Honest bounds (review #334 r3 I1): with an UploadFile in the
+    # signature the framework has ALREADY consumed the multipart stream
+    # before this line — python-multipart spools big bodies to disk, so the
+    # real pre-buffer bound is the declared-length middleware
+    # (backend/middleware/body_size.py, with a multipart framing margin)
+    # plus the container's disk. The streamed-copy check below bounds the
+    # FILE bytes we copy out of the spool; it is not, and cannot be, a
+    # memory gate. No declared-length check here (review #334 r5 M4): the
+    # header covers the whole multipart body incl. framing, so comparing it
+    # to the single-file cap 413s a just-under-10MB image the streamed
+    # check would rightly accept — the middleware owns the declared gate.
+
+    # Unicode-category sanitize (review #334 I15): \w keeps letters/digits of
+    # EVERY script (kana, hangul, cyrillic, arabic, CJK...), not a
+    # we-only-thought-of-Chinese whitelist; separators/control chars become _.
+    # Length-capped — a 500-char name would ENAMETOOLONG as an opaque 500.
+    raw_name = os.path.basename(file.filename or "asset")
+    safe = re.sub(r"[^\w.\-]", "_", raw_name, flags=re.UNICODE).lstrip(".") or "asset"
+    # Truncate stem and extension SEPARATELY (review #334 r2 M2): a plain
+    # [:120] on a long name eats the extension, and the raw route serves by
+    # extension — a suffixless image "replaces successfully" and renders
+    # nothing. lstrip(".") above already handled leading-dot names.
+    stem, ext = os.path.splitext(safe)
+    safe = stem[:104] + ext[:16]
+    dest = os.path.join(entry_dir, f"{uuid.uuid4().hex[:8]}_{safe}")
+    received = 0
+    try:
+        with open(dest, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                received += len(chunk)
+                if received > MAX_OFFICE_ASSET_BYTES:
+                    raise HTTPException(
+                        413,
+                        "asset too large "
+                        f"({MAX_OFFICE_ASSET_BYTES // (1024 * 1024)} MB max)",
+                    )
+                out.write(chunk)
+    except BaseException:
+        # Never leave a partial file: the entry dir is served by the raw
+        # route and counted by _dir_size.
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        raise
+    return {"path": dest}
 
 
 @router.patch("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)

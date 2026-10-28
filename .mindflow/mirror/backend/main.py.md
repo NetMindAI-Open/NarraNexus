@@ -1,8 +1,188 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-08-03
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Drain before dependency shutdown
+
+The lifespan owns detached request work through `app.state.run_tasks`, separately
+from the run-ID lookup in `active_runs`. Its finally block waits for initialization,
+execution and terminal persistence before stopping any housekeeping or workers or
+closing the DB. Heartbeats and dependencies remain available throughout the drain.
+Housekeeping cancellation is joined before DB close. Worker-stop errors do not
+skip the remaining cleanup; errors are aggregated after all release attempts.
+There is no run deadline;
+shutdown-waiter cancellation is deferred through cleanup. This fixes graceful
+backend SIGTERM losing a still-live run after its WebSocket handler exits.
+External supervisor kill deadlines and early MCP shutdown remain outside this
+backend-only guarantee; dependencies must remain alive until the backend exits.
+
+## 2026-09-23 - Browser route ownership
+
+The browser HTTP and WebSocket routes mount only after builtin registration
+confirms a loaded builtin.browser module contribution. Disabling the plugin or
+omitting it from a distribution removes both surfaces. They still mount before
+plugin routers and the SPA fallback, preserving route precedence.
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+lifespan 里 `HEARTBEAT_INTERVAL_S` 改为从 `narranexus.platform.utils.run_liveness` 导入
+（`sweep_stale_runs` 仍来自 `run_recorder`），行为不变。
+
+## 2026-09-07 — 挂载 `GET /api/plugins/channels` 渠道目录
+
+在 `channels_generic_router` 之后挂 `channels_catalog_router`，前缀 `/api/plugins`（**不是**
+`/api/channels`：它是对插件注册表的读取，不是对某个 agent 绑定的操作，而 `/api/channels/*`
+那一组全是 ownership 门控的）。它答的是「本部署有哪些渠道」，来源是 `ingress.channels`
+注册表——目的是让前端不再自己维护一张六行渠道表，见
+`backend/routes/channels/catalog.py` 的 mirror。
+
+## 2026-09-03（批 2c）— 挂 `plugin_factory_router`，启动报告交给工场 service
+
+## 2026-09-03（批 2b.5）— lifespan 接插件启动
+
+`get_db_client()` 之后、`auto_migrate` 之前 `boot_backend_plugins()`；迁移完成后 `fire_startup()` +
+`mark_healthy()`（到达「库已迁移、进程在服务」就是启动标记衡量的健康）。
+
+## 2026-09-03（批 2a.4）— 挂载插件路由
+
+`app.state.plugin_routes = mount_plugin_routes(app, KERNEL_REGISTRIES)` 放在壳路由之后、静态/SPA 之前
+（顺序即安全边界，见 `plugins_host.py`）。
+
+## 2026-08-28 — plugins_router 注册
+
+新增 `from backend.routes.plugins.routes import router as plugins_router` 和
+`app.include_router(plugins_router, tags=["Plugins"])`。router 自带 prefix
+`/api/plugins`（`include_router` 不传 prefix），与 `admin_*` 系列同 pattern。
+挂载 Settings → Plugins 面板需要的三个端点（list/install/uninstall），服务于
+local/desktop 把 Claude Code / Codex CLI 从基础安装拆成按需插件的改造。见
+[[backend/routes/plugins/routes.py]]。
+
+## 2026-08-19 — admin_warn_router 注册
+
+新增 `from backend.routes.admin.warn import router as admin_warn_router` 和
+`app.include_router(admin_warn_router, tags=["AdminWarn"])`。router 自带 prefix
+`/api/admin`，挂载敏感操作即时警告端点（`POST /api/admin/warn-user`，写一行
+`user_notifications` + 一行 `ban_audit(action="warn")`）。与 `admin_suspend_router` /
+`admin_gateway_key_misuse_router` 同 pattern；路径同步进 [[auth]] 的 `AUTH_EXEMPT_PATHS`。见
+[[warn.py]]。
+
+## 2026-08-19 — admin_gateway_key_misuse_router 注册
+
+新增 `from backend.routes.admin.gateway_key_misuse import router as admin_gateway_key_misuse_router`
+和 `app.include_router(admin_gateway_key_misuse_router, tags=["AdminGatewayKeyMisuse"])`。router
+自带 prefix `/api/admin`，挂载网关 key 异常使用事件落库端点（`POST /api/admin/gateway-key-misuse`，
+`gateway_key_misuse` 唯一写方）。与 `admin_suspend_router` 同 pattern。见 [[gateway_key_misuse.py]]。
+
+## 2026-08-18 — `/health` 的结果缓存
+
+`/health` **不是每请求一次 `SELECT 1`**：探测结果缓存 5 秒，**成功与失败同 TTL**。
+
+这个端点公开无鉴权、nginx 直通，而每次探测占一条池连接、backend 的池是 10、没有任何
+限流中间件。只缓存成功会把放大面正好留在数据库已经挂了的时刻，所以失败也缓存。
+
+5s 这个值是对着容器 healthcheck 的 `interval: 30s` 选的：单个探测方按自己的节奏每次
+仍是真往返，而**结果发布之后**到达的洪水收敛成一次查询（发布之前到达的不在此列，
+见下面的已知限制）；两个探测方在 5s 内交叠时后到的吃缓存。**它与
+`_HEALTH_DB_TIMEOUT_SEC` 的大小关系不是硬约束** —— 缓存 deadline 按**发布时刻**计算，
+所以没有调用方会拿到一条「在生产它的过程中就已过期」的记录。
+
+**发布守卫按探测的开始时刻排序，不是完成时刻。** 探测**可以**重叠（见下面的已知限制），
+没有这条守卫的话，一个先开始、慢、且失败的探测会在返回时覆盖掉后开始但已成功的结论，
+于是数据库恢复之后还会继续报 unhealthy 一个 TTL；反方向则会掩盖一次新故障。
+
+**已知限制（有意接受）**：上面这套只在数据库健康时把放大面关到零——那时探测是毫秒级，
+缓存几乎立刻生效。**数据库慢的时候，在飞探测发布之前到达的请求仍会各探各的。**
+
+单飞（一把锁把这个窗口也盖住）能关掉它，本 PR 里试过又撤了：那套机器（per-loop 锁、
+横跨排队与探测的共享预算、排队超时的降级路径）连续三轮评审各产出一个新问题，最后一版
+自己制造了一条假的 unhealthy——预算被排队吃光后仍去探测，于是在**一次都没真正碰过
+数据库**的情况下按完整 TTL 发布了 `"database": "timeout"`。一个为了让故障可见而加的
+探针不该产出无依据的结论。这件事单独做，不跟着事故修复一起上。
+
+**on-call 需要知道的一条**：数据库恢复后 `/health` 最多晚 5s 才翻绿，叠在
+`retries: 5 × interval: 30s` 之上。把探针滞后误判成「数据库还没好」，代价是多等一轮。
+
+## 2026-08-17 — `/health` 的 `database` 字段改成真探测
+
+原来是硬编码字面量 `"database": "connected"` —— 一个**永远不可能为假的健康字段**，
+承载的信息量为零。代价在 2026-08-17 兑现：后端每条查询都在报
+`InterfaceError: (0, 'Not connected')` 的那 19 分钟里，容器 healthcheck 全程 healthy，
+建立在它之上的 sentinel 容器状态探测因此一路绿灯，无人告警。
+
+现在走**普通客户端路径**跑一次 `SELECT 1`（同一个连接池、同一套 task 级事务查找），
+探的就是真实请求走的那条路——探测器不该有自己的特权通道，否则它证明的东西和线上无关。
+
+**它是 `status` 的唯一例外。** 上面 2026-08-11 定的"只报告不判定"仍然成立（`failed`
+不影响 `status`），但连不上数据库的后端无法服务任何鉴权请求，所以 DB 探测失败时
+`status=unhealthy` 且返回 **503**——healthcheck 用的 `urlopen` 遇 5xx 抛异常，容器
+因此转 unhealthy，这正是要的效果。
+
+`_HEALTH_DB_TIMEOUT_SEC = 3.0`，压在 compose 里 healthcheck 自己的 `timeout: 5s`
+之下：探测若比 healthcheck 活得久，docker 记录的是超时，我们那句「unhealthy + 原因」
+就丢了。改这个常量前先看 `stacks/narranexus-app/compose.yml`（deploy 仓）。
+
+**失败原因只回异常类名，原文只进日志。** 这个端点在 `backend/auth.py` 的公开白名单
+里，线上是 `https://<app domain>/health`，无鉴权；而 pymysql 的错误串带 RDS 端点
+（`Can't connect to MySQL server on '<endpoint>'`）和库用户名（`Access denied for
+user 'x'@'<内网IP>'`）。故障期恰恰是它最可能被扫到的时候。类名仍能区分「连不上 /
+认证失败 / 池子死了」，这正是 on-call 需要的粒度。**日志那行必须写在 `except` 块
+内**——`logger.exception` 在离开 except 后调用没有活跃异常可渲染，只会打出字面量
+`NoneType: None`，真正的原因哪里都不剩，比改造前的可观测性更差。
+
+**部署耦合（改 503 之前必读）。** healthcheck 用 `urllib.request.urlopen`，5xx 会抛
+异常，所以 503 会让容器转 unhealthy——这正是让容器状态监控**能看见**数据库故障的
+机制（2026-08-17 它看不见）。但 compose 里有 **4 个**服务声明
+`depends_on: backend: condition: service_healthy`：`frontend`，以及经
+`x-python-common` 锚点继承的 `mcp` / `workers` / `model-sync`。
+
+后果要完整说，因为漏掉的那一半最容易踩：在数据库不可用期间执行 `docker compose up`
+**不是部分降级，而是整条命令失败**（`dependency failed to start: container
+narranexus-backend is unhealthy`）。什么都起不来——前端起不来（ops 侧 Caddy 失去上游，
+公网入口返 **502**；前端自己没有 host 端口映射，Caddy 反代到 `narranexus-frontend:80`），
+**workers 也起不来**，那是全部 channel trigger、ModulePoller、Job trigger 和 message bus。
+
+于是恢复顺序被硬性约束成「先修数据库，再部署」。冷启动本来就需要数据库（lifespan 建池），所以变的是「故障期重新部署」而
+非首次启动；已经在跑的栈会继续服务，直到探针在 `retries: 5 x interval: 30s` 后翻转。
+
+这是**有意接受**的代价：另一条路（healthcheck 改指浅探针 `/healthz`）会把本次要关掉
+的盲区原样装回去。不要用「DB 失败仍返回 200、只把 status 置 unhealthy」来绕开耦合——
+一个永远不可能为假的健康字段不承载信息，原 bug 就是这么活下来的。
+
+## 2026-08-13 — admin_suspend_router 注册
+
+新增 `from backend.routes.admin.suspend import router as admin_suspend_router` 和
+`app.include_router(admin_suspend_router, tags=["AdminSuspend"])`。router 自带
+prefix `/api/admin`（`include_router` 不再传 prefix），挂载账户停用机制的三条端点
+（`POST /api/admin/suspend`、`POST /api/admin/reinstate`、`GET
+/api/admin/account-state/{user_id}`）。与 `admin_migration_router` /
+`admin_quota_router` 同 pattern。见 [[suspend.py]]。
+
+## 2026-08-11 — cloud 关 API docs + JWT 启动 fail-fast（安全审计 P2-1/P0-2）
+
+两处安全接线：(1) `FastAPI(...)` 在 cloud 模式传 `docs_url=None, redoc_url=None,
+openapi_url=None`（`_docs_kwargs` 按 `_is_cloud_mode()` 组装、import 期求值）——不再
+把完整 API schema/Swagger 暴露给攻击者；开发者在 local/dev 仍有 docs。(2) lifespan 启动
+早段（建库前）调 `assert_jwt_secret_safe()`——cloud 模式 `JWT_SECRET` 未设/为默认值即
+`raise` 拒绝启动。**上线次序**：上 prod 前须先确认 prod `.env` 的 JWT_SECRET 是真值，
+否则守卫会自伤把服务拦在启动外。
+
+## 2026-08-10 — product analytics ingestion router
+
+Registers authenticated `/api/analytics/events`. Startup schema migration runs
+before traffic, so capture sites can safely write the additive fact table.
+
+## 2026-08-10 — external telemetry removed
+
+The backend no longer registers a vendor analytics sink and shutdown no longer
+flushes a network queue. Product events go only through the first-party
+database writer. This makes local/desktop privacy independent of environment
+variables or release-build secrets.
+
+## 2026-08-07 — 挂载 runs_router(/api/runs)
+
+run 级控制面,目前只有 owner 的停止请求。见 [[runs]]。
 
 ## 2026-08-03 — lifespan 预热价目表（把 1.5s 同步 import 挪出 event loop）
 
@@ -54,20 +234,7 @@ router 和 middleware 都不注册，中间件栈长度不变。见
 (`SYSTEM_DEFAULT_LLM_GATEWAY_URL`)才真起,本地/桌面 no-op。周期把免费档 agent
 运行的真实 token 用量(网关 SpendLogs)补记入配额——代理的非 Anthropic 模型 CLI
 报 0 token,不补记免费额度就永远不扣。绝不 force-stop(铁律 #14)。见
-`[[../src/xyz_agent_context/services/gateway_spend_reconciler.py]]`。
-
-## 2026-07-24 — analytics sink seam 在 import 期装配（B4）
-
-`register_posthog_sink()`（backend/analytics）在 **import 期**、`app = FastAPI(...)`
-之前调用——不是 lifespan。原因：track() 在任意 route 的请求路径上都可能触发，
-而 kernel 的 sink 是 lru_cache 单例；若装配放 lifespan，理论上存在「首个请求
-先于 lifespan 完成」的窗口拿到 NullSink 并被缓存（register_sink_factory 里的
-cache_clear 兜底了这个竞态，但 import 期装配让它根本不发生）。装配本身只存一个
-callable：不发网络、不碰 DB、不读 key（key 在 factory 被 kernel 调用时才读），
-对 /health 启动时序零影响。未注册该 seam 的进程（workers / mcp / model-sync）
-拿到 NullSink 是**预期行为**——它们从不调用 track()，此前也从未有过 vendor sink。
-（shutdown 侧见 2026-06-08 条目——两侧现在对称了。）
-
+`[[../src/narranexus/platform/services/gateway_spend_reconciler.py]]`。
 
 ## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
 
@@ -120,7 +287,7 @@ See backend/routes/notices.py.md.
 `lifespan` 启动时调 `maybe_start_executor_reaper()`(存 `app.state.executor_reaper_task`),
 teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 None)。
 回收空闲 per-user executor 容器,只碰空闲的(铁律 #14)。见
-`[[../src/xyz_agent_context/agent_runtime/executor_reaper.py]]`。
+`[[../src/narranexus/platform/agent_runtime/executor_reaper.py]]`。
 
 ## 2026-06-12 — admin_migration_router 注册
 
@@ -138,13 +305,6 @@ ledger (migrations/ [[__init__]]). Wrapped defensively (best-effort): a migratio
 error is logged and never blocks startup. This is what carries the
 unified-memory backfill to EVERY environment (cloud / run.sh / DMG) without a
 deploy-side step.
-
-## 2026-06-08 — analytics shutdown wired into lifespan
-
-`lifespan` teardown now calls `await shutdown_analytics()` (from
-`xyz_agent_context.analytics`) just before `close_db_client`. This drains the
-PostHog background-thread buffer so no buffered funnel events are lost on
-process exit.
 
 ## 2026-05-15 — invite_router 改为 server-to-server
 
@@ -224,7 +384,7 @@ shutdown actually survive.
 
 The custom `logger.remove()` + `logger.add(sys.stderr, ...)` block at
 module top is gone; that responsibility now lives entirely inside
-`setup_logging`. See `src/xyz_agent_context/utils/logging/` for the
+`setup_logging`. See `src/narranexus/platform/utils/logging/` for the
 public surface.
 
 A new HTTP middleware is registered alongside `auth_middleware`:
@@ -273,17 +433,27 @@ values, so lifespan wiring is harmless when the feature is off.
 - **依赖谁**：
   - `backend.config.settings` — 读取 CORS origins 和 frontend_dist 路径
   - `backend.auth.auth_middleware` — 注入 HTTP 鉴权中间件
-  - `xyz_agent_context.utils.db.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
-  - `xyz_agent_context.utils.db.schema_registry.auto_migrate` — 启动时执行表结构迁移
-  - 全部路由模块：`websocket`, `agents`, `jobs`, `auth`, `skills`, `providers`, `inbox`
+  - `narranexus.platform.utils.db.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
+  - `narranexus.platform.utils.db.schema_registry.auto_migrate` — 启动时执行表结构迁移
+  - 壳层路由模块：`websocket`, `agents`, `auth`, `providers`, `inbox`, `channels` 等。
+    `jobs` / `skills` / home-assistant / 六个 IM 渠道路由**不在这里**——它们是各自 builtin 的
+    `backend.routes` 贡献（批 3c.5），由 `mount_plugin_routes` 挂载；照旧清单去 import 会找不到模块。
 
 ## 设计决策
 
-**中间件注册顺序（LIFO 陷阱）**
+**中间件注册顺序（LIFO）**
 
-FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后注册的中间件最先处理请求。目前的注册顺序是：先注册 `CORSMiddleware`，再通过 `app.middleware("http")` 注册 `auth_middleware`。结果是 `auth_middleware` 实际上在 CORS 之前运行。这意味着浏览器的 CORS preflight（OPTIONS）请求会先进入 `auth_middleware`，如果不在那里做特殊处理，就会被 401 拦截，CORS 头永远不会被加上。因此 `auth_middleware` 内部有一段硬编码的 `if request.method == "OPTIONS": return await call_next(request)` 来放行 preflight，把控制权还给 CORS 中间件。
+FastAPI/Starlette 的中间件以 LIFO 执行：**最后注册的最先处理请求（最外层）**。
+`main.py:499-503` 的注册顺序是 `auth` → `body_size` → `access_log` → `CORSMiddleware`，
+所以实际链路是 **CORS → access_log → body_size → auth → routes**，
+**CORS 在最外层、跑在 auth 之前**（本段旧文案写反过，说 auth 先于 CORS——不成立）。
 
-这是一个被动防御方案——不改变注册顺序，而是在 auth 里主动放行。如果将来在 auth 和 CORS 之间插入新的中间件，必须同样考虑 OPTIONS 放行。
+即便如此，`auth_middleware` 里那句 `if request.method == "OPTIONS": return await call_next(request)`
+仍然是承重的：`CORSMiddleware` 只对**带 `Origin` 头**的 preflight 自行短路应答，
+其余 OPTIONS 会继续往内传，落到 auth 上；没有这句放行，它们会被 401。
+任何新增的、对所有请求生效的 HTTP 中间件都要同样放行 OPTIONS。
+顺序契约由 `tests/backend/test_body_size_gate.py` 断言钉住（详见下方 2026-08-20 小节），
+不再只靠注释。
 
 **lifespan 而非 startup/shutdown 事件**
 
@@ -299,13 +469,13 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 
 ## Gotcha / 边界情况
 
-- **OPTIONS 请求必须在 auth 中手动放行**：见上文 LIFO 陷阱。任何新增的 HTTP 中间件，如果需要对所有请求生效，都必须同样放行 OPTIONS，否则跨域调用全部失败，症状是浏览器报 CORS error 但服务器日志里看到的是 401。
+- **OPTIONS 请求必须在 auth 中手动放行**：见上文「中间件注册顺序（LIFO）」。任何新增的 HTTP 中间件，如果需要对所有请求生效，都必须同样放行 OPTIONS，否则跨域调用全部失败，症状是浏览器报 CORS error 但服务器日志里看到的是 401。
 - **SPA fallback 的路由顺序**：前端挂载代码在 `main.py` 底部，必须在所有 `app.include_router(...)` 之后执行。如果新增路由但忘记在前端挂载代码之前注册，SPA fallback 会先匹配到新路径并返回 `index.html`，导致 API 调用失效。
 - **`auto_migrate` 访问私有属性**：`db._backend` 是私有字段，重构 `AsyncDatabaseClient` 时需要检查这里。
 
 ## 新人易踩的坑
 
-直接改中间件注册顺序（比如把 CORSMiddleware 移到 auth_middleware 之后）会修复"CORS 先执行"的直觉期望，但如果同时删掉 `auth_middleware` 里的 OPTIONS 放行逻辑，结果是一样的——auth 先跑，preflight 被 401。两个地方必须同步考虑。
+CORS 已经在最外层了；删掉 `auth_middleware` 里的 OPTIONS 放行逻辑仍会让不带 `Origin` 的 preflight 被 401。中间件顺序和这段放行必须一起考虑。
 
 在 `lifespan` 里 yield 之后报错（比如 `close_db_client` 抛出异常），uvicorn 会打印错误但不会阻止进程退出，这是正常的关闭行为，不是 bug。
 
@@ -316,3 +486,55 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 ## 2026-07-30 — Agent Migration 路由
 
 注册了 `migrate_router`(挂 `/api/migrate`,tags=["Migration"]):`/detect` `/scan` `/apply`,导入其他框架的 agent(Claude Code/Codex/OpenClaw/Hermes)进 NarraNexus。**local/desktop only** —— 三个端点都经 `_require_local_or_raise()` 在 cloud 返回 503(cloud 无用户文件系统)。见 `backend/routes/migrate.py.md`。
+
+## 2026-08-11 — 挂载 `TeamSummaryWorker`
+
+与 memory worker 同一份契约：机会性、逐 team 隔离、失败保留旧总结、任何东西都不等它（铁律 #14）。
+
+**关停顺序有讲究**：在 `close_db_client()` **之前** stop。它的轮询循环持有那个 client，
+一次落在拆解中途的 pass 会在每一次干净关机时打出一条令人困惑的连接错误。有测试钉住这个次序。
+
+## 2026-08-11 — `/health` 暴露总结 worker 的上一轮
+
+`last_pass` 记了却没人读，等于没记：它要关的那个盲区（「全都很安静」和「全都在失败」
+看起来都像 worker 好好活着）在计数不出进程的情况下原样存在。
+
+**只报告，不判定**：单个团队的 provider key 坏掉不该让容器探针失败，所以 `status` 不依赖 `failed`。
+
+## 2026-08-20 — 第三层 HTTP 中间件 body_size(#334 r3 I1/r4 C2)
+
+实际链路(注册 LIFO):**CORS → access_log → body_size → auth → routes**。
+存在理由:FastAPI 在 solve_dependencies 之前就读完 body,路由依赖做不成
+「快拒」——中间件是唯一先于框架碰流的层(详见 [[body_size.py]],它只管
+自己的按路由上限,本文件只记「栈里有几层、谁包谁」)。与既有约束的
+关系:CORS 仍必须最外层(它的 413 也要带 ACAO);**body_size 必须在
+access_log 内、routes 外**——外一层它的 413 从访问日志消失,内到
+routes 就退回假门。OPTIONS 复核结论:preflight 无 Content-Length,
+天然放行。顺序由 tests/backend/test_body_size_gate.py 断言钉住——
+含「CORS 在四层最外」(历史上唯一真被破过的那条,#334 r5 I1 补钉;
+断言是相对序而非 `names[0]`,将来在最外再加 tracing 层是合法改动)——
+注释顺序契约本仓已破过一次,不再只靠注释。
+
+## 2026-09-04 · builtin.teams as a feature-level plugin (batch 3c.2)
+
+Teams is no longer wired here: the router and the summary worker come from the `builtin.teams` manifest. Import time calls `register_builtins_for_import()` before `mount_plugin_routes()` so the route table is complete for the approval snapshot; lifespan starts/stops every `backend.workers` contribution with `host="backend"` through `start_backend_workers`/`stop_backend_workers`.
+
+## 2026-09-04 · plugin-owned router (batch 3c.5)
+
+jobs / skills / home-assistant / the six IM channel routers are no longer imported or included here — they are `backend.routes` contributions of their builtins (batch 3c.5) mounted by `mount_plugin_routes`. main.py keeps only shell-level routers.
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+Mounts the generic channel router at `/api/channels` (shell-level: any channel in ingress.channels).
+
+Batch 6b.3: the team marketplace router and seed are no longer wired here — the router is a `backend.routes` contribution of builtin.teams and the seed runs on the `onDidStartBackend` host event emitted at the end of `_seed_marketplaces` (registry-host check via `is_registry_host()`).
+
+Batch 6 fix: the lifespan hands its db client to `plugins_boot.set_host_db`; `mount_user_plugin_routes` runs at import after the builtin routers.
+
+## 2026-09-07 — SPA fallback answers 404 for `v1/ manyfold/ api/ ws/`
+
+`spa_fallback` returns a JSON 404 (not `index.html` + 200) for any unregistered path under those four prefixes. Two reasons: a distribution that leaves a builtin out must make that builtin's old routes 404 (a platform readiness probe getting 200 + HTML would call a missing service healthy), and a frontend request to a wrong endpoint must never receive the HTML shell as data. Every other path still serves the SPA shell (`tests/backend/test_spa_fallback_404.py` runs both directions with a real `frontend/dist`).
+
+## 2026-09-07 — /health no longer reports team_summary
+
+The block read app.state.team_summary_worker, which nothing sets since the worker moved to builtin.teams' backend.workers contribution (workers process); its heartbeat is the '[team.summary] pass:' log line there. A block that reads state nothing sets is not a signal, and the test that kept it green faked the attribute.

@@ -20,11 +20,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.repository.inbox_repository import InboxRepository
-from xyz_agent_context.schema.inbox_schema import InboxMessageType
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.repository.inbox_repository import InboxRepository
+from narranexus.platform.schema.inbox_schema import InboxMessageType
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 import backend.routes.notices as notices_mod
 

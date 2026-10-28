@@ -6,7 +6,7 @@ neither discover (search) nor direct-message another user's agents.
 """
 import pytest
 
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from narranexus.platform.message_bus.local_bus import LocalMessageBus
 
 
 async def _seed_agent(db, agent_id: str, owner: str):

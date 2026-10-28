@@ -19,14 +19,14 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.skill_module.skill_module import (
+from narranexus_plugins.skill_module.skill_module import (
     SKILL_INSTRUCTIONS_TEMPLATE,
     SkillModule,
     WORKSPACE_RULES_CLOUD,
     WORKSPACE_RULES_LOCAL,
     _resolve_workspace_rules,
 )
-from xyz_agent_context.schema import ContextData
+from narranexus.platform.schema import ContextData
 
 
 # -------- constants differ and carry the right language -----------------
@@ -78,19 +78,19 @@ def test_resolver_defaults_to_cloud_when_mode_missing():
     assert _resolve_workspace_rules(_ctx(None)) == WORKSPACE_RULES_CLOUD
 
 
-# -------- get_instructions renders mode-specific rules ------------------
+# -------- contribute_instructions renders mode-specific rules ------------------
 
 
 @pytest.mark.asyncio
 async def test_get_instructions_renders_cloud_rules_when_cloud(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.settings.settings.base_working_path",
+        "narranexus.platform.settings.settings.base_working_path",
         str(tmp_path),
     )
     module = SkillModule(agent_id="a", user_id="u")
     ctx = _ctx("cloud")
     ctx.extra_data = {"skills_table": "", "skills_count": 0}
-    rendered = await module.get_instructions(ctx)
+    rendered = await module.contribute_instructions(ctx)
     # Cloud-specific language
     assert "blocked" in rendered.lower()
     assert "global" in rendered.lower()
@@ -101,12 +101,12 @@ async def test_get_instructions_renders_cloud_rules_when_cloud(tmp_path, monkeyp
 @pytest.mark.asyncio
 async def test_get_instructions_renders_local_rules_when_local(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.settings.settings.base_working_path",
+        "narranexus.platform.settings.settings.base_working_path",
         str(tmp_path),
     )
     module = SkillModule(agent_id="a", user_id="u")
     ctx = _ctx("local")
     ctx.extra_data = {"skills_table": "", "skills_count": 0}
-    rendered = await module.get_instructions(ctx)
+    rendered = await module.contribute_instructions(ctx)
     # Local-specific language
     assert "own machine" in rendered.lower() or "user's own" in rendered.lower()

@@ -1,0 +1,25 @@
+{
+  "name": "@narranexus/sdk",
+  "version": "1.21.11",
+  "description": "NarraNexus frontend plugin SDK: definePlugin, the vite preset and the HostAPI types.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "main": "dist/index.js",
+    "types": "dist/types/packages/sdk/src/index.d.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && vite build"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {}
+}

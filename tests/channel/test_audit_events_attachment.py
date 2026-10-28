@@ -8,7 +8,7 @@ them silently would break downstream queries.
 """
 from __future__ import annotations
 
-from xyz_agent_context.channel import channel_audit_events as ev
+from narranexus.platform.channel import channel_audit_events as ev
 
 
 def test_attachment_audit_event_strings_are_stable() -> None:

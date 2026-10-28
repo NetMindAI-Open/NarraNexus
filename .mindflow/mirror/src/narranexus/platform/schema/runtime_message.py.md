@@ -1,0 +1,152 @@
+---
+code_file: src/narranexus/platform/schema/runtime_message.py
+last_verified: 2026-09-11
+stub: false
+---
+
+## 2026-09-11 — 新增 `OUTPUT_BUDGET_EXHAUSTED_ERROR_TYPE`；`severity` 文档补 plain-text 交付
+
+`"output_budget_exhausted"`：nexus_power [[event_adapter]] 从 loop 自己的 OUTPUT_TRUNCATED 映出、
+[[circuit_breaker]] 据此不推进熔断的结构化 error_type。放在这个叶子模块与其他 error 标记同理（生产方插件与平台
+消费方都能 import、无循环）。刻意是 error_type 而不是 message 短语：message 可回显调用方可控文本。
+`ErrorMessage.severity` 的 `recovered_after_reply` 说明改为「经交付工具，或在没有交付工具的 turn 上以 plain text 写出回复」。
+
+## 2026-09-09 — `ErrorMessage.self_serviceable: Optional[bool]`
+
+用户能否自己清掉这个错（等/升级 rate limit、重登、充值）。**第一步只出线 True 侧**：
+`auth_expired` / `config_actionable` 按构造为 True（response_processor 的 inline 出口与
+step_3 的 raw-exception 出口两处都打，`_raw_exception_error` 钉住）；claude driver 分类过的
+`rate_limit` / `authentication_failed` / `billing_error` 为 True，`server_error` 等为 False；
+`None` = driver 没分类（codex / nexus_power）**或** `infra_transient`（executor OOM / 不可达）——
+后者是「平台坏了」这一侧的对照组，按「绝不伪造 False」原则暂时保持 None，所以 UI 目前只能
+分辨「你能修」，还不能主动说「这不是你的问题」；要补 False 侧得连同这条原则一起改。与
+`action_reason` 一样随 `model_dump()` 直接上 WS / inbox 行（`run_recorder` 的 `event_to_wire`
+全字段透传），前端类型 [[messages.ts]] 同步加 `self_serviceable?: boolean`。
+
+## 2026-08-26 — Step-3 相位常量（`PHASE_BUILD_CONTEXT_*` / `PHASE_RUN_AGENT_*`）
+
+新增 4 个跨文件契约常量:`PHASE_BUILD_CONTEXT_STEP="3"` /
+`PHASE_BUILD_CONTEXT_TITLE="Build Context"` / `PHASE_RUN_AGENT_STEP="3.4"` /
+`PHASE_RUN_AGENT_TITLE="Run Agent"`。step 3 拆成「构建上下文(3)」和「运行
+Agent(3.4)」两个相位(诚实的『进入 loop』标记),详见 [[step_3_agent_loop]]。
+
+**为什么住在这个 leaf schema 模块**——和上面 `AUTH_EXPIRED_ERROR_TYPE` /
+`EXECUTOR_INFRA_ERROR_TYPE` 完全同一个理由:两个消费方都要 import 且不能
+成环。[[step_3_agent_loop]] **发**这些相位;[[run_recorder]] 从**同一份**常量
+派生 `events.current_stage`(`_extract_progress_stage({"step":
+PHASE_RUN_AGENT_STEP, "title": PHASE_RUN_AGENT_TITLE})`),而 `run_recorder`
+**不能**从 `step_3_agent_loop` 导——`_agent_runtime_steps/__init__` 会 eager
+import 它、它又反向依赖 runtime 层,正是本文件下方 marker 记过的那条环。
+经 `schema/__init__` 转发到公共面。前端 [[processShared]] 的 `PHASE_STEP_IDS`
+/ `PHASE_LABEL_KEYS` 白名单跟这两个 step id 对齐(跨栈契约)。
+
+## 2026-07-30 — `AgentThinking.monologue` 字段（独白经消息流可见）
+
+NexusPower 的明文（独白）以 thinking 形态流出，但它语义上是 claude driver
+的 assistant 明文——收集型消费者（`collect_run.output_text`，bus 群聊上墙、
+IM inbox 转发都靠它）之前只能看到消息流，拿不到独白子集，导致群聊 @mention
+的回复整段蒸发（dev evt_238abc4b0b0c4dca）。字段承载**本批次**的独白子集，
+provider CoT 恒为空串；state 侧 `record_thinking(monologue=...)` 的链路不变，
+消息与 state 在每个 flush 点取同一次 drain。
+
+**2026-08-30 更新：WS 前端不再忽略该字段。** 独白提级（A′）用它判档——
+当这个子集**逐字等于** `thinking_content` 时，前端按「进度」档渲染（规则见
+[[monologueTier]]，后端同一条副本在 `chat_history_timeline.is_monologue_step`）。
+所以它**不是可以为了瘦帧删掉的冗余副本**：删了直播档位会静默退回 CoT 观感，
+而前端那几个分档测试都是自己手工构造 `AgentThinking`，**一个都不会红**。
+同理**不要把类型从 str 改成 bool**——`collect_run` 中继的是这段**文本**。
+
+## 2026-07-29 — 新增 `AgentPlan` / `AgentReplyDelta` 两个消息型别
+
+NexusPower 的独白契约让**明文 = 私有思考、对外说话必须走表达工具**，于是多出
+（**2026-08-30 宪法改口为「不投递」**，见 [[library]]；本条记的是当时的判据，判据本身不变。）
+
+两种别的框架永远不发的形状：
+
+- `AGENT_REPLY_DELTA` / `AgentReplyDelta` —— 表达工具**参数**的流式片段。这才是
+  「agent 在说话」；带 `call_id` 用于把同一次调用的片段拼成一个气泡。
+- `AGENT_PLAN` / `AgentPlan` —— agent 的实时计划，**整份快照**（不是增量），
+  所以消费端是替换而不是追加。
+
+放 schema 层而不是塞进 `agent_response` 的 `response_type`：这两者不是文本的
+变体，前者是「唯一真正送达用户的流」，后者压根不是文本。别的框架不发它们，
+前端按有无分支即可。
+
+## 2026-07-22 — 新增 `EXECUTOR_INFRA_ERROR_TYPE` 常量
+
+新增 `EXECUTOR_INFRA_ERROR_TYPE = "infra_transient"`（挨着 auth/self-serviceable
+两个 error_type 常量），标记**平台侧** executor 基础设施失败（OOM / 不可达）。与
+`config_actionable` 的区别：用户改设置修不了，前端渲染"执行环境异常/重试"徽章而非
+"Action needed → Settings"。同样复用 `ErrorMessage.action_reason` 承载具体 reason
+（`executor_oom` / `executor_unreachable`）。放 leaf schema 层，供分类器消费方无循环
+导入。行为上只 surface 真相 + 重试提示，不 force-stop（铁律 #14/#15）。也从
+`schema/__init__` 导出。
+
+## 2026-07-14 — `SELF_SERVICEABLE_ERROR_TYPE` 常量 + `ErrorMessage.action_reason` 字段
+
+同 `AUTH_EXPIRED_ERROR_TYPE` 的理由，新增叶子常量
+`SELF_SERVICEABLE_ERROR_TYPE = "config_actionable"`，标记**确定性、用户可自助
+修复**的失败（context window 太小 / 余额不足 / 模型 ID 无效）——同配置每轮必
+复现，只能由用户改配置。`response_processor` 和 `step_3_agent_loop` 都要 import
+它来 skip 掉 helper-LLM 兜底（兜底掩盖可修复真相是"黑盒" P1 的根因）。同时给
+`ErrorMessage` 加了可选字段 `action_reason`（`context_window` /
+`insufficient_balance` / `model_not_found`），仅当 `error_type ==
+config_actionable` 时设置，供前端挑选"你可以做什么"文案。判定逻辑在
+`agent_framework/llm/failure.classify_self_serviceable`（双通道：type 精确 +
+message 子串）。铁律 #15：只做透传+告知，不 force-stop、不判定模型、不替用户换模型。
+
+## 2026-06-17 — `AUTH_EXPIRED_ERROR_TYPE` 常量落户本 leaf schema 模块
+
+新增模块级常量 `AUTH_EXPIRED_ERROR_TYPE = "auth_expired"`，作为
+credential/auth 失败（codex OAuth token 过期、"refresh token already used"、401 等）
+的 `ErrorMessage.error_type` 标记值。**有意定义在这个叶子 schema 模块**，而不是
+`response_processor`：`response_processor` 和 `step_3_agent_loop` 都要 import 它，
+若放在 `response_processor` 会形成循环
+（`response_processor → step_display → _agent_runtime_steps → step_3_agent_loop →
+response_processor`），import 时常量尚未绑定（2026-06-11 incident）。叶子 schema 模块
+不依赖任何运行时层，两侧都能安全引用。注意这并不改变上面 Gotcha 里
+"`error_type` 仍是自由字符串、无 enum 约束" 的事实——只是给其中一个高频取值起了个共享名字。
+
+# runtime_message.py
+
+## Why it exists
+
+`AgentRuntime` is an async generator — it `yield`s messages as execution progresses. Without a typed message hierarchy, the consumer (frontend WebSocket handler or Streamlit app) must parse raw dicts and guess what each payload means. This file defines the typed message classes that `AgentRuntime` yields, giving both producers and consumers a stable contract for streaming communication.
+
+## Upstream / Downstream
+
+`AgentRuntime` yields instances of `ProgressMessage`, `AgentTextDelta`, `AgentThinking`, `AgentToolCall`, and `ErrorMessage`. The WebSocket route in `backend/routes/` iterates the generator, calls `.to_dict()` on each message, and sends the JSON over the socket to the frontend. The React frontend's `useAgentChat` hook reconstructs the message stream and routes each `type` field to the appropriate UI component.
+
+`HookExecutionTrace.agent_loop_response` also stores a list of these message objects (or SDK-native objects that mirror this shape) as the raw execution trace for post-hoc analysis by modules like `JobModule`.
+
+## Design decisions
+
+**`message_type` field with `serialization_alias="type"`**: the Python attribute is `message_type` (Pydantic convention) but it serializes as `"type"` in JSON (frontend API convention). This was a deliberate translation to match what the React components expect without renaming the Python attribute everywhere.
+
+**`to_dict()` with `mode='json'`** ensures enums serialize as their string values rather than enum objects. The method also renames `message_type` to `type` in the output dict to enforce the frontend convention consistently.
+
+**`ABC` base class**: `BaseRuntimeMessage` is abstract, preventing direct instantiation. This was added to make it clear that only the concrete subtypes should be yielded — you can `isinstance(msg, BaseRuntimeMessage)` to check if something is a runtime message without knowing which subtype.
+
+**`AgentThinking` for transparency**: exposing the model's thinking process is optional in most SDKs. Yielding `AgentThinking` separately from `AgentTextDelta` lets the frontend collapse thinking into an expandable section without mixing it with the visible reply.
+
+## Gotchas
+
+**`ProgressMessage.step`** is a string like `"1.0"`, `"2.1"`, `"3"`. The step numbering follows the AgentRuntime pipeline steps (Steps 1-8). There is no validation that step values are unique or monotonically increasing within a single execution. Frontend code that tries to sort or group by step value must handle arbitrary string ordering.
+
+**`ErrorMessage.error_type`** is a free-form string (`"api_error"` by default). There is no enum constraining its values. The frontend uses this for display styling and routing to error-specific handling, but if a new error type is introduced on the backend, the frontend may not have a matching handler.
+
+**`ErrorMessage.severity`** IS an enum (`"fatal" | "recoverable" | "recovered" | "recovered_after_reply"`). The two `recovered*` values were added 2026-05-25 for the fallback-context redesign: they signal "a fatal-class error happened but we masked it with a user-facing reply" — `recovered` for fallback-generated replies, `recovered_after_reply` for errors that hit *after* the agent already sent its own reply. Frontend should render the reply normally and surface the badge as a warning rather than as a primary error.
+
+## New-joiner traps
+
+- `AgentTextDelta.delta` is a *chunk*, not the full response. Multiple deltas must be concatenated by the consumer to form the complete agent response. Do not display `delta` alone as if it were the complete answer.
+- These message types are used for real-time streaming only. The persistent record of what the agent said is stored in `EventLogEntry` (in `narrative/models.py`), not in these objects. The `agent_loop_response` list in `HookExecutionTrace` may hold serialized versions of these objects for post-hoc analysis, but the source of truth for storage is always the event log.
+
+## 2026-08-18 — owner 工具改名跟随
+
+`send_message_to_user_directly` 拆成 `reply_owner`（回答刚说话的 owner）与 `notify_owner`
+（未被问就主动告知）。两者行为相同但纪律相反，合成一个工具就要求模型每轮自己判断该用哪种
+register。本文件里改到的是该 handler 注册的 `user_reply_tool_names` / 相关文案 —— 一两行，
+但 registry 条目是**活的行为**：它决定哪些工具调用算作这个来源的一次回复，也是
+`render_origin_declaration` 取 label 的同一条记录。规范解释见
+[[chat_module.py]] 与 [[message_source_handler.py]] 的 2026-08-18 条目。

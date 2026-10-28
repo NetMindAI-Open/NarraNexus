@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
 
 def _make_trigger() -> LarkTrigger:
@@ -257,6 +257,40 @@ def test_post_message_empty_payload_produces_empty_content() -> None:
     assert parsed.content == ""
 
 
+def test_post_message_unwrapped_payload_extracts_text() -> None:
+    """API / lark-cli senders emit the post payload WITHOUT the language
+    wrapper: ``{"title", "content"}`` at top level instead of
+    ``{"zh_cn": {...}}``. Live incident 2026-08-06: such a DM parsed to
+    empty content and was silently dropped by the empty-content guard —
+    the bot never replied and left no trace."""
+    payload = {
+        "title": "",
+        "content": [
+            [{"tag": "text", "text": "请把晨报用完整 Markdown 重发一次"}],
+            [{"tag": "text", "text": "以后群发也恢复用 markdown"}],
+        ],
+    }
+    parsed = _make_trigger().parse_event(
+        _raw(message_type="post", content_payload=payload)
+    )
+    assert parsed is not None
+    assert "请把晨报用完整 Markdown 重发一次" in parsed.content
+    assert "以后群发也恢复用 markdown" in parsed.content
+
+
+def test_post_message_unwrapped_payload_with_title_extracts_both() -> None:
+    payload = {
+        "title": "重发请求",
+        "content": [[{"tag": "text", "text": "正文内容"}]],
+    }
+    parsed = _make_trigger().parse_event(
+        _raw(message_type="post", content_payload=payload)
+    )
+    assert parsed is not None
+    assert "重发请求" in parsed.content
+    assert "正文内容" in parsed.content
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Edge cases that exercised the OLD `text = content_str` fallback
 # ─────────────────────────────────────────────────────────────────────
@@ -373,3 +407,25 @@ def test_create_time_non_numeric_falls_back_to_zero() -> None:
     parsed = _make_trigger().parse_event(raw)
     assert parsed is not None
     assert parsed.timestamp_ms == 0
+
+
+def test_parse_event_reads_group_vs_private_as_a_positive_whitelist():
+    """Lark's group/1:1 truth is in ``raw['chat_type']`` ('group' / 'p2p'). It
+    was never read before, so every turn defaulted to PRIVATE — a group looked
+    1:1 and (post reach-recording) got the group id recorded as a way to reach
+    one person.
+
+    This is a SAFETY gate (a misread posts a private message into a group), so
+    the safe direction is "rather not record": ONLY the literal 'p2p' is 1:1.
+    A missing field, a future value, or a topic group is GROUP → not recorded.
+    """
+    from narranexus.platform.schema.parsed_message import ChatType
+
+    t = _make_trigger()
+    base = dict(message_type="text", content_payload={"text": "hi"})
+
+    assert t.parse_event(dict(_raw(**base), chat_type="p2p")).chat_type == ChatType.PRIVATE
+    assert t.parse_event(dict(_raw(**base), chat_type="group")).chat_type == ChatType.GROUP
+    # Unknown / future / missing all fall to the safe (non-1:1) side.
+    assert t.parse_event(dict(_raw(**base), chat_type="topic_group")).chat_type != ChatType.PRIVATE
+    assert t.parse_event(_raw(**base)).chat_type != ChatType.PRIVATE

@@ -158,7 +158,7 @@ export function HomeAssistantConfig() {
       <CardHeader>{title}</CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-error)] border border-[var(--color-error)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -167,7 +167,7 @@ export function HomeAssistantConfig() {
         {/* Bound summary (not editing) */}
         {bound && !editing ? (
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs text-[var(--color-green-500)]">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--color-success)]">
               <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.homeAssistant.connected')}
             </div>
             <div className="text-xs text-[var(--text-secondary)] break-all">{boundUrl}</div>
@@ -175,7 +175,7 @@ export function HomeAssistantConfig() {
 
             {testResult && (
               <div
-                className={`text-xs flex items-center gap-1.5 ${testResult.ok ? 'text-[var(--color-green-500)]' : 'text-[var(--color-red-500)]'}`}
+                className={`text-xs flex items-center gap-1.5 ${testResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}
               >
                 {testResult.ok ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
                 {testResult.ok
@@ -219,7 +219,7 @@ export function HomeAssistantConfig() {
 
             {testResult && (
               <div
-                className={`text-xs flex items-center gap-1.5 ${testResult.ok ? 'text-[var(--color-green-500)]' : 'text-[var(--color-red-500)]'}`}
+                className={`text-xs flex items-center gap-1.5 ${testResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}
               >
                 {testResult.ok ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
                 {testResult.ok
@@ -247,11 +247,11 @@ export function HomeAssistantConfig() {
                 <button
                   type="button"
                   onClick={handleCopyPrompt}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--nm-paper-warm)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs"
                 >
                   {promptCopied ? (
                     <>
-                      <CheckCircle className="w-3 h-3 text-[var(--color-green-500)]" />
+                      <CheckCircle className="w-3 h-3 text-[var(--color-success)]" />
                       <span>{t('awareness.common.copied')}</span>
                     </>
                   ) : (

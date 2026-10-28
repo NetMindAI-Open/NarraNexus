@@ -24,9 +24,10 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.artifact import ArtifactService
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema import Artifact
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()
@@ -74,19 +75,13 @@ async def bulk_delete_artifacts(
     the agent's workspace section."""
     await _verify_user_self(request, user_id)
     db = await get_db_client()
-    repo = ArtifactRepository(db)
 
     if not body.artifact_ids:
         return BulkDeleteResponse(deleted=0)
 
-    ids_to_delete: List[str] = []
-    skipped: List[str] = []
-    for aid in body.artifact_ids:
-        art = await repo.get_by_id(aid)
-        if art is None or art.user_id != user_id:
-            skipped.append(aid)
-            continue
-        ids_to_delete.append(aid)
-
-    deleted = await repo.bulk_delete(ids_to_delete)
+    # Ownership check, row capture and "deleted" event staging live in the
+    # service — the delete must not be takeable without its event.
+    deleted, skipped = await ArtifactService(db).bulk_delete(
+        user_id=user_id, artifact_ids=body.artifact_ids
+    )
     return BulkDeleteResponse(deleted=deleted, skipped_not_owned=skipped)

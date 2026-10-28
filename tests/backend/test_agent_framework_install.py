@@ -4,16 +4,13 @@
 @description: Tests for ``_ensure_codex_installed`` in
 ``backend/routes/providers.py``.
 
-Post-cutover behaviour (binding rule #7 alignment for DMG): the codex
-binary now ships with the ``openai-codex-cli-bin`` Python wheel that
-``openai-codex`` transitively depends on. uv sync installs both
-wheels at one shot, so the binary is always available at
-``site-packages/codex_cli_bin/bin/codex``. The function's only job
-is to verify the wheel is importable and the binary file exists —
-no PATH check, no npm install. The earlier npm path was correct for
-v1 (which called ``codex exec`` from PATH) but broke on DMG where
-``npm`` isn't bundled; this misleadingly raised "install_failed" in
-the Settings UI even though codex actually ran fine via the SDK.
+The codex binary ships with the ``openai-codex-cli-bin`` Python wheel that
+``openai-codex`` transitively depends on. The function activates the plugin
+pyenv (openai-codex is an OPTIONAL plugin on the lightweight local build —
+installed from Settings → Plugins, NOT by run.sh's ``uv sync``), then verifies
+the wheel is importable and the binary file exists — no PATH check, no npm
+install. Failure guidance points at Settings → Plugins (local) or a cloud
+rebuild with ``uv sync --extra plugins``.
 """
 from __future__ import annotations
 
@@ -60,8 +57,8 @@ async def test_install_failed_when_wheel_missing(monkeypatch):
     r = await _ensure_codex_installed()
     assert r["installed"] is False
     assert r["action"] == "install_failed"
-    assert "uv sync" in r["reason"]
-    assert "codex-cli-bin" in r["reason"].lower() or "codex_cli_bin" in r["reason"]
+    # Local guidance points at Settings → Plugins (not a bare "uv sync").
+    assert "Settings" in r["reason"] and "Plugins" in r["reason"]
 
 
 @pytest.mark.asyncio
@@ -75,7 +72,7 @@ async def test_install_failed_when_binary_file_missing(tmp_path):
     assert r["installed"] is False
     assert r["action"] == "install_failed"
     assert str(missing_path) in r["reason"]
-    assert "uv sync" in r["reason"]
+    assert "Settings" in r["reason"] and "Plugins" in r["reason"]
 
 
 @pytest.mark.asyncio

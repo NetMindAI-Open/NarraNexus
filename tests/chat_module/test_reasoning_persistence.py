@@ -11,15 +11,15 @@ Agent kept looping on Lark incremental-scope authorization because the
 tool_call_output_item — stripped from the next turn's context. The Agent
 could neither paste the value into the follow-up `--device-code` call
 nor recognize it had minted one already. Root cause: ChatModule stored
-only the `send_message_to_user_directly.content` (what the user sees);
+only the `reply_owner.content` (what the user sees);
 the Agent's own reasoning text (which could have carried the
 `device_code` across turns) was discarded.
 
 Fix:
-  1. Storage side — hook_after_event_execution puts `final_output` on
+  1. Storage side — after_turn puts `final_output` on
      `meta_data.reasoning` when saving assistant messages (truncated to
      cap DB size).
-  2. Load side — hook_data_gathering splices the stored reasoning into
+  2. Load side — gather splices the stored reasoning into
      the assistant message `content` with `<my_reasoning>` /
      `<reply_to_user>` markers so the next turn's LLM reads both.
 
@@ -31,14 +31,14 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -62,15 +62,15 @@ def chat_module(db_client):
 
 
 def _reply_progress(text: str) -> ProgressMessage:
-    """A ProgressMessage wrapping a successful send_message_to_user_directly
+    """A ProgressMessage wrapping a successful reply_owner
     tool call — matches what AgentRuntime sends to the hook."""
     return ProgressMessage(
         step="3.2",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": text},
         },
     )
@@ -105,7 +105,7 @@ def _hook_params(
 
 
 # ---------------------------------------------------------------------------
-# Storage side — hook_after_event_execution
+# Storage side — after_turn
 # ---------------------------------------------------------------------------
 
 
@@ -127,7 +127,7 @@ async def test_hook_after_event_persists_final_output_to_meta_reasoning(
         final_output=reasoning_text,
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_reasoning_instance"
@@ -158,7 +158,7 @@ async def test_long_reasoning_is_preserved_full_on_persist(chat_module):
         final_output=long_reasoning,
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_reasoning_instance"
@@ -184,7 +184,7 @@ async def test_empty_final_output_does_not_pollute_meta(chat_module):
         final_output="",
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_reasoning_instance"
@@ -199,7 +199,7 @@ async def test_empty_final_output_does_not_pollute_meta(chat_module):
 
 
 # ---------------------------------------------------------------------------
-# Load side — hook_data_gathering splicing
+# Load side — gather splicing
 # ---------------------------------------------------------------------------
 
 
@@ -249,7 +249,7 @@ async def test_hook_data_gathering_splices_reasoning_into_assistant_content(
         input_content="done, try again",
     )
     chat_module.instance_ids = ["chat_reasoning_instance"]
-    result = await chat_module.hook_data_gathering(ctx_data)
+    result = await chat_module.gather(ctx_data)
 
     history = result.chat_history or []
     assistants = [m for m in history if m.get("role") == "assistant"]
@@ -296,7 +296,7 @@ async def test_hook_data_gathering_does_not_touch_user_messages(chat_module):
         input_content="next input",
     )
     chat_module.instance_ids = ["chat_reasoning_instance"]
-    result = await chat_module.hook_data_gathering(ctx_data)
+    result = await chat_module.gather(ctx_data)
 
     users = [m for m in (result.chat_history or []) if m.get("role") == "user"]
     assert len(users) == 1
@@ -338,7 +338,7 @@ async def test_hook_data_gathering_leaves_assistant_without_reasoning_unchanged(
         input_content="next",
     )
     chat_module.instance_ids = ["chat_reasoning_instance"]
-    result = await chat_module.hook_data_gathering(ctx_data)
+    result = await chat_module.gather(ctx_data)
 
     assistants = [m for m in (result.chat_history or []) if m.get("role") == "assistant"]
     assert len(assistants) == 1

@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import asyncio
 
-from xyz_agent_context.agent_framework.loop.cancellation_view import (
+from narranexus.platform.agent_framework.loop.cancellation_view import (
     CancellationView,
 )
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
 
 
 def test_none_token_never_requests():

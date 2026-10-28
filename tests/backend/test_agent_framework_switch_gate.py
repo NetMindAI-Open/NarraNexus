@@ -22,7 +22,7 @@ def make_client(monkeypatch):
         # Hermetic: set the mode explicitly and clear the higher-priority
         # NARRANEXUS_DEPLOYMENT_MODE so an inherited env var can't flip the
         # deployment-mode inference under the test.
-        from xyz_agent_context.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
+        from narranexus.platform.utils.deployment_mode import DEPLOYMENT_MODE_ENV_VAR
         monkeypatch.delenv(DEPLOYMENT_MODE_ENV_VAR, raising=False)
         monkeypatch.setenv(
             "DATABASE_URL",

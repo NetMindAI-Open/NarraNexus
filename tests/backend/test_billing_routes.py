@@ -17,6 +17,7 @@ upstream -> 502).
 from __future__ import annotations
 
 import pytest
+from unittest.mock import AsyncMock
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -31,6 +32,13 @@ from backend.integrations.netmind.netmind_billing_client import (
 
 USER = {"X-User-Id": "user_test"}
 _ME_FREE = {"plan_id": "free", "subscription": None}
+
+
+@pytest.fixture(autouse=True)
+def analytics_capture(monkeypatch):
+    capture = AsyncMock()
+    monkeypatch.setattr(billing_mod, "track", capture)
+    return capture
 
 
 @pytest.fixture
@@ -53,7 +61,7 @@ def make_client(monkeypatch):
 
 
 def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, action=None,
-                 recharge=None, recharge_status=None, raise_exc=None):
+                 recharge=None, recharge_status=None, fx=None, raise_exc=None):
     """Install a fake billing client. Returns a dict recording the kwargs the
     route passed to the write methods, so tests can assert on the redirect
     targets the route resolved (not just on the response)."""
@@ -81,23 +89,34 @@ def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, ac
             return records if records is not None else {"data": [], "has_next": False}
 
         async def subscribe(self, token, **kwargs):
-            seen["subscribe"] = kwargs
+            seen["subscribe_body"] = dict(kwargs)
+            seen["subscribe"] = {
+                k: v for k, v in kwargs.items() if k in ("success_url", "cancel_url")
+            }
             if raise_exc:
                 raise raise_exc
             return action if action is not None else {"session_id": "cs", "checkout_url": "https://x"}
 
-        async def cancel(self, token):
+        async def cancel(self, token, **kwargs):
+            seen["cancel"] = dict(kwargs)
             if raise_exc:
                 raise raise_exc
             return action if action is not None else {"status": "auto_renew_off"}
 
-        async def reactivate(self, token):
+        async def reactivate(self, token, **kwargs):
+            seen["reactivate"] = dict(kwargs)
             if raise_exc:
                 raise raise_exc
             return action if action is not None else {"status": "auto_renew_on"}
 
-        async def recharge(self, token, amount, currency="USD", **kwargs):
-            seen["recharge"] = kwargs
+        # Signature mirrors the real client EXACTLY (currency is no longer a
+        # parameter — it is derived downstream). A route that re-adds it would
+        # raise TypeError here rather than pass silently.
+        async def recharge(self, token, amount, **kwargs):
+            seen["recharge_body"] = {"amount": amount, **kwargs}
+            seen["recharge"] = {
+                k: v for k, v in kwargs.items() if k in ("success_url", "cancel_url")
+            }
             if raise_exc:
                 raise raise_exc
             return recharge if recharge is not None else {
@@ -106,6 +125,19 @@ def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, ac
                     "session_id": "cs_r",
                     "checkout_url": "https://checkout.stripe.com/c/pay/cs_r",
                     "status": "pending",
+                },
+            }
+
+        async def fx_rate(self, token, currency, amount=None):
+            seen["fx_rate"] = {"currency": currency, "amount": amount}
+            if raise_exc:
+                raise raise_exc
+            return fx if fx is not None else {
+                "success": True,
+                "data": {
+                    "from": "USD", "to": "CNY", "rate": "7.30",
+                    "amount_usd": "10", "charge_amount": "73.00",
+                    "min_amount_usd": "0.69", "min_charge": "5.00",
                 },
             }
 
@@ -203,6 +235,48 @@ def test_subscription_ok(make_client, monkeypatch):
     r = client.get("/api/billing/subscription", headers={**USER, "X-Netmind-Token": "jwt"})
     assert r.status_code == 200
     assert r.json()["data"]["subscription"]["status"] == "ACTIVE"
+
+
+def test_subscription_activation_uses_subscription_cycle_identity(
+    make_client, monkeypatch, analytics_capture,
+):
+    subscription = {
+        "status": "ACTIVE",
+        "subscription_id": "sub_123",
+        "current_period_start": "2026-08-01T00:00:00Z",
+    }
+    _stub_client(monkeypatch, me={"plan_id": "pro", "subscription": subscription})
+    client = make_client(cloud=True)
+
+    response = client.get(
+        "/api/billing/subscription",
+        headers={**USER, "X-Netmind-Token": "jwt"},
+    )
+
+    assert response.status_code == 200
+    event = analytics_capture.await_args.kwargs
+    assert event["event"] == "subscription_activated"
+    assert event["event_id"].startswith("subscription_activated:")
+    assert "user_test" not in event["event_id"]
+    assert event["occurred_at"] == "2026-08-01 00:00:00.000000"
+
+
+def test_active_subscription_without_stable_cycle_is_not_inferred(
+    make_client, monkeypatch, analytics_capture,
+):
+    _stub_client(
+        monkeypatch,
+        me={"plan_id": "pro", "subscription": {"status": "ACTIVE"}},
+    )
+    client = make_client(cloud=True)
+
+    response = client.get(
+        "/api/billing/subscription",
+        headers={**USER, "X-Netmind-Token": "jwt"},
+    )
+
+    assert response.status_code == 200
+    analytics_capture.assert_not_awaited()
 
 
 def test_subscription_missing_netmind_token_401(make_client, monkeypatch):
@@ -550,7 +624,7 @@ def test_origin_trailing_slash_and_path_are_normalised(make_client, monkeypatch)
     _set_origin(monkeypatch, "https://agent.narra.nexus/some/base/")
     client = make_client(cloud=True)
     client.post("/api/billing/subscribe", headers=H)
-    assert seen["subscribe"]["success_url"].startswith(
+    assert seen["subscribe_body"]["success_url"].startswith(
         "https://agent.narra.nexus/app/settings?"
     )
 
@@ -619,7 +693,7 @@ def test_origin_keeps_the_port_but_drops_any_userinfo(make_client, monkeypatch):
     _set_origin(monkeypatch, "https://deploy:s3cret@agent.narra.nexus:8443")
     client = make_client(cloud=True)
     client.post("/api/billing/subscribe", headers=H)
-    success = seen["subscribe"]["success_url"]
+    success = seen["subscribe_body"]["success_url"]
     assert success.startswith("https://agent.narra.nexus:8443/app/settings?")
     assert "s3cret" not in success
     assert "deploy" not in success
@@ -663,6 +737,333 @@ def test_ipv6_literal_origin_keeps_its_brackets(make_client, monkeypatch):
     _set_origin(monkeypatch, "https://[2001:4860:4860::8888]:8443")
     client = make_client(cloud=True)
     client.post("/api/billing/subscribe", headers=H)
-    assert seen["subscribe"]["success_url"].startswith(
+    assert seen["subscribe_body"]["success_url"].startswith(
         "https://[2001:4860:4860::8888]:8443/app/settings?"
     )
+
+
+# =============================================================================
+# nexus Stripe account — Alipay / WeChat (2026-08-18)
+# =============================================================================
+# Three invariants the payment path depends on, each with its own reason:
+#   1. `channel` is deploy config, never client input — same rule the redirect
+#      URLs already follow (an attacker-chosen Stripe account is the same class
+#      of hole as an attacker-chosen redirect target).
+#   2. `currency` is DERIVED from payment_method. Upstream 400s on a mismatch,
+#      so letting a client pick both is handing it a way to fail its own payment.
+#   3. `months` exists only for the one-time (Alipay/WeChat) subscription mode.
+#      A card subscription renews monthly; "buy 6 months on a card" is not a
+#      state the upstream has.
+
+
+def _headers(**extra):
+    return {**USER, "X-Netmind-Token": "tok", **extra}
+
+
+# --- channel is deploy config, never client input --------------------------
+
+def test_recharge_sends_configured_channel(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/recharge", json={"amount": 10}, headers=_headers())
+    assert r.status_code == 200
+    assert seen["recharge_body"]["channel"] == "nexus"
+
+
+def test_recharge_ignores_client_supplied_channel(make_client, monkeypatch):
+    """A body field named `channel` must not reach upstream — it would let a
+    caller pick which Stripe account (and therefore which merchant) collects."""
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/recharge",
+        json={"amount": 10, "channel": "power"},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert seen["recharge_body"]["channel"] == "nexus"
+
+
+def test_subscribe_ignores_client_supplied_channel(make_client, monkeypatch):
+    """Twin of the recharge case, and the more important one: /subscribe is the
+    endpoint this change gave a body to. Pydantic ignores unknown fields today,
+    so `channel` cannot be reached from a request — but nothing said so, and a
+    later `extra="allow"` would hand a caller the choice of which merchant
+    collects, with no test going red."""
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "alipay", "months": 1, "channel": "power"},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert seen["subscribe_body"]["channel"] == "nexus"
+
+
+def test_subscribe_sends_configured_channel(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/subscribe", json={}, headers=_headers())
+    assert r.status_code == 200
+    assert seen["subscribe_body"]["channel"] == "nexus"
+
+
+# --- currency is derived downstream, never taken from the client -----------
+# The payment_method -> currency mapping is an UPSTREAM contract fact (upstream
+# 400s on a mismatch), so it lives in the client where the contract is modelled
+# and no caller can bypass it. See tests/backend/integrations/netmind/
+# test_netmind_billing_client.py for the mapping itself; here we only pin that
+# the route forwards the method and drops any client-supplied currency.
+
+
+def test_recharge_forwards_payment_method(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/recharge",
+        json={"amount": 10, "payment_method": "wechat"},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert seen["recharge_body"]["payment_method"] == "wechat"
+
+
+def test_recharge_default_payment_method_is_card(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/recharge", json={"amount": 10}, headers=_headers())
+    assert r.status_code == 200
+    assert seen["recharge_body"]["payment_method"] == "default"
+
+
+def test_recharge_drops_client_supplied_currency(make_client, monkeypatch):
+    """Client asks for CNY on a card payment — upstream would 400 on the
+    mismatch. The route must neither forward it nor choke on it: ignoring the
+    field keeps an older frontend able to pay during a rolling deploy."""
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/recharge",
+        json={"amount": 10, "currency": "CNY"},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert "currency" not in seen["recharge_body"]
+    assert seen["recharge_body"]["payment_method"] == "default"
+
+
+def test_recharge_rejects_unknown_payment_method(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/recharge",
+        json={"amount": 10, "payment_method": "paypal"},
+        headers=_headers(),
+    )
+    assert r.status_code == 422
+
+
+# --- months belongs to the one-time mode only ------------------------------
+
+def test_subscribe_card_sends_stripe_without_months(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    r = client.post("/api/billing/subscribe", json={}, headers=_headers())
+    assert r.status_code == 200
+    assert seen["subscribe_body"]["payment_method"] == "stripe"
+    assert "months" not in seen["subscribe_body"]
+
+
+def test_subscribe_alipay_sends_months(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "alipay", "months": 3},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert seen["subscribe_body"]["payment_method"] == "alipay"
+    assert seen["subscribe_body"]["months"] == 3
+
+
+@pytest.mark.parametrize("months", [0, 13, -1])
+def test_subscribe_rejects_months_out_of_range(make_client, monkeypatch, months):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "wechat", "months": months},
+        headers=_headers(),
+    )
+    assert r.status_code == 422
+
+
+def test_subscribe_rejects_months_on_card(make_client, monkeypatch):
+    """A card subscription renews monthly; N months is not a thing it can be."""
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "stripe", "months": 6},
+        headers=_headers(),
+    )
+    assert r.status_code == 422
+
+
+def test_subscribe_one_time_still_validates_checkout_host(make_client, monkeypatch):
+    """The MITM guard must cover the new payment methods too."""
+    _stub_client(monkeypatch, action={"session_id": "cs", "checkout_url": "https://evil.test/x"})
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "alipay", "months": 1},
+        headers=_headers(),
+    )
+    assert r.status_code == 502
+
+
+# --- fx-rate proxy ---------------------------------------------------------
+
+def test_fx_rate_ok(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/fx-rate?amount=10", headers=_headers())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is True
+    assert body["data"]["charge_amount"] == "73.00"
+    # CNY is the only foreign currency this account charges in; the route pins
+    # it rather than letting a caller ask for an arbitrary one.
+    assert seen["fx_rate"]["currency"] == "CNY"
+    assert seen["fx_rate"]["amount"] == 10.0
+
+
+def test_fx_rate_without_amount_omits_it(make_client, monkeypatch):
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/fx-rate", headers=_headers())
+    assert r.status_code == 200
+    assert seen["fx_rate"]["amount"] is None
+
+
+def test_fx_rate_missing_token_401(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/fx-rate", headers=USER).status_code == 401
+
+
+def test_fx_rate_404_for_local_username_user(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    _stub_power(monkeypatch, is_power=False)
+    client = make_client(cloud=False)
+    assert client.get("/api/billing/fx-rate", headers=_headers()).status_code == 404
+
+
+def test_fx_rate_upstream_maps_to_502(make_client, monkeypatch):
+    _stub_client(monkeypatch, raise_exc=BillingUpstreamError("down"))
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/fx-rate", headers=_headers()).status_code == 502
+
+
+def test_fx_rate_rejects_negative_amount(make_client, monkeypatch):
+    _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    assert client.get("/api/billing/fx-rate?amount=-1", headers=_headers()).status_code == 422
+
+
+@pytest.mark.parametrize("method", ["alipay", "wechat"])
+def test_one_time_subscribe_also_sends_return_urls(make_client, monkeypatch, method):
+    """The redirect fix (2026-07-30) must cover the one-time rails too.
+
+    Upstream really does consume them on this path — measured against dev
+    2026-08-19 with the same control the original fix used: a valid URL builds
+    a session (200), an illegal one answers 500 "Failed to create
+    prepaid-subscription checkout session". So a one-time payer who is dropped
+    on a stranger's result page is OUR bug, exactly as it was for a card one.
+    """
+    seen = _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    _set_origin(monkeypatch, "https://agent.narra.nexus")
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": method, "months": 2},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    assert seen["subscribe"] == {
+        "success_url":
+            "https://agent.narra.nexus/app/settings?tab=account&status=success&flow=subscription",
+        "cancel_url":
+            "https://agent.narra.nexus/app/settings?tab=account&status=cancelled&flow=subscription",
+    }
+    # ...alongside the one-time fields, not instead of them.
+    assert seen["subscribe_body"]["months"] == 2
+
+
+def test_checkout_event_distinguishes_the_two_products(make_client, monkeypatch, analytics_capture):
+    """Without these, a $19 card subscription and a $228 twelve-month one-time
+    purchase are the same row in the funnel."""
+    _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    r = client.post(
+        "/api/billing/subscribe",
+        json={"payment_method": "wechat", "months": 12},
+        headers=_headers(),
+    )
+    assert r.status_code == 200
+    props = analytics_capture.await_args.kwargs["properties"]
+    assert props["payment_method"] == "wechat"
+    assert props["months"] == 12
+
+
+def test_card_checkout_event_carries_no_month_count(make_client, monkeypatch, analytics_capture):
+    """A card subscription has no month count; sending 1 would read as
+    "someone bought one month on a card", which is not a thing."""
+    _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    assert client.post("/api/billing/subscribe", json={}, headers=_headers()).status_code == 200
+    props = analytics_capture.await_args.kwargs["properties"]
+    assert props["payment_method"] == "stripe"
+    assert "months" not in props
+
+
+def test_checkout_event_id_stays_the_session_alone(make_client, monkeypatch, analytics_capture):
+    """The idempotency key must not gain the new dimensions, or one session
+    counts twice."""
+    _stub_client(monkeypatch, action=_STRIPE_ACTION)
+    client = make_client(cloud=True)
+    client.post("/api/billing/subscribe", json={"payment_method": "alipay"}, headers=_headers())
+    assert analytics_capture.await_args.kwargs["event_id"] == "checkout_created:cs_1"
+
+
+@pytest.mark.parametrize("action", ["cancel", "reactivate"])
+def test_cancel_and_reactivate_carry_the_channel(make_client, monkeypatch, action):
+    """A card subscription created on the nexus account has to be cancellable.
+
+    Whether upstream locates it by channel or by the subscription's own account
+    was never measured — the integration doc claims the latter, this client's
+    own note implies the former, and they cannot both be true. Sending it is
+    correct under the pessimistic reading and inert under the optimistic one,
+    so it is sent. Upstream accepts the field on both endpoints (dev
+    2026-08-19).
+    """
+    seen = _stub_client(monkeypatch)
+    client = make_client(cloud=True)
+    r = client.post(f"/api/billing/{action}", headers=_headers())
+    assert r.status_code == 200
+    assert seen[action]["channel"] == "nexus"
+
+
+@pytest.mark.parametrize("action", ["cancel", "reactivate"])
+def test_cancel_and_reactivate_never_carry_redirect_urls(make_client, monkeypatch, action):
+    """Neither opens a Stripe checkout, so neither has anywhere to redirect to.
+    This is why `extra` is a per-call parameter instead of something the shared
+    harness resolves — adding the channel must not smuggle the URLs in."""
+    seen = _stub_client(monkeypatch)
+    _set_origin(monkeypatch, "https://agent.narra.nexus")
+    client = make_client(cloud=True)
+    assert client.post(f"/api/billing/{action}", headers=_headers()).status_code == 200
+    assert "success_url" not in seen[action]
+    assert "cancel_url" not in seen[action]

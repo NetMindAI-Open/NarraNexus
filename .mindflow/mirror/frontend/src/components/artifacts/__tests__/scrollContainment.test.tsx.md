@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/artifacts/__tests__/scrollContainment.test.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-15
 stub: false
 ---
+
+## 2026-08-15 — 渲染等待给了显式超时
+
+四处 `waitFor` 原本用默认的 1 秒上限。那不是关于组件行为的断言，是关于**机器有多快**的断言：
+它在这个文件早跑、套件还小的时候成立，套件长大之后开始间歇性红。间歇红的测试教会人重跑，
+而不是教会人读。
+
+断言本身一个字没改。
 
 # scrollContainment.test.tsx — ArtifactRenderer 滚动归属契约测试
 

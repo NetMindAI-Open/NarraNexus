@@ -16,20 +16,13 @@
  * analytics — the spec calls this out explicitly and it is easy to violate by
  * adding a well-meaning debug line.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, X } from 'lucide-react';
 import { Button, FormField, TextInput } from '@/components/nm';
 import { api } from '@/lib/api';
+import { PASSWORD_RULES } from '@/lib/netmindAuth/passwordPolicy';
 
-/** Matches backend `password_policy_error` — see netmind_register_client.py. */
-const PASSWORD_RULES: { id: string; test: (v: string) => boolean }[] = [
-  { id: 'length', test: (v) => v.length >= 8 && v.length <= 16 },
-  { id: 'upper', test: (v) => /[A-Z]/.test(v) },
-  { id: 'lower', test: (v) => /[a-z]/.test(v) },
-  { id: 'digit', test: (v) => /\d/.test(v) },
-  { id: 'special', test: (v) => /[^A-Za-z0-9]/.test(v) },
-];
 
 /** Spec: "建议页面发送验证码后增加 60 秒倒计时，避免重复发送." The backend
  *  rate-limits on the same beat, so a user who beats the timer gets a 429
@@ -66,6 +59,39 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
+  // A request in flight (sending a code / submitting) must not be dismissed out
+  // from under itself: closing mid-submit unmounts the component, so a later
+  // setError lands on nothing — the dialog vanishes with no error and no
+  // account, having burned the emailed code. All dismissal paths check this.
+  const busy = sending || submitting;
+
+  // Standard modal dismissal: Escape closes; backdrop-click is handled on the
+  // overlay's mousedown+mouseup below. (Without either, the only way out was X.)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, busy]);
+
+  // Backdrop dismissal fires only when BOTH the mousedown and the mouseup landed
+  // on the overlay itself — so selecting text inside an input and releasing
+  // outside the card (a drag) does not count as a backdrop click and close it.
+  const downOnBackdrop = useRef(false);
+
+  // A code is sent to a specific address; if the user edits the email after
+  // requesting it, the sent code and its cooldown no longer apply — reset them
+  // so the UI can't imply a code is valid for the new address.
+  const onEmailChange = (value: string) => {
+    setEmail(value);
+    if (codeSent || cooldown > 0 || code) {
+      setCodeSent(false);
+      setCooldown(0);
+      setCode('');
+    }
+  };
+
   const failedRules = useMemo(
     () => PASSWORD_RULES.filter((r) => !r.test(password)),
     [password],
@@ -88,7 +114,18 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
       setCodeSent(true);
       setCooldown(RESEND_COOLDOWN_S);
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : t('pages.signup.sendFailed'));
+      // Do NOT echo the upstream message to the USER: NetMind's "this email is
+      // already registered" would let the send-code form enumerate accounts.
+      // But DON'T discard the reason — a transport failure never even reaches
+      // the server, so the funnel is the only trace it gets (mirrors
+      // useNetmindAuth's reportAuthFunnel). Only email + message go to
+      // analytics — never the code (see this file's header).
+      const message = e instanceof Error ? e.message : 'send code failed';
+      setError(t('pages.signup.sendFailed'));
+      api.reportAuthFunnel('signup_send_code_failed', email.trim().toLowerCase(), message);
+      // NOTE: this masks the UI only. Fully closing registration enumeration
+      // needs the backend /register/sendCode to return a uniform response —
+      // tracked separately (out of Mark's login-scoped item [2]).
     } finally {
       setSending(false);
     }
@@ -117,6 +154,15 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="signup-title"
+      // Backdrop dismissal: require BOTH the mousedown and the mouseup to land
+      // on the overlay itself, so a text-selection drag that crosses the card
+      // edge in EITHER direction is not a backdrop click. Never while busy.
+      onMouseDown={(e) => {
+        downOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onMouseUp={(e) => {
+        if (!busy && downOnBackdrop.current && e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className="w-full max-w-lg p-8 space-y-5"
@@ -142,9 +188,10 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => { if (!busy) onClose(); }}
+            disabled={busy}
             aria-label={t('common.close')}
-            className="p-1 rounded hover:opacity-70"
+            className="p-1 rounded hover:opacity-70 disabled:opacity-40"
             style={{ color: 'var(--nm-ink50)' }}
           >
             <X className="w-4 h-4" />
@@ -156,7 +203,7 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
             type="email"
             autoComplete="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => onEmailChange(e.target.value)}
             placeholder="you@example.com"
           />
         </FormField>
@@ -262,8 +309,9 @@ export function SignUpDialog({ onClose, onRegistered }: Props) {
         <p className="text-center text-xs" style={{ color: 'var(--nm-ink50)' }}>
           <button
             type="button"
-            onClick={onClose}
-            className="underline hover:opacity-70"
+            onClick={() => { if (!busy) onClose(); }}
+            disabled={busy}
+            className="underline hover:opacity-70 disabled:opacity-40"
           >
             {t('pages.signup.haveAccount')}
           </button>

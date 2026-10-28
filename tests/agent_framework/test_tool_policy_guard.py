@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters._tool_policy_guard import (
+from narranexus.platform.agent_framework.adapters._tool_policy_guard import (
     build_tool_policy_guard,
     build_workspace_read_guard,  # legacy alias
 )
@@ -238,7 +238,7 @@ def test_legacy_alias_preserved(workspace):
 
 @pytest.mark.asyncio
 async def test_to_cli_env_is_task_local_under_concurrency():
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.api_config import (
         ClaudeConfig,
         _claude_ctx,
     )
@@ -293,7 +293,7 @@ async def test_to_cli_env_is_task_local_under_concurrency():
 async def test_to_cli_env_blanks_keys_even_when_model_empty():
     """Without an explicit model we must still blank the override vars so
     a stale inherited value from os.environ cannot steer the CLI."""
-    from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+    from narranexus.platform.agent_framework.api_config import ClaudeConfig
 
     cfg = ClaudeConfig(api_key="k", base_url="https://x", model="", auth_type="api_key")
     env = cfg.to_cli_env()
@@ -311,7 +311,7 @@ async def test_to_cli_env_blanks_keys_even_when_model_empty():
 @pytest.mark.asyncio
 async def test_to_cli_env_full_keyset():
     """The env must include every key we rely on — no silent gaps."""
-    from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+    from narranexus.platform.agent_framework.api_config import ClaudeConfig
 
     cfg = ClaudeConfig(api_key="k", base_url="https://x", model="m", auth_type="bearer_token")
     env = cfg.to_cli_env()

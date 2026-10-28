@@ -2,15 +2,15 @@
  * @file_name: ClearAgentDataDialog.tsx
  * @description: Multi-select confirmation dialog for wiping an agent's data.
  *
- * Opened from the agent row ⋮ menu ("Clear data…"). Lets the owner tick
- * "conversations" and/or "memory" (either or both) and confirm. Maps to
+ * Opened from the agent profile header ⋮ menu ("Clear data"). Lets the owner
+ * tick "conversations" and/or "memory" (either or both) and confirm. Maps to
  * DELETE /api/agents/{id}/history?conversations=&memory= (api.clearHistory),
  * which — unlike the old Sidebar "clear history" button — also removes the
  * on-disk narrative markdown + trajectory files, the real memory surface.
  *
  * The persona, channel credentials and account are always preserved; the
  * confirm button is danger-styled and disabled until at least one scope is
- * selected. Controlled by AgentList (which owns the busy/target state).
+ * selected. Controlled by AgentProfilePage (which owns the busy/open state).
  */
 
 import { useState } from 'react';
@@ -27,8 +27,8 @@ export interface ClearAgentDataDialogProps {
 }
 
 /**
- * Mounted only while open (the host `AgentList` renders it behind
- * `{clearTarget && ...}`), so the checkbox defaults reset naturally on each
+ * Mounted only while open (the host `AgentProfilePage` renders it behind
+ * `{clearOpen && ...}`), so the checkbox defaults reset naturally on each
  * open — no reset effect needed. Default: chat records checked, memory
  * unchecked (memory is the more destructive opt-in).
  */

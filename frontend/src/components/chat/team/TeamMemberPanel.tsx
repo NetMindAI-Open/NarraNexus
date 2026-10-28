@@ -2,10 +2,15 @@
  * @file_name: TeamMemberPanel.tsx
  * @author:
  * @date: 2026-07-31
- * @description: One member's process, rendered as the same terminal
- *   card the single-agent ProcessPanel is — chrome header (live dot,
- *   `name · process`, ops + elapsed), phase rows, `$` tool rows, the
- *   `❯▌` cursor while alive.
+ * @description: One member's process, rendered as a terminal card —
+ *   chrome header (live dot, `name · process`, ops + elapsed), phase
+ *   rows, the observed turn's own rows, the `❯▌` cursor while alive.
+ *
+ *   It KEEPS its card chrome, unlike single chat, whose framed process
+ *   panel was dissolved on 2026-08-31. The two are not the same surface:
+ *   this is one row of a roster listing several members, so the frame is
+ *   what separates member from member. Single chat has one agent and one
+ *   reading column, where a second frame only competed with the turn.
  *
  * The live body is REAL: a running/stalled member is observed through
  * `useRunObservation(event_id)` — the platform's universal run
@@ -21,26 +26,30 @@
  * stream.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
+
+import { dispatchAgentCircuitOpen } from '@/services/wsCircuitOpen';
+import { Loader2, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import { elapsedSince } from '@/lib/teamActivity';
 import { useRunObservation } from '@/hooks/useRunObservation';
 import {
   LiveCursorRow,
   LiveDot,
   PHASE_LABEL_KEYS,
+  PHASE_STEP_IDS,
   PhaseRow,
-  ProcessEventRows,
+  phaseSettled,
 } from '../process/processShared';
 import { TurnTimeline } from '../TurnTimeline';
 import { isProcessEvent, useTurnDetail } from './useTurnDetail';
 import type { TurnEvent } from '@/types';
 import type { TeamMemberActivity } from '@/types/teams';
 
-/** Same bargain as ProcessPanel: follow the bottom unless the user
- *  scrolled up to read something. */
+/** Same bargain the message area makes: follow the bottom unless the
+ *  user scrolled up to read something. */
 const FOLLOW_THRESHOLD_PX = 24;
 
 /** Max card height — the roster column must keep multiple rows visible. */
@@ -96,7 +105,7 @@ export interface TeamMemberPanelProps {
   open: boolean;
 }
 
-/** The expanded body of a roster row — a mini ProcessPanel. */
+/** The expanded body of a roster row — one member's terminal card. */
 export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelProps) {
   const { t } = useTranslation();
   const live = activity.status === 'running' || activity.status === 'stalled';
@@ -110,6 +119,36 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
+
+  // The stop request is fire-and-observe: the endpoint records intent and
+  // returns, the run is interrupted in another process, and the terminal
+  // state arrives on the observation stream. This state only covers the gap
+  // between those two — the answer the 8-minute black box never gave.
+  const [stopRequest, setStopRequest] = useState<
+    { runId: string; failed: boolean } | null
+  >(null);
+  const runId = activity.event_id ?? null;
+  // A stop belongs to the run it was aimed at; a new turn starts clean.
+  const stopping = !!stopRequest && stopRequest.runId === runId && !stopRequest.failed;
+  const stopFailed = !!stopRequest && stopRequest.runId === runId && stopRequest.failed;
+
+  const requestStop = async () => {
+    if (!runId || stopping) return;
+    setStopRequest({ runId, failed: false });
+    try {
+      const r = await api.cancelRun(runId);
+      if (r.already_settled) {
+        // The run finished between render and click. Nothing was flagged, so
+        // no terminal frame is coming — holding "stopping…" would wait forever
+        // for an event that already happened.
+        setStopRequest(null);
+      }
+    } catch {
+      // Owner check rejected, run already gone, network down — the button
+      // must not stay stuck on "stopping" for something that never landed.
+      setStopRequest({ runId, failed: true });
+    }
+  };
 
   const processEvents = useMemo(
     () => observation.events.filter(
@@ -125,10 +164,11 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     return undefined;
   }, [observation.events]);
 
-  // Tool sub-steps are already tool rows — repeating them as phases
-  // would double every call (same rule ProcessPanel applies).
+  // Only the whitelisted top-level phases (same rule RunPhases applies):
+  // tool sub-steps are already tool rows, and housekeeping/echo steps aren't
+  // phases — this also keeps raw English backend titles out of the panel.
   const phases = useMemo(
-    () => observation.steps.filter((s) => !s.step.startsWith('3.4')),
+    () => observation.steps.filter((s) => PHASE_STEP_IDS.has(s.step)),
     [observation.steps],
   );
 
@@ -154,11 +194,40 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
     ? (stalled ? 'var(--color-warning)' : 'var(--color-success)')
     : 'var(--nm-ink30)';
 
+  // A paused agent is not a failed fetch. The room used to show
+  // "couldn't load the process" for both, which is untrue for one of them and
+  // leaves the user nothing to do either way.
+  //
+  // The honest surface already exists — App.tsx listens for this event and
+  // renders a banner with a one-click Resume that clears the pause — and the
+  // private chat has fired it for a long time. This panel announces because it
+  // is the piece that knows WHICH agent: the observation hook only has a run id.
+  // Reusing the event rather than building a second banner keeps the breaker's
+  // reason vocabulary in one place.
+  useEffect(() => {
+    const reason = observation.circuitReason;
+    if (!reason) return;
+    dispatchAgentCircuitOpen({ agentId: activity.agent_id, reason });
+    // The dependency array IS the "announce once" mechanism: the roster ticks a
+    // 1s clock, and a render that changes neither the reason nor the agent does
+    // not re-run this. An extra ref guard was tried and removed — it was dead
+    // code against that, and its only real effect would have been to suppress a
+    // legitimate re-announce after a breaker cleared and reopened.
+  }, [observation.circuitReason, activity.agent_id]);
+
   let body: React.ReactNode;
-  if (live && observation.errorMessage && observation.events.length === 0) {
+  if (observation.circuitReason) {
+    // Says what happened, and the app-wide banner carries the Resume.
+    body = (
+      <span data-testid="member-paused" className="text-[var(--text-tertiary)]">
+        {t('chat.team.agentPaused', { reason: observation.circuitReason })}
+      </span>
+    );
+  } else if (live && observation.errorMessage && observation.events.length === 0) {
     // The observe channel answered with a terminal error (e.g. the run
     // is not visible to this client) — say so instead of spinning a
-    // "starting up" promise that can never be kept.
+    // "starting up" promise that can never be kept. Still the honest copy for
+    // the honest case; widening it to cover a pause swapped one lie for another.
     body = <span className="text-[var(--text-tertiary)]">{t('chat.team.detailLoadFailed')}</span>;
   } else if (live) {
     const hasObservation = processEvents.length > 0 || phases.length > 0;
@@ -166,14 +235,13 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
       <>
         {phases.map((phase) => {
           const key = PHASE_LABEL_KEYS[phase.step];
-          const settledPhase =
-            phase.status === 'completed' ||
-            phases.some((s) => parseFloat(s.step) > parseFloat(phase.step)) ||
-            (processEvents.length > 0 && parseFloat(phase.step) < 3.4);
+          // Shared settled rule, fed the UNFILTERED observation.steps (not the
+          // whitelisted `phases`) so "a later phase started" can see run-agent
+          // / housekeeping ids the whitelist drops — same as RunPhases.
           return (
             <PhaseRow
               key={phase.step}
-              done={settledPhase}
+              done={phaseSettled(phase, observation.steps, processEvents.length > 0)}
               label={key ? t(key) : phase.title}
             />
           );
@@ -186,7 +254,16 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
             </span>
           </div>
         )}
-        <ProcessEventRows process={processEvents} />
+        {/* Same renderer as the main chat's live turn and its settled one:
+            two shapes for the same events is what this pass exists to end. */}
+        {/* Same predicate as the live cursor below: an ENDED observation is
+            not streaming, and saying it is keeps the blocks on the streaming
+            plain-text path, so a finished member turn would not render the
+            markdown the settled main chat renders for the same events. */}
+        <TurnTimeline
+          events={processEvents}
+          isStreaming={observation.status !== 'ended'}
+        />
         {observation.status !== 'ended' && <LiveCursorRow />}
       </>
     );
@@ -212,7 +289,7 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
   return (
     <div
       data-testid={`member-panel-${activity.agent_id}`}
-      className="mx-2 mb-2 animate-fade-in overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
+      className="mx-2 mb-2 animate-fade-in overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--nm-paper)] shadow-sm"
       style={{ fontFamily: 'var(--font-mono)' }}
     >
       {/* Terminal chrome — the member's own header bar. */}
@@ -234,6 +311,32 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
                 <span>{observation.opsCount} {t('chat.process.ops', 'ops')}</span>
               )}
               <span>{elapsedSince(activity.started_at, now)}</span>
+              {runId && (
+                <button
+                  type="button"
+                  onClick={requestStop}
+                  disabled={stopping}
+                  data-testid={`member-stop-${activity.agent_id}`}
+                  title={t('chat.team.roster.stopHint')}
+                  className={cn(
+                    'flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors',
+                    stopping
+                      ? 'cursor-default text-[var(--nm-ink50)]'
+                      : 'text-[var(--nm-ink70)] hover:bg-[var(--color-warning)]/10 hover:text-[var(--color-warning)]',
+                  )}
+                >
+                  {stopping ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  ) : (
+                    <Square className="h-3 w-3 shrink-0" />
+                  )}
+                  <span>
+                    {stopping
+                      ? t('chat.team.roster.stopping')
+                      : t('chat.team.roster.stop')}
+                  </span>
+                </button>
+              )}
             </>
           ) : (
             idleOps > 0 && <span>{idleOps} {t('chat.process.ops', 'ops')}</span>
@@ -256,6 +359,18 @@ export function TeamMemberPanel({ activity, name, now, open }: TeamMemberPanelPr
           </div>
         )}
         {body}
+        {stopFailed && (
+          <div className="pt-1 text-[10px]" style={{ color: 'var(--color-warning)' }}>
+            {t('chat.team.roster.stopFailed')}
+          </div>
+        )}
+        {/* The terminal word matters: a stopped run rendered as "completed"
+            tells the owner the task they killed ran to the end. */}
+        {observation.endState === 'cancelled' && (
+          <div className="pt-1 text-[10px]" style={{ color: 'var(--color-warning)' }}>
+            {t('chat.team.roster.stopped')}
+          </div>
+        )}
         {stalled && (
           <div className="pt-1 text-[10px]" style={{ color: 'var(--color-warning)' }}>
             {t('chat.team.activity.silentFor', {

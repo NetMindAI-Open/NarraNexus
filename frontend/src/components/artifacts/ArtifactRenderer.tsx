@@ -1,6 +1,8 @@
 /**
  * @file_name: ArtifactRenderer.tsx
- * @description: Shared kind → renderer dispatch for artifact content.
+ * @description: Shared renderer dispatch for artifact content — the renderer
+ * itself comes from the kind capability registry (kindRegistry.ts), this
+ * component only owns the Suspense/scroll-box shell.
  *
  * Pulled out of ArtifactColumn so the embedded column view AND the
  * zoom modal can render artifacts through the same lazy-loaded renderer
@@ -11,40 +13,10 @@
  * token via `useArtifactRawUrl` and load content from the public raw route.
  */
 
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Artifact, ArtifactKind } from '@/types/artifact';
-
-const HtmlRenderer = lazy(() => import('./renderers/HtmlRenderer'));
-const ChartRenderer = lazy(() => import('./renderers/ChartRenderer'));
-const CsvRenderer = lazy(() => import('./renderers/CsvRenderer'));
-const ImageRenderer = lazy(() => import('./renderers/ImageRenderer'));
-const MarkdownRenderer = lazy(() => import('./renderers/MarkdownRenderer'));
-const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
-const OfficeWatchViewer = lazy(() => import('./OfficeWatchViewer'));
-const UrlRenderer = lazy(() => import('./renderers/UrlRenderer'));
-
-type RendererComponent = React.LazyExoticComponent<
-  React.ComponentType<{ artifact: Artifact }>
->;
-
-const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
-  'text/html': HtmlRenderer,
-  'application/vnd.echarts+json': ChartRenderer,
-  'text/csv': CsvRenderer,
-  'text/markdown': MarkdownRenderer,
-  'image/png': ImageRenderer,
-  'image/jpeg': ImageRenderer,
-  // PDF: dedicated PdfRenderer uses <object> instead of the sandboxed iframe
-  // to avoid breaking Firefox PDF.js (needs same-origin XHR) and WKWebView.
-  'application/pdf': PdfRenderer,
-  // Office docs render LIVE (officecli watch) instead of a static file — the
-  // viewer opens a watch on the artifact's file and streams SSE refreshes.
-  'application/vnd.officecli-live': OfficeWatchViewer,
-  // URL tabs: the entry doc holds a URL + embed verdict; the renderer iframes
-  // the page or shows a fallback card.
-  'application/x-url': UrlRenderer,
-};
+import type { Artifact } from '@/types/artifact';
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
 
 interface Props {
   artifact: Artifact;
@@ -66,7 +38,9 @@ interface Props {
 
 export default function ArtifactRenderer({ artifact, bounded = true }: Props) {
   const { t } = useTranslation();
-  const Renderer = RENDERER_BY_KIND[artifact.kind];
+  // Subscribed: a plugin registering this kind after the artifact opened re-renders it.
+  void useRegistryEntries(ARTIFACT_KINDS);
+  const Renderer = ARTIFACT_KINDS.get(artifact.kind)?.renderer;
   if (!Renderer) {
     return <div className="p-4 opacity-60">{t('artifacts.unsupportedKind', { kind: artifact.kind })}</div>;
   }

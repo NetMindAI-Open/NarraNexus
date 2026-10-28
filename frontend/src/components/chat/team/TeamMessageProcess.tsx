@@ -27,7 +27,7 @@ export function TeamMessageProcess({
   const loading = open && detail === null;
 
   return (
-    <div className="mt-2 border-t border-[var(--border-subtle)] pt-1.5">
+    <div className="mb-2 border-b border-[var(--border-subtle)] pb-1.5">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

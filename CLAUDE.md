@@ -191,6 +191,12 @@ you must:
   layout
   **When to read**: changing frontend state, routing, or the API call
   layer
+- `.mindflow/project/references/design_system.md` — the Nordic-archive
+  design language: surface ladder (§2.5), motion, icon language (§5),
+  color-token rules and their DATA exemptions (§6.2)
+  **When to read**: changing any frontend color / radius / icon /
+  surface level, adding a UI component, or reviewing UI changes —
+  code comments cite its § numbers
 - `.mindflow/project/references/desktop_tauri_integration.md` — Tauri
   sidecar
   **When to read**: changing `run.sh` or the Tauri sidecar — triggers
@@ -402,7 +408,7 @@ All tables are registered in `utils/schema_registry.py`. SQLite and
 MySQL share the same definitions; each column declares both dialects:
 
 ```python
-from xyz_agent_context.utils.schema_registry import _register, TableDef, Column, Index
+from narranexus.platform.utils.schema_registry import _register, TableDef, Column, Index
 
 _register(TableDef(
     name="instance_lark_bindings",
@@ -718,6 +724,7 @@ NarraNexus/
 │
 ├── backend/                        # FastAPI backend
 │   ├── main.py                     # App entry point
+│   ├── onboarding/                 # Auto-provisioned guide agent (login hook)
 │   └── routes/                     # Route definitions
 │
 ├── frontend/                       # React frontend
@@ -728,9 +735,10 @@ NarraNexus/
 │       ├── lib/                    # Utility libraries
 │       └── types/                  # TypeScript types
 │
-├── src/xyz_agent_context/          # Core package
+├── src/narranexus/platform/          # Core package
 │   ├── agent_runtime/              # Orchestration layer
 │   ├── agent_framework/            # LLM SDK adapter layer
+│   ├── bootstrap/                  # New-agent provisioning seam + profiles
 │   ├── context_runtime/            # Context build engine
 │   ├── narrative/                  # Narrative orchestration system
 │   ├── module/                     # Functional module system

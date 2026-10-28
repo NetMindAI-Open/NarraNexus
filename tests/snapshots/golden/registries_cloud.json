@@ -1,0 +1,39 @@
+{
+  "agent_loop_frameworks": [
+    "claude_code",
+    "codex_cli",
+    "nexus_power"
+  ],
+  "llm_clients": [
+    "anthropic",
+    "openai",
+    "cli"
+  ],
+  "memory_kinds": [
+    "bus",
+    "entity",
+    "event",
+    "job",
+    "narrative",
+    "observation"
+  ],
+  "memory_passive_kinds": [
+    "entity",
+    "narrative",
+    "observation"
+  ],
+  "provider_driver_owners": [
+    "builtin.providers"
+  ],
+  "provider_drivers": [
+    "custom_anthropic",
+    "custom_openai",
+    "netmind",
+    "netmind_free",
+    "yunwu",
+    "openrouter",
+    "claude_oauth",
+    "codex_oauth",
+    "system_pool"
+  ]
+}

@@ -1,7 +1,29 @@
 ---
 code_file: frontend/src/components/cost/CostPopover.tsx
-last_verified: 2026-08-03
+last_verified: 2026-08-19
 ---
+
+## 2026-08-19 — 格式化、模型标签、三处求和全部移出本文件
+
+搬到 [[tokenFormat.ts]]，本文件改为 import。触发是账户页新增
+[[NarraUsageSection.tsx]] 需要同一套规则：**两份独立的实现会静默漂移**，同一周的
+用量在两个屏幕上读出两个数，而读者无从判断哪个被四舍五入过。
+
+搬走的东西：
+
+- `formatTokens` / `formatCost` —— 规则一个字没改。
+- `shortModelName` —— 签名从三个位置参数改成 `(model, { main, helper })`。它做的事
+  （把 `__main_model__` / `__helper_model__` 两个后端合成 key 映射成 label）**是本
+  文件里唯一会咬人的规则**，它的正本现在在 [[tokenFormat.ts]]；本文件不再重述。
+  漏掉这层映射的代价已经被证实：[[NarraUsageSection.tsx]] 第一版就把裸 sentinel
+  渲染到了真实账户页上。
+- **三处求和**（总计、逐模型 `modelTokens`、逐日行内联那份）改用
+  `summaryInputSideTokens` / `summaryTotalTokens` / `totalTokens`。本文件此前一个
+  文件里就有三份同规则实现，其中逐日那份是内联的 —— 而这条规则正是下面 07-30 那次
+  事故的主角。
+
+下面这两条（08-03 的 `<$0.0001`、07-30 的 cache 桶）**仍然是正本**：它们记的是
+「为什么」，不是「函数住在哪个文件」，所以留在这里，不搬走也不复制。
 
 ## 2026-08-03 — `formatCost` 低于万分之一美元时显示 `<$0.0001`
 

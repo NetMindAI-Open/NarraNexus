@@ -22,7 +22,7 @@ from backend.integrations.arena.arena_onboarding import (
     GROUP_FORCE,
     GROUP_CREATURE,
 )
-from xyz_agent_context.utils.db.schema_registry import get_registered_tables
+from narranexus.platform.utils.db.schema_registry import get_registered_tables
 
 
 class _FakeResponse:
@@ -212,7 +212,7 @@ def test_provisioning_uses_settings_arena_api_base(monkeypatch):
             return []
 
     # provision() imports AgentRepository locally from its source module.
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
     monkeypatch.setattr(agent_repo_mod, "AgentRepository", _NoAgents)
 
     service = svc.ArenaProvisioningService(db_client=object())
@@ -325,7 +325,7 @@ def _stub_cold_path(monkeypatch, svc, fake_onboarder_cls):
         async def update_agent(self, *a, **kw):
             pass
 
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
     monkeypatch.setattr(agent_repo_mod, "AgentRepository", _Repo)
 
     class _IF:
@@ -335,10 +335,10 @@ def _stub_cold_path(monkeypatch, svc, fake_onboarder_cls):
         async def create_agent_level_instances(self, agent_id):
             pass
 
-    import xyz_agent_context.module._module_impl.instance_factory as if_mod
+    import narranexus.platform.module_system._module_impl.instance_factory as if_mod
     monkeypatch.setattr(if_mod, "InstanceFactory", _IF)
 
-    import xyz_agent_context.utils.workspace_paths as wp_mod
+    import narranexus.platform.utils.workspace_paths as wp_mod
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: Path("/tmp/nx_ws"))
 
     async def _noop_aw(self, *a, **kw):
@@ -453,7 +453,7 @@ def test_provision_warm_path_retries_bind_from_workspace_key(monkeypatch, tmp_pa
             updates["agent_id"] = agent_id
             updates["meta"] = upd["agent_metadata"]
 
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
     monkeypatch.setattr(agent_repo_mod, "AgentRepository", _Repo)
 
     # The api_key lives only in the workspace credentials.json — lay one down.
@@ -462,7 +462,7 @@ def test_provision_warm_path_retries_bind_from_workspace_key(monkeypatch, tmp_pa
     (skill_dir / "credentials.json").write_text(
         json.dumps({"api_key": "arena_sk_fromfile", "agent_id": "arena_1"})
     )
-    import xyz_agent_context.utils.workspace_paths as wp_mod
+    import narranexus.platform.utils.workspace_paths as wp_mod
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: tmp_path)
 
     seen = {}
@@ -514,7 +514,7 @@ def test_provision_warm_path_already_bound_skips_network(monkeypatch):
         async def find(self, *a, **kw):
             return [existing]
 
-    import xyz_agent_context.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
     monkeypatch.setattr(agent_repo_mod, "AgentRepository", _Repo)
 
     class _BoomOnboarder:
@@ -543,7 +543,7 @@ def test_generic_awareness_has_confidentiality_rule():
     # Defense-in-depth: the generic confidentiality principle is in the awareness
     # instruction template, so every agent (incl. already-provisioned ones) gets
     # it live, with no scenario naming (铁律 #4: generic stays generic).
-    from xyz_agent_context.module.awareness_module.prompts import (
+    from narranexus_plugins.awareness_module.prompts import (
         AWARENESS_MODULE_INSTRUCTIONS,
     )
 

@@ -17,9 +17,9 @@ by switching models. These tests pin the new behaviour: such errors become
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import ResponseProcessor
-from xyz_agent_context.schema import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import ResponseProcessor
+from narranexus.platform.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     ErrorMessage,
     SELF_SERVICEABLE_ERROR_TYPE,
@@ -85,7 +85,6 @@ def test_rejected_credential_becomes_fatal_config_actionable():
     fallback wrote a reply for work that never ran. It must be fatal, and the
     guidance must point at the KEY (re-paste / rotate), not at a re-login."""
     msg = _process(_error_event(
-        'Claude API error: invalid_request\n\nProvider response:\n'
         'API Error: 403 {"error":{"message":"Invalid api token"}}',
         "invalid_request",
     ))

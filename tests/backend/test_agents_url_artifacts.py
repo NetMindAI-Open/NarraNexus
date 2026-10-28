@@ -14,8 +14,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.schema.artifact_schema import EmbedVerdict, UrlArtifactDoc
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.schema.artifact_schema import EmbedVerdict, UrlArtifactDoc
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -30,7 +30,7 @@ async def client(db_client, monkeypatch, tmp_path):
     base.mkdir()
     (base / WS_REL).mkdir(parents=True)
 
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     # Network-free probe + SSRF gate.
@@ -40,11 +40,11 @@ async def client(db_client, monkeypatch, tmp_path):
 
     async def fake_assert(url, *, resolver=None):
         if "internal" in url:
-            from xyz_agent_context.utils.url_safety import UnsafeUrlError
+            from narranexus.platform.utils.url_safety import UnsafeUrlError
             raise UnsafeUrlError("blocked")
         return ["93.184.216.34"]
 
-    import xyz_agent_context.artifact._artifact_impl.url_artifact as ua
+    import narranexus.platform.artifact._artifact_impl.url_artifact as ua
     monkeypatch.setattr(ua, "probe_url", fake_probe)
     monkeypatch.setattr(ua, "assert_public_http_url", fake_assert)
 

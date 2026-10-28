@@ -18,7 +18,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.repository.lark_trigger_audit_repository import (
+from narranexus.platform.repository.lark_trigger_audit_repository import (
     LarkTriggerAuditRepository,
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_DEDUP,

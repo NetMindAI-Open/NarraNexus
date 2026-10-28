@@ -15,8 +15,8 @@ empty-argument reply frame would inject a stray empty bubble.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import (
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import (
     ResponseProcessor,
     ResponseType,
 )
@@ -70,7 +70,7 @@ def test_pending_reply_tool_frame_is_dropped():
     state = ExecutionState()
     events = list(rp._handle_run_item_stream_event(
         _tool_call_event(
-            "mcp__chat_module__send_message_to_user_directly", pending=True,
+            "mcp__chat_module__reply_owner", pending=True,
         ),
         state,
     ))

@@ -15,21 +15,21 @@ from __future__ import annotations
 import pytest
 
 # Importing the package registers the local claude_code/codex_cli drivers.
-import xyz_agent_context.agent_framework  # noqa: F401
-from xyz_agent_context.agent_framework.loop.driver import (
+import narranexus.platform.agent_framework  # noqa: F401
+from narranexus.platform.agent_framework.loop.driver import (
     get_agent_loop_driver,
 )
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     CodexConfig,
     OpenAIConfig,
     set_user_config,
     snapshot_user_config,
 )
-from xyz_agent_context.agent_framework.loop.remote_driver import (
+from narranexus.platform.agent_framework.loop.remote_driver import (
     RemoteAgentLoopDriver,
 )
-from xyz_agent_context.agent_runtime.executor_protocol import (
+from narranexus.platform.agent_runtime.executor_protocol import (
     apply_provider_configs,
     build_agent_loop_request,
     serialize_provider_configs,
@@ -288,7 +288,7 @@ async def test_remote_driver_raises_when_line_exceeds_max_bytes(monkeypatch):
     ever arrives, buffer grows past ``_MAX_STREAM_BYTES``) must fail
     fast rather than eat memory. We lower the ceiling in this test so
     the assertion doesn't require 50 MB of test data."""
-    from xyz_agent_context.agent_framework.loop import remote_driver as m
+    from narranexus.platform.agent_framework.loop import remote_driver as m
 
     monkeypatch.setattr(m, "_MAX_STREAM_BYTES", 1024)  # 1 KiB test ceiling
     junk = b"x" * 2000  # 2 KiB, no newline
@@ -314,3 +314,137 @@ async def test_remote_driver_yields_trailing_line_without_newline(monkeypatch):
         {"type": "text", "delta": "first"},
         {"type": "text", "delta": "tail (no newline)"},
     ]
+
+
+# --------------------------------------------------------------------------
+# Stale-image replacement verdict reaches the broker (P2 wiring)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_step3_hands_the_stale_replace_verdict_to_ensure(monkeypatch):
+    """Wiring, not behaviour: drop the keyword and this process behaves
+    identically while the broker silently returns to destroying containers
+    under live runs (2026-07-31). Nothing else here would go red."""
+    # The package rebinds this name to the FUNCTION it re-exports, so plain
+    # `import ... as` hands back the function, not the module.
+    import importlib
+
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+
+    captured = {}
+
+    # A broker must exist, or the helper short-circuits before the verdict.
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+
+    async def fake_ensure(user_id, *, allow_stale_replace=False, timeout=120.0):
+        captured["user_id"] = user_id
+        captured["allow"] = allow_stale_replace
+        return None
+
+    async def safe(user_id, *, active_run_id=None):
+        captured["active_run_id"] = active_run_id
+        return True
+
+    monkeypatch.setattr(
+        "narranexus.platform.agent_framework.loop.broker_client.ensure_executor",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "narranexus.platform.agent_runtime.executor_reaper.no_live_recorded_run_for",
+        safe,
+    )
+
+    await step3._ensure_executor_for_run("u1", "evt_me")
+
+    assert captured["user_id"] == "u1"
+    assert captured["allow"] is True
+    # The asking run is excluded, or the verdict is "busy" forever and the
+    # image never rolls.
+    assert captured["active_run_id"] == "evt_me"
+
+
+@pytest.mark.asyncio
+async def test_step3_refuses_replacement_while_a_run_is_live(monkeypatch):
+    # The package rebinds this name to the FUNCTION it re-exports, so plain
+    # `import ... as` hands back the function, not the module.
+    import importlib
+
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+
+    captured = {}
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+
+    async def fake_ensure(user_id, *, allow_stale_replace=False, timeout=120.0):
+        captured["allow"] = allow_stale_replace
+        return None
+
+    async def unsafe(user_id, *, active_run_id=None):
+        return False
+
+    monkeypatch.setattr(
+        "narranexus.platform.agent_framework.loop.broker_client.ensure_executor",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "narranexus.platform.agent_runtime.executor_reaper.no_live_recorded_run_for",
+        unsafe,
+    )
+
+    await step3._ensure_executor_for_run("u1", None)
+    assert captured["allow"] is False
+
+
+def test_step_3_keeps_its_timing_decorator():
+    """A one-line guard against the shape that just bit this PR: a function
+    added between `@timed(...)` and `async def step_3_agent_loop` binds the
+    decorator to the newcomer. Nothing goes red — the pipeline's heaviest
+    step silently stops emitting [TIMED], and worse, that metric name starts
+    reporting the newcomer's latency instead."""
+    import importlib
+
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+    assert hasattr(step3.step_3_agent_loop, "__wrapped__")
+    assert not hasattr(step3._ensure_executor_for_run, "__wrapped__")
+
+
+@pytest.mark.asyncio
+async def test_no_broker_skips_the_verdict_entirely(monkeypatch):
+    """The verdict is an ARGUMENT, so it is computed before ensure_executor
+    can return None. Local / desktop / static-URL deployments would pay a DB
+    round-trip per turn for a bool nobody reads (rule #7)."""
+    import importlib
+
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+    asked = []
+
+    async def verdict(user_id, *, active_run_id=None):
+        asked.append(user_id)
+        return True
+
+    async def fake_ensure(user_id, *, allow_stale_replace=False, timeout=120.0):
+        raise AssertionError("ensure_executor must not be called without a broker")
+
+    monkeypatch.setattr(
+        "narranexus.platform.agent_framework.loop.broker_client.broker_url",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "narranexus.platform.agent_runtime.executor_reaper.no_live_recorded_run_for",
+        verdict,
+    )
+    monkeypatch.setattr(
+        "narranexus.platform.agent_framework.loop.broker_client.ensure_executor",
+        fake_ensure,
+    )
+
+    assert await step3._ensure_executor_for_run("u1", "evt_me") is None
+    assert asked == []      # no DB round-trip on the desktop hot path

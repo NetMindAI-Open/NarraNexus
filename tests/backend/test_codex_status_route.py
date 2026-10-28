@@ -175,6 +175,41 @@ async def test_unparseable_expiry_fails_open_logged_in(tmp_path, monkeypatch):
     assert d["expired"] is False
 
 
+PAST_MS = 1577836800000    # 2020-01-01T00:00:00Z
+FUTURE_MS = 4102444800000  # 2100-01-01T00:00:00Z
+
+
+@pytest.mark.asyncio
+async def test_expired_epoch_ms_token_reports_not_logged_in(tmp_path, monkeypatch):
+    """Epoch MILLISECONDS is what the CLIs actually write; the ms/seconds
+    split in `_expiry_is_past` is the one property this check depends on,
+    and ISO-only cases stay green with it deleted."""
+    from backend.routes.providers import get_codex_status
+
+    (tmp_path / "auth.json").write_text('{"token":{"expiresAt":' + str(PAST_MS) + '}}')
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.delenv("NARRANEXUS_DEPLOYMENT_MODE", raising=False)
+
+    with patch("shutil.which", side_effect=lambda x: "/usr/local/bin/codex" if x == "codex" else None):
+        d = (await get_codex_status(_mock_request()))["data"]
+    assert d["logged_in"] is False and d["expired"] is True
+
+
+@pytest.mark.asyncio
+async def test_valid_epoch_ms_token_reports_logged_in(tmp_path, monkeypatch):
+    from backend.routes.providers import get_codex_status
+
+    (tmp_path / "auth.json").write_text('{"token":{"expiresAt":' + str(FUTURE_MS) + '}}')
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.delenv("NARRANEXUS_DEPLOYMENT_MODE", raising=False)
+
+    with patch("shutil.which", side_effect=lambda x: "/usr/local/bin/codex" if x == "codex" else None):
+        d = (await get_codex_status(_mock_request()))["data"]
+    assert d["logged_in"] is True and d["expired"] is False
+
+
 def test_expiry_is_past_helper():
     """Unit-cover the parser: epoch seconds / ms / ISO, past vs future,
     and fail-open on garbage."""

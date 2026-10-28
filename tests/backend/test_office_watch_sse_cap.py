@@ -80,3 +80,27 @@ def test_unregister_frees_a_slot(monkeypatch):
         assert not fresh.closed
 
     asyncio.run(run())
+
+
+def test_evicts_stalest_not_oldest_by_age(monkeypatch):
+    """Eviction must drop the LEAST-recently-active stream, not the oldest by
+    age — a healthy long-open preview (fullscreen keeps the column stream live)
+    must not lose its slot to a newer but idle one."""
+    monkeypatch.setattr(owp, "MAX_SSE_STREAMS_PER_USER", 2)
+    owp._active_streams.clear()
+
+    async def run():
+        s_old_but_active = _FakeSession()  # registered first (oldest by age)
+        s_new_but_idle = _FakeSession()
+        sid_old = await owp._register_sse_stream("A", s_old_but_active)
+        sid_new = await owp._register_sse_stream("A", s_new_but_idle)
+        # The old stream keeps receiving frames; the new one goes idle.
+        owp._active_streams[sid_old]["last_active"] = 1000.0
+        owp._active_streams[sid_new]["last_active"] = 1.0
+        # A third stream arrives → the STALEST (sid_new) is evicted.
+        s_third = _FakeSession()
+        await owp._register_sse_stream("A", s_third)
+        assert s_old_but_active.closed is False  # healthy, kept
+        assert s_new_but_idle.closed is True  # stalest, evicted
+
+    asyncio.run(run())

@@ -1,0 +1,20 @@
+{
+  "id": "builtin.llm_clients",
+  "version": "1.0.0",
+  "displayName": "Helper LLM clients",
+  "description": "anthropic / openai / cli protocol clients for the helper-LLM slot.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "llm_client": 0
+  },
+  "provides": {
+    "model.clients": [
+      "narranexus_plugins.llm_clients.contributions:CONTRIBUTIONS"
+    ]
+  },
+  "quality": "gold"
+}

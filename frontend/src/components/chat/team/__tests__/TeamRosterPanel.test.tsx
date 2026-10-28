@@ -96,6 +96,26 @@ describe('TeamRosterPanel', () => {
     expect(screen.getByText('2m00s')).toBeTruthy();
   });
 
+  test('an idle row whose last turn said nothing says so (2026-09-03)', () => {
+    // The transcript no longer carries a line for a silent team turn; this
+    // roster line is where "ran but said nothing" moved to.
+    renderPanel({ activity: [{ ...IDLE_WITH_RUN, last_turn_silent: true }, RUNNING] });
+    expect(screen.getByTestId('silent-a2').textContent).toBe('chat.team.roster.silentLastTurn');
+    expect(screen.queryByTestId('silent-a1')).toBeNull();
+  });
+
+  test('a queued member keeps the silent mark next to its queue label', () => {
+    renderPanel({
+      activity: [
+        { ...IDLE_WITH_RUN, status: 'queued', queued_count: 1, last_turn_silent: true },
+        RUNNING,
+      ],
+    });
+    const line = screen.getByTestId('silent-a2').textContent ?? '';
+    expect(line).toContain('chat.team.roster.silentLastTurn');
+    expect(line).toContain('chat.team.activity.queued');
+  });
+
   test('idle row shows last-run duration and recency', () => {
     renderPanel();
     expect(screen.getByText('chat.team.roster.lastRun(3m12s,6m48s)')).toBeTruthy();
@@ -150,16 +170,38 @@ describe('TeamRosterPanel', () => {
       ],
     });
 
-    // v2: the detail is a mini ProcessPanel fed by the run-observation
+    // v2: the detail is a member terminal card fed by the run-observation
     // channel; before the socket delivers, the card shows the honest
     // "starting up" fallback rather than pretending it knows more.
     expect(screen.getByTestId('member-panel-a1')).toBeTruthy();
     expect(screen.getByText('chat.execution.startingUp')).toBeTruthy();
-    // The column breathes: an open member widens the aside for the terminal.
-    expect(container.querySelector('aside')?.className).toContain('430px');
+    // Width belongs to the hosting drawer shell now — the panel itself no
+    // longer widens; the terminal works within the drawer's width.
+    expect(container.querySelector('aside')?.className).not.toContain('430px');
     // A running turn's process is not in the event log yet — it is written at
     // the end of the turn — so there is nothing to fetch.
     expect(getEventLogMock).not.toHaveBeenCalled();
+  });
+
+  test('offers "set lead" on an expanded non-lead member, wired to onSetLead', () => {
+    const onSetLead = vi.fn();
+    // a3 is idle-never-ran (no event-log fetch) and is NOT the lead (a1 is).
+    renderPanel({ expandedId: 'a3', onSetLead });
+    const btn = screen.getByTestId('set-lead-a3');
+    expect(btn.textContent).toContain('chat.team.setLead');
+    fireEvent.click(btn);
+    expect(onSetLead).toHaveBeenCalledWith('a3');
+  });
+
+  test('does not offer "set lead" on the current lead', () => {
+    const onSetLead = vi.fn();
+    renderPanel({ expandedId: 'a1', onSetLead });
+    expect(screen.queryByTestId('set-lead-a1')).toBeNull();
+  });
+
+  test('no "set lead" affordance at all when onSetLead is not provided', () => {
+    renderPanel({ expandedId: 'a3' });
+    expect(screen.queryByTestId('set-lead-a3')).toBeNull();
   });
 
   test('zero members renders the empty state', () => {

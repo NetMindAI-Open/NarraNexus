@@ -18,13 +18,13 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context.marketplace._skill_marketplace_impl.registry import (
+import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from narranexus.platform.marketplace._skill_marketplace_impl.registry import (
     LocalMarketplaceSource,
     RegistryService,
 )
-from xyz_agent_context.module.skill_module import SkillModule
+from narranexus_plugins.skill_module import SkillModule
 
 AGENT_ID = "agt_test"
 USER_ID = "usr_test"
@@ -32,7 +32,7 @@ USER_ID = "usr_test"
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_SECRETS_KEY", raising=False)
@@ -42,7 +42,7 @@ def workspace(tmp_path, monkeypatch):
     async def _noop_backup(**kwargs):
         return None
 
-    import xyz_agent_context.bundle.skill_backup as skill_backup
+    import narranexus.platform.bundle.skill_backup as skill_backup
 
     monkeypatch.setattr(skill_backup, "backup_after_api_install", _noop_backup)
     return tmp_path
@@ -73,7 +73,7 @@ def _registry(db_client, tmp_path):
 
 
 def _service(db_client, registry, monkeypatch):
-    import xyz_agent_context.marketplace.skill_marketplace_service as service_module
+    import narranexus.platform.marketplace.skill_marketplace_service as service_module
 
     monkeypatch.setattr(service_module, "get_deployment_mode", lambda: "cloud")
     service = service_module.SkillMarketplaceService(db_client=db_client)
@@ -142,10 +142,10 @@ async def test_install_defaults_installs_and_skips(db_client, workspace, tmp_pat
 
 @pytest.mark.asyncio
 async def test_install_defaults_registry_unreachable_degrades(db_client, workspace, monkeypatch):
-    import xyz_agent_context.marketplace.skill_marketplace_service as service_module
+    import narranexus.platform.marketplace.skill_marketplace_service as service_module
 
     monkeypatch.setattr(service_module, "get_deployment_mode", lambda: "local")
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.delenv("SKILL_MARKETPLACE_LOCAL_REGISTRY", raising=False)
     monkeypatch.setattr(settings, "skill_marketplace_local_registry", False)
@@ -171,7 +171,7 @@ async def _install_netmind_skill(db_client, tmp_path, monkeypatch):
     await registry.publish(
         _make_zip(tmp_path, "netmind-vision", requires_env=["NETMIND_API_KEY"]), "team"
     )
-    from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+    from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
     pipeline = InstallPipeline(AGENT_ID, USER_ID, db_client=db_client)
     await pipeline.install_from_marketplace(
@@ -250,7 +250,7 @@ async def test_declared_requires_suppresses_body_scan(db_client, workspace, tmp_
         zf.writestr("declared-skill/manifest.json", json.dumps({"id": "declared-skill", "version": "1.0.0"}))
     await registry.publish(zip_path, "team")
 
-    from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+    from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
     pipeline = InstallPipeline(AGENT_ID, USER_ID, db_client=db_client)
     await pipeline.install_from_marketplace(
@@ -266,7 +266,7 @@ async def test_declared_requires_suppresses_body_scan(db_client, workspace, tmp_
 
 @pytest.mark.asyncio
 async def test_platform_env_available_truthful(db_client, workspace):
-    from xyz_agent_context.module.skill_module.skill_module import platform_env_available
+    from narranexus_plugins.skill_module.skill_module import platform_env_available
 
     assert await platform_env_available(db_client, USER_ID) == set()
     await db_client.insert(

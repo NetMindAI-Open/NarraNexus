@@ -35,9 +35,9 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes.providers as providers_mod
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 USER = {"X-User-Id": "u1"}
 STAFF = {"X-User-Id": "u1", "X-Role": "staff"}
@@ -85,7 +85,7 @@ def _wire_real_service(monkeypatch, db_client):
     """Route → a REAL UserProviderService over the in-memory DB, with the
     route's post-write side effects (job rearm, circuit-breaker resume)
     stubbed out — they need the global runtime."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -98,7 +98,7 @@ def _wire_real_service(monkeypatch, db_client):
         return None
 
     monkeypatch.setattr(providers_mod, "_resume_agent_circuit_breakers", _noop_resume)
-    import xyz_agent_context.module.job_module.job_recovery as job_recovery_mod
+    import narranexus_plugins.job_module.job_recovery as job_recovery_mod
 
     monkeypatch.setattr(
         job_recovery_mod, "schedule_user_no_quota_rearm", lambda _uid: None
@@ -292,7 +292,7 @@ def _stub_add_service(monkeypatch):
     test can assert the loop was (not) entered. The route's post-write side
     effects (job rearm, circuit-breaker resume) are stubbed out — they need
     a real DB."""
-    from xyz_agent_context.schema.provider_schema import (
+    from narranexus.platform.schema.provider_schema import (
         AuthType,
         LLMConfig,
         ProviderConfig,
@@ -330,7 +330,7 @@ def _stub_add_service(monkeypatch):
         return None
 
     monkeypatch.setattr(providers_mod, "_resume_agent_circuit_breakers", _noop_resume)
-    import xyz_agent_context.module.job_module.job_recovery as job_recovery_mod
+    import narranexus_plugins.job_module.job_recovery as job_recovery_mod
 
     monkeypatch.setattr(
         job_recovery_mod, "schedule_user_no_quota_rearm", lambda _uid: None

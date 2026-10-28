@@ -13,7 +13,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletClient,
     WalletDenied,
     WalletMissing,

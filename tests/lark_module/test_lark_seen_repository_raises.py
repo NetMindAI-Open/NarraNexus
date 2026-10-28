@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.lark_seen_message_repository import (
+from narranexus.platform.repository.lark_seen_message_repository import (
     LarkSeenMessageRepository,
 )
 

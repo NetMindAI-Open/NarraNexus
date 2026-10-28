@@ -22,8 +22,8 @@ from pathlib import Path
 
 sys.path.insert(0, "src")
 
-from xyz_agent_context.settings import settings  # noqa: E402
-from xyz_agent_context.utils.db.db_factory import get_db_client  # noqa: E402
+from narranexus.platform.settings import settings  # noqa: E402
+from narranexus.platform.utils.db.db_factory import get_db_client  # noqa: E402
 
 
 def _check(cond: bool, label: str) -> None:
@@ -39,11 +39,11 @@ async def main() -> None:
     user_id = args.user_id
 
     db = await get_db_client()
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
     await auto_migrate(db._backend)
 
     # Ensure the user exists (provision attaches created_by=user_id).
-    from xyz_agent_context.repository.user_repository import UserRepository
+    from narranexus.platform.repository.user_repository import UserRepository
     urepo = UserRepository(db)
     if not await urepo.get_user(user_id):
         await urepo.add_user(user_id=user_id, user_type="local", display_name=user_id)
@@ -125,7 +125,7 @@ async def main() -> None:
     print(f"    job next_run_times: {[j['next_run_time'] for j in jobs]}")
 
     # 7. SkillModule round-trip (runtime consumes the files)
-    from xyz_agent_context.module.skill_module.skill_module import SkillModule
+    from narranexus_plugins.skill_module.skill_module import SkillModule
     sm = SkillModule(agent_id=agent_id, user_id=user_id, database_client=db)
     env = sm.get_all_skill_env_vars()
     _check(env.get("ARENA_API_KEY", "").startswith("arena_sk_"),

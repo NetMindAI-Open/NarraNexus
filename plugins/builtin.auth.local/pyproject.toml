@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-plugin-auth-local"
+version = "1.0.0"
+description = "Authentication provider of the desktop/local distribution: the X-User-Id header names the user (authProviders, distribution-only)."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+# The engine (narranexus) hosts this package; a distribution installs both.
+# Declared honestly: the contracts + SDK wheels are what this package imports
+# by CONTRACT. Being a builtin it also imports `narranexus.platform` public
+# modules under the repo-lockstep guarantee (docs/API_POLICY.md §1) — that is
+# an engine-internal coupling, not a resolvable dependency, and the
+# "plugins never import a private platform module" import-linter contract is
+# the enforced line.
+dependencies = ["narranexus-contracts", "narranexus-sdk"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus_plugins"]
+
+# The manifest ships inside the wheel: the engine reads it from the package
+# (narranexus.kernel.plugins.builtins), the source checkout is the fallback.
+[tool.hatch.build.targets.wheel.force-include]
+"narranexus-plugin.json" = "narranexus_plugins/auth_local/narranexus-plugin.json"

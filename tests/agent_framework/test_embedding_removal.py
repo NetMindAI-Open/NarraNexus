@@ -14,21 +14,21 @@ import pytest
 # ── 1. EmbeddingConfig must NOT be importable from api_config ────────────────
 
 def test_embedding_config_not_exported():
-    import xyz_agent_context.agent_framework.api_config as m
+    import narranexus.platform.agent_framework.api_config as m
     assert not hasattr(m, "EmbeddingConfig"), (
         "EmbeddingConfig should have been removed from api_config"
     )
 
 
 def test_embedding_config_proxy_not_exported():
-    import xyz_agent_context.agent_framework.api_config as m
+    import narranexus.platform.agent_framework.api_config as m
     assert not hasattr(m, "embedding_config"), (
         "embedding_config proxy should have been removed from api_config"
     )
 
 
 def test_get_current_embedding_config_not_exported():
-    import xyz_agent_context.agent_framework.api_config as m
+    import narranexus.platform.agent_framework.api_config as m
     assert not hasattr(m, "get_current_embedding_config"), (
         "get_current_embedding_config should have been removed from api_config"
     )
@@ -45,7 +45,7 @@ def test_set_user_config_has_no_embedding_arg():
     removed and must not come back.
     """
     import inspect
-    from xyz_agent_context.agent_framework.api_config import set_user_config, ClaudeConfig, OpenAIConfig
+    from narranexus.platform.agent_framework.api_config import set_user_config, ClaudeConfig, OpenAIConfig
 
     sig = inspect.signature(set_user_config)
     params = list(sig.parameters)
@@ -64,19 +64,19 @@ def test_set_user_config_has_no_embedding_arg():
 async def test_get_user_llm_configs_returns_2_tuple(db_client, monkeypatch):
     """get_user_llm_configs must return (ClaudeConfig, OpenAIConfig)."""
     import json as _json
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.api_config import (
         get_user_llm_configs,
         ClaudeConfig,
         OpenAIConfig,
     )
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
 
     # Patch db so the resolver finds the in-memory db.
     async def _fake_db():
         return db_client
     monkeypatch.setattr(db_factory, "get_db_client", _fake_db)
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: True
     )
 
     # Seed providers + slots.
@@ -121,7 +121,7 @@ async def test_get_user_llm_configs_returns_2_tuple(db_client, monkeypatch):
 # ── 4. _REQUIRED_SLOTS in provider_resolver does NOT include "embedding" ─────
 
 def test_required_slots_no_embedding():
-    from xyz_agent_context.agent_framework.providers import resolver as provider_resolver
+    from narranexus.platform.agent_framework.providers import resolver as provider_resolver
     assert "embedding" not in provider_resolver._REQUIRED_SLOTS, (
         "_REQUIRED_SLOTS must not contain 'embedding'"
     )
@@ -131,7 +131,8 @@ def test_required_slots_no_embedding():
 #    SLOT_REQUIRED_PROTOCOLS must not map it ──────────────────────────────────
 
 def test_slot_required_protocols_no_embedding():
-    from xyz_agent_context.schema.provider_schema import SLOT_REQUIRED_PROTOCOLS, SlotName
+    from narranexus.platform.agent_framework.providers.framework_binding import SLOT_REQUIRED_PROTOCOLS
+    from narranexus.platform.schema.provider_schema import SlotName
     assert not hasattr(SlotName, "EMBEDDING"), "SlotName.EMBEDDING must be removed"
     assert "embedding" not in {getattr(s, "value", s) for s in SLOT_REQUIRED_PROTOCOLS}, (
         "SLOT_REQUIRED_PROTOCOLS must not have an EMBEDDING entry"
@@ -141,7 +142,7 @@ def test_slot_required_protocols_no_embedding():
 # ── 6. provider_driver.resolver._REQUIRED_SLOTS has no "embedding" ───────────
 
 def test_slot_builders_no_embedding():
-    from xyz_agent_context.agent_framework.providers.driver.resolver import _REQUIRED_SLOTS
+    from narranexus.platform.agent_framework.providers.driver.resolver import _REQUIRED_SLOTS
     assert "embedding" not in _REQUIRED_SLOTS, (
         "_REQUIRED_SLOTS in provider_driver.resolver must not contain 'embedding'"
     )
@@ -155,12 +156,12 @@ async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch)
     """ProviderResolver.resolve returns (RuntimeLLMConfigs, source) — 2 items —
     and the RuntimeLLMConfigs carries no embedding slot."""
     from unittest.mock import AsyncMock, MagicMock
-    from xyz_agent_context.agent_framework.providers import driver as provider_driver
-    from xyz_agent_context.agent_framework.api_config import (
+    from narranexus.platform.agent_framework.providers import driver as provider_driver
+    from narranexus.platform.agent_framework.api_config import (
         ClaudeConfig, OpenAIConfig, RuntimeLLMConfigs,
     )
-    from xyz_agent_context.agent_framework.providers.resolver import ProviderResolver
-    from xyz_agent_context.schema.provider_schema import (
+    from narranexus.platform.agent_framework.providers.resolver import ProviderResolver
+    from narranexus.platform.schema.provider_schema import (
         AuthType, LLMConfig, ProviderConfig, ProviderProtocol, ProviderSource,
         SlotConfig,
     )
@@ -195,7 +196,7 @@ async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch)
     user_svc = MagicMock()
     user_svc.get_user_config = AsyncMock(return_value=complete_cfg)
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: True
     )
 
     resolver = ProviderResolver(user_svc)

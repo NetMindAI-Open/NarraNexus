@@ -32,7 +32,7 @@ from fastapi.testclient import TestClient
 
 import backend.routes.auth as auth_mod
 import backend.routes.dashboard._helpers as dash_mod
-from xyz_agent_context.repository.user_repository import UserRepository
+from narranexus.platform.repository.user_repository import UserRepository
 
 
 # An unquoted `trigger` used as an identifier: word-boundary `trigger` that is
@@ -159,7 +159,7 @@ def test_fetch_recent_events_survives_mysql(db_client, monkeypatch):
         return wrapped
 
     # fetch_recent_events imports get_db_client from db_factory at call time.
-    import xyz_agent_context.utils.db.db_factory as db_factory
+    import narranexus.platform.utils.db.db_factory as db_factory
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 
     _run(_seed_event(db_client, agent_id="ag_dash", trigger="job",

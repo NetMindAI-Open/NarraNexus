@@ -29,10 +29,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredentialManager,
 )
-from xyz_agent_context.module.lark_module import _lark_mcp_tools as tools
+from narranexus_plugins.lark_module import _lark_mcp_tools as tools
 
 from .test_lark_permission_advance import _make_cred, _seed, fake_db  # noqa: F401
 

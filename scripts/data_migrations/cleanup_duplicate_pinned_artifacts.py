@@ -90,7 +90,7 @@ async def _main() -> int:
     parser.add_argument("--apply", action="store_true", help="delete the older duplicates")
     args = parser.parse_args()
 
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
     summary = await cleanup(db, apply=args.apply)

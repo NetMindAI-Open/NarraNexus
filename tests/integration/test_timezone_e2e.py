@@ -36,15 +36,15 @@ from unittest.mock import AsyncMock, patch
 import json
 import pytest
 
-from xyz_agent_context.module.job_module._job_scheduling import (
+from narranexus.platform.utils.job_scheduling import (
     NextRunTuple,
     compute_next_run,
 )
-from xyz_agent_context.module.job_module.job_service import JobInstanceService
-from xyz_agent_context.module.job_module.job_trigger import JobTrigger
-from xyz_agent_context.module.job_module._job_response import job_to_llm_dict
-from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.schema.job_schema import JobStatus, JobType, TriggerConfig
+from narranexus_plugins.job_module.job_service import JobInstanceService
+from narranexus_plugins.job_module.job_trigger import JobTrigger
+from narranexus_plugins.job_module._job_response import job_to_llm_dict
+from narranexus.platform.repository import JobRepository
+from narranexus.platform.schema.job_schema import JobStatus, JobType, TriggerConfig
 
 
 # -----------------------------------------------------------------
@@ -265,9 +265,9 @@ async def test_S2_poller_query_finds_due_via_alpha(db_client):
 
 async def _drive_lifecycle(db_client, job_id: str, instance_id: str, status: JobStatus):
     """Invoke handle_job_execution_result with OpenAIAgentsSDK.llm_function mocked."""
-    from xyz_agent_context.schema.job_schema import JobExecutionResult
-    from xyz_agent_context.module.job_module._job_lifecycle import handle_job_execution_result
-    from xyz_agent_context.schema.hook_schema import (
+    from narranexus.platform.schema.job_schema import JobExecutionResult
+    from narranexus_plugins.job_module._job_lifecycle import handle_job_execution_result
+    from narranexus.platform.schema.hook_schema import (
         HookAfterExecutionParams,
         HookExecutionContext,
         HookIOData,
@@ -308,7 +308,7 @@ async def _drive_lifecycle(db_client, job_id: str, instance_id: str, status: Job
         return rows[0] if rows else None
 
     with patch(
-        "xyz_agent_context.agent_framework.adapters.openai_agents.OpenAIAgentsSDK.llm_function",
+        "narranexus.platform.agent_framework.adapters.openai_agents.OpenAIAgentsSDK.llm_function",
         new=AsyncMock(return_value=llm_return),
     ):
         return await handle_job_execution_result(params, repo, _fetch)
@@ -478,7 +478,7 @@ async def test_S4_llm_facing_shape_excludes_utc_fields(db_client):
 @pytest.mark.asyncio
 async def test_S4_api_route_returns_beta_not_alpha(db_client):
     """The /api/jobs route's row->JobResponse builder emits next_run_at (beta)."""
-    from xyz_agent_context.schema.api_schema import JobResponse
+    from narranexus.platform.schema.api_schema import JobResponse
     # JobResponse schema itself must not declare the UTC fields anymore
     fields = JobResponse.model_fields
     assert "next_run_time" not in fields

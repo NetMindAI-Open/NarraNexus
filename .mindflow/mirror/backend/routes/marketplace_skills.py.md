@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/marketplace_skills.py
-last_verified: 2026-07-22
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — publish token 先于 body 校验
+
+token 检查原来写在 handler 体内，multipart 先被校验：不带 token、不带 `file` 的请求拿到
+422 + 上传字段 schema。现在是 `publish_token_dependency`（`Depends`），在 body 校验之前执行，
+缺失/错误 token 一律 403，比较用 `hmac.compare_digest`。无 token 配置时的 cloud 403 /
+local 放行 + `reject_cross_origin` 语义不变，也一并挪进依赖项。注意 FastAPI 仍会先把
+multipart 读进来（表单解析早于依赖求值），挡住的是「校验错误泄露 schema」，不是读取本身。
+
+## 2026-10-28 — install 要求拥有目标 agent
+
+`POST /{skill_id}/install` 的 `agent_id` 来自 body，没有归属检查：会给别人的 agent 写
+`skill_installations` 行并重同步它的发现档案。现在 `assert_owned(request, agent_id)`。
 
 ## 2026-07-22 — 二轮 review 修复:CSRF 守卫下沉 + 版本详情
 

@@ -16,8 +16,8 @@ from __future__ import annotations
 import pytest
 from slack_sdk.errors import SlackApiError
 
-from xyz_agent_context.module.slack_module import slack_sdk_client as sdk_mod
-from xyz_agent_context.module.slack_module.slack_sdk_client import (
+from narranexus_plugins.slack_module import slack_sdk_client as sdk_mod
+from narranexus_plugins.slack_module.slack_sdk_client import (
     SlackSDKClient,
     SlackSDKError,
 )

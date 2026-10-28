@@ -10,38 +10,22 @@ import type { SessionInfoResp } from '@/types';
 import { api } from '@/lib/api';
 import { useExpanded } from './expandState';
 
+import { senderIdentity } from '@/lib/senderIdentity';
+
 interface Props {
   agentId: string;
   sessions: SessionInfoResp[];
 }
 
-/** Stable color assignment from a string (user_id or session_id). */
-function colorForSeed(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
-  }
-  const palette = [
-    'bg-[var(--color-green-500)]', 'bg-sky-500', 'bg-[var(--color-yellow-500)]', 'bg-rose-500',
-    'bg-violet-500', 'bg-fuchsia-500', 'bg-teal-500', 'bg-indigo-500',
-  ];
-  return palette[Math.abs(hash) % palette.length];
-}
-
-function initials(display: string): string {
-  const parts = display.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 function AvatarDot({ seed, display }: { seed: string; display: string }) {
+  const identity = senderIdentity(seed, display);
   return (
     <span
       title={display}
       data-testid={`session-avatar-${seed}`}
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white ${colorForSeed(seed)}`}
+      className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white ${identity.dot}`}
     >
-      {initials(display)}
+      {identity.initials}
     </span>
   );
 }
@@ -120,7 +104,7 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-center gap-2 py-0.5 text-left hover:bg-[var(--bg-tertiary)] rounded"
+        className="flex w-full items-center gap-2 py-0.5 text-left hover:bg-[var(--nm-paper-warm)] rounded"
         aria-expanded={expanded}
       >
         <AvatarDot seed={session.user_display} display={session.user_display} />
@@ -136,7 +120,7 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
       {expanded && (
         <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1">
           {loading && <div className="text-[var(--text-secondary)]">{t('dashboard.common.loading')}</div>}
-          {err && <div className="text-[var(--color-red-500)]">{t('dashboard.common.failed')}: {err}</div>}
+          {err && <div className="text-[var(--color-error)]">{t('dashboard.common.failed')}: {err}</div>}
           {detail !== null && (
             <>
               <div className="text-[var(--text-secondary)]">

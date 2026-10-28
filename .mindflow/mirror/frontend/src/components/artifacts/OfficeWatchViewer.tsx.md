@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/artifacts/OfficeWatchViewer.tsx
-last_verified: 2026-07-13
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
+
+open() 失败不再是死路:新增 `retryNonce` + 错误块的 Retry 按钮(bump nonce→重跑 open effect),瞬时 watch 失败(还在起/重启中)用户可自愈。i18n `officeWatch.retry` 补齐 10 语言。
 
 # OfficeWatchViewer.tsx — office artifact 的实时渲染器
 
@@ -59,3 +63,27 @@ officecli 的 per-file resident 按**原始 (cwd,路径字符串)** 做键——
 
 2026-07-13 晚:桌面从"暂不支持"占位升级为经 `officewatch://` 自定义协议渲染(轮询重载版)。
 
+
+## 2026-08-19 — T1 直改浮条(spec B §3.3)
+
+选区来自 shim 镜像(officewatch-selection 消息,parseSelectionMessage
+防御解析);操作=改文字(单选,get 预填)/B/I/颜色/删除,经
+officeWatchApi.sendBatch 走 proxy POST 白名单,成功后 commitEdit
+落提交点;预览刷新骑 watch 自己的 SSE,**不重载 iframe**。~$ lock
+(version 轮询带回)时浮条只显示暂停提示。
+**坑:POST 永远用 postBaseRef(原始 http open URL)**,不能用桌面
+officewatch:// 变体;DMG 上 https://tauri.localhost→http://localhost
+的 fetch 可能被 WKWebView 混合内容拦——桌面路径待手动验证,拦了则
+编辑静默不可用(选区消息仍到,op 失败提示),IPC 化是后续项。
+
+## 2026-08-19(二)— T2 按钮
+
+单选分派:整页 slide→上移/下移(move,1 基→0 基换算,index=N-2/N);
+单元格→+行(index=行号,插当前行后)/+列(追加);图片→替换(uploadAsset
+落 entry 同目录取绝对路径→set src);编辑框里 '=' 开头且是单元格→
+formula prop 而非 text。全部走同一 runEdit(batch→commit)管线。
+
+## 2026-08-20 — 编辑走 authed 端点,postBaseRef 退役(#334 I14)
+
+原「POST 永远用 http open URL」的坑随之消灭——编辑请求打同源后端,
+DMG 混合内容风险不复存在。

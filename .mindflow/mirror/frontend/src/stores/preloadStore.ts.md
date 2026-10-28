@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/stores/preloadStore.ts
-last_verified: 2026-07-23
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 成功的 silent 刷新会清掉上一次的错误
+
+`loadDomain` 的 silent 分支原本**从不碰 `errorKey`**（只有非 silent 分支在开头
+`set({ error: null })`）。于是这条链会卡住：
+
+1. 新 agent 没有 AwarenessModule instance，`GET /awareness` 合法地返回
+   `success:false` + "Awareness data not found"，非 silent 首载把它存进
+   `awarenessError`；
+2. 创建工作室**写入** awareness，然后 `refreshAwareness(agentId, true)`；
+3. silent 分支写了新内容却留着旧 error，而 [[AwarenessPanel.tsx]] 是
+   **error 优先于内容**渲染的；
+4. 于是面板在已经拿到文本的情况下继续显示「not found」，只有整页刷新（重跑
+   非 silent 路径）才好。
+
+现在：**成功即让上一次失败作废**，silent 也一样。注意即使内容未变也要清 —— 那条
+「未变就跳过 set」的优化会把清错误一起跳过。
+
+silent **失败**仍然什么都不做（不清内容、不立错误横幅）：silent 的语义是「别惊动
+UI」，一次抖动的轮询不该把用户正在读的内容抹掉。
+
+回归测试：`__tests__/preloadStore.silentClearsError.test.ts`（撤掉修复会红两条）。
 
 ## 2026-07-23 — identity switch clears per-agent domains synchronously
 

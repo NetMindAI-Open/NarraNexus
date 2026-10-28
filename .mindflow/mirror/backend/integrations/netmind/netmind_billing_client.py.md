@@ -1,8 +1,72 @@
 ---
 code_file: backend/integrations/netmind/netmind_billing_client.py
-last_verified: 2026-07-30
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19（当天第二条）— cancel / reactivate 也发 channel；reactivate 会**真的**改坏一次性订阅
+
+**先说被抓到的矛盾**：本文件 `_channel_field` 的注释说「不传 = 上游按 power 账号
+处理」，而 [[settings]] 那边说「取消/恢复由上游按订阅归属路由」。**这两句不可能同时
+为真** —— 是评审读出来的，不是我发现的。
+
+处置不是二选一地猜，而是取那个**在两种假设下都不会更糟**的做法：两个端点现在也带
+`channel`。
+- 若上游按 channel 定位：不传 = **nexus 上新建的卡订阅根本取消不掉**，用户点取消
+  收到「No active Pro subscription.」，下个月照扣。
+- 若上游按订阅归属路由：多一个字段是惰性的。
+
+两个端点都接受该字段（2026-08-19 实测各回 200）。settings.py 里那句无实测背书的路由断言已删。
+
+**同日实测的第二件事，比预想的严重**：`reactivate` 对一次性订阅**不是空操作** ——
+返回 200 并**真的把 `auto_renew` 翻成 true**，在一个不可能自动续费的商品上。
+（`cancel` 则是谎报成功的空操作，早先已记。）测完账号已还原。
+
+推论：[[NetmindAccountPanel]] 的 `resolveState` 把 `payment_method` 放在 `auto_renew`
+**之前**判，这个顺序因此不只是风格 —— 状态被这样弄脏之后，顺序反过来会把一次性订阅
+显示成「Pro 生效中 · 取消订阅」。UI 本就不对一次性调 reactivate，顺序是那道保险之外
+的第二道。
+
+
+## 2026-08-18 — nexus 账号：payment_method / channel / months / fx_rate
+
+接入独立的 nexus Stripe 账号（支持支付宝 + 微信）。四点判断，都不是照抄文档：
+
+- **币种是 payment_method 的函数，不是参数**。`PAYMENT_METHOD_CURRENCY`
+  （default→USD / alipay→USD / wechat→CNY）在 client 里派生，`recharge()`
+  **删掉了 `currency` 形参**。理由：上游会校验这一对、错配返回 400，所以"能同时
+  传两个"这个自由度唯一的用途就是让调用方毁掉自己的付款。放在 client 而不是路由，
+  是因为上游契约建模在这一层，任何调用方都绕不过去。
+- **`amount` 永远是 USD**，即使微信按人民币扣款。人民币金额由上游按它自己的实时
+  汇率算，经 `charge_amount` / `fx_rate` 回传；**我们绝不自己算** —— 自己算出来的
+  汇率和真正扣款用的那个不是同一个，两个数一旦不一致就是客诉。
+- **`channel` 走 `_channel_field()`，沿用 `_redirect_fields` 的"省略而非 null"
+  纪律**：不传 = 上游按原来的共享 "power" 账号处理，也正是没传的调用方应该继续
+  得到的行为。值从部署配置来（[[settings]] 的 `billing_channel`），**绝不接受
+  客户端输入** —— 「哪个商户收款」和「付款后跳去哪」是同一类攻击面。
+- **`subscribe()` 上挂着两个不同的商品**。`payment_method="stripe"` 是真正的
+  Stripe 订阅（自动续、可取消/恢复）；`alipay` / `wechat` 根本付不了 Stripe 订阅，
+  所以是**一次性买 N 个月**，到期自然结束、买第二次会叠加延长。`months` 只属于
+  后者，卡订阅不带这个字段 —— "买 6 个月的卡订阅"不是上游存在的状态。
+
+**⚠ 作废下方 2026-07-30 条目里的一句**："subscribe 无字段时连 body 都不发
+（`json_body=None`）"。现在 `payment_method` 恒定在 body 里，所以 subscribe
+**总是**发 body。那条笔记真正保护的不变量（**未解析出的跳转目标是省略、不是
+null**）没有变，测试也改成钉这一条了
+（`test_subscribe_omits_redirect_urls_when_unresolved`）。
+
+**微信两条轨的 checkout 主机已实测**（评审指出这是记录里唯一的空白，因为
+`_validate_checkout_url` 是硬拦 `*.stripe.com`，猜错就是微信付款 100% 失败）：
+一次性订阅与充值都返回 `checkout.stripe.com`，白名单放行，无需扩展。
+
+顺带一个只有实测才会发现的差异：**同一个 `charge_amount` 字段在两个端点精度不同**
+—— 一次性订阅回 `"128.31"`（2 位），充值回 `"67.531480"`（6 位）。所以前端的取整
+不是针对某一个接口的补丁，是这个字段本身没有稳定精度。
+
+`fx_rate()` 是新方法（`GET /v1/finance/recharge/fx-rate`）：给微信付款者在**掏钱
+之前**看到"$10 ≈ ¥73"。**刻意不做缓存** —— 上游明确说它和真正扣款是同一个汇率
+口径，缓存等于给一个即将扣款的数字造第二个会悄悄跑偏的来源。`amount` 可选，
+不传时**整个 query 参数省略**而不是发空值（那是另一个请求）。
 
 ## 2026-07-30 — subscribe/recharge 接受 success_url / cancel_url
 

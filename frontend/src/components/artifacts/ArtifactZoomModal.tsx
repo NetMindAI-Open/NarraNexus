@@ -153,7 +153,7 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
               <button
                 onClick={zoomOut}
                 disabled={zoom <= MIN_ZOOM}
-                className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                 title={t('artifacts.zoomModal.zoomOut')}
                 aria-label={t('artifacts.zoomModal.zoomOutAria')}
               >
@@ -170,7 +170,7 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
               <button
                 onClick={zoomIn}
                 disabled={zoom >= MAX_ZOOM}
-                className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                 title={t('artifacts.zoomModal.zoomIn')}
                 aria-label={t('artifacts.zoomModal.zoomInAria')}
               >
@@ -180,7 +180,7 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
             <ArtifactDownloadMenu artifact={artifact} />
             <button
               onClick={onClose}
-              className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
+              className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-colors"
               title={t('artifacts.zoomModal.close')}
               aria-label={t('artifacts.zoomModal.closeAria')}
             >

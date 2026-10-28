@@ -1,0 +1,47 @@
+{
+  "id": "builtin.channels.lark",
+  "version": "1.0.0",
+  "displayName": "Lark",
+  "description": "Builtin module LarkModule (IM channel: trigger + module + tools). The lark-oapi SDK installs on demand on a slim build.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "backend": {
+    "pip": [
+      "lark-oapi>=1.4.0,<2.0.0"
+    ],
+    "imports": [
+      "lark_oapi"
+    ]
+  },
+  "install": {
+    "deps": "on_demand"
+  },
+  "api": {
+    "module": 0,
+    "trigger": 0,
+    "route": 0,
+    "hook": 0,
+    "channel": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.lark_module.contribution:MODULES"
+    ],
+    "ingress.triggers": [
+      "narranexus_plugins.lark_module.contribution:TRIGGERS"
+    ],
+    "backend.routes": [
+      "narranexus_plugins.lark_module.routes:ROUTES"
+    ],
+    "backend.hooks": [
+      "narranexus_plugins.lark_module.plugin_hooks:HOOKS"
+    ],
+    "ingress.channels": [
+      "narranexus_plugins.lark_module.descriptor:CHANNEL"
+    ]
+  },
+  "quality": "gold"
+}

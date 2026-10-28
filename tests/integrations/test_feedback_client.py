@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.integrations import feedback_client as fc
+from narranexus.platform.integrations import feedback_client as fc
 
 
 class StubResponse:

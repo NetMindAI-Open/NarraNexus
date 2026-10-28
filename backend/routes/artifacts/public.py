@@ -29,11 +29,11 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from xyz_agent_context.artifact import ArtifactError, ArtifactService
-from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.artifact import ArtifactError, ArtifactService, inject_edit_bridge
+from narranexus.platform.settings import settings
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 from backend.routes.artifacts._token import TokenError, verify
 
@@ -219,4 +219,33 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         csp = "default-src 'none'"
 
     headers = {**SAFE_HEADERS, "Content-Security-Policy": csp}
+
+    # Per-element edit bridge (spec A §3.3): the ENTRY html only, and only
+    # when the viewer asked for it. Assets and non-html kinds are never
+    # touched — the bridge is a viewer affordance, not part of the artifact.
+    if (
+        resolved.is_entry
+        and resolved.kind == "text/html"
+        and request.query_params.get("edit_bridge") == "1"
+    ):
+        try:
+            with open(resolved.path, "rb") as f:
+                raw = f.read()
+        except OSError as e:
+            raise HTTPException(status_code=410, detail=f"entry unreadable: {e}")
+        try:
+            # STRICT decode (review #334 I4): errors="replace" would swap
+            # every non-UTF-8 byte for U+FFFD, and the edit pipeline PUTs the
+            # WHOLE decoded text back — one word edited, the entire file's
+            # encoding silently destroyed, and the optimistic lock can't see
+            # it (it hashes the bytes the frontend fetched). A document we
+            # cannot decode losslessly gets NO edit capability: fall through
+            # to the plain FileResponse — viewable, byte-identical, uneditable
+            # (same degrade discipline as the md guard).
+            html = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            html = None
+        if html is not None:
+            return HTMLResponse(content=inject_edit_bridge(html), headers=headers)
+
     return FileResponse(path=resolved.path, media_type=resolved.media_type, headers=headers)

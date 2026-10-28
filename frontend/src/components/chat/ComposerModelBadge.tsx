@@ -7,32 +7,41 @@
  * shows the active agent's effective model and lets you switch it inline —
  * picking a model here writes a per-agent override (PUT
  * /api/agents/{id}/llm-config/agent). Framework + reasoning + helper live in
- * the detailed AgentLlmConfigPanel, opened from the header (the ⚙ button left
- * of the cost chip) — not from here. ``reloadKey`` bumps when that panel saves
- * so this chip re-reads the model. When the owner has no agent slot at all it
- * falls back to a "set model" link into Settings.
+ * the detailed AgentLlmConfigPanel, reachable from the chat header's Model &
+ * framework button, the sidebar agent row's ⋯ menu and the agent's Profile
+ * page. `reloadKey` is bumped by the host after that panel saves, and the chip
+ * also re-reads whenever the agent list's model/framework projection for this
+ * agent changes (a save from ANOTHER door — the sidebar ⋯ menu, the profile
+ * page — refreshes that list), so it never keeps showing a replaced model. When the owner has no agent
+ * slot at all it falls back to a "set model" link into Settings.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useConfigStore } from '@/stores/configStore';
 import { cn } from '@/lib/utils';
 import {
   getModelsForSlot,
   prettifyModel,
-  type ProviderSummary,
 } from '@/lib/agentFramework';
 import type { AgentSlotEffective } from '@/types';
 
 interface Props {
   agentId: string;
-  /** Bumped by the header panel on save so the chip re-reads the model. */
+  /** Bump to force a re-read (the host's AgentLlmConfigPanel saved). */
   reloadKey?: number;
 }
 
-export function ComposerModelBadge({ agentId, reloadKey }: Props) {
+export function ComposerModelBadge({ agentId, reloadKey = 0 }: Props) {
   const { t } = useTranslation();
+  // This agent's model/framework as the agent list last reported it — a
+  // string so an unrelated list refresh does not re-trigger the load.
+  const listedIdentity = useConfigStore((s) => {
+    const listed = s.agents.find((a) => a.agent_id === agentId);
+    return listed ? `${listed.agent_framework ?? ''}|${listed.model ?? ''}` : '';
+  });
   const navigate = useNavigate();
   const [eff, setEff] = useState<AgentSlotEffective | null>(null);
   const [inheriting, setInheriting] = useState(true);
@@ -54,7 +63,7 @@ export function ComposerModelBadge({ agentId, reloadKey }: Props) {
       ]);
       const slot = cfgRes?.data?.slots?.agent;
       const effective = slot?.effective ?? null;
-      const providers = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
+      const providers = (provRes?.data?.providers ?? {});
       const prov = effective?.provider_id ? providers[effective.provider_id] : undefined;
       setEff(effective);
       setInheriting(slot?.inheriting !== false);
@@ -69,8 +78,7 @@ export function ComposerModelBadge({ agentId, reloadKey }: Props) {
   useEffect(() => {
     setLoaded(false);
     void load();
-    // reloadKey: re-read after the header panel saves a change.
-  }, [load, reloadKey]);
+  }, [load, reloadKey, listedIdentity]);
 
   useEffect(() => {
     if (!open) return;

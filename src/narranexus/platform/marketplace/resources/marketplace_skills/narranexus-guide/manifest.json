@@ -1,0 +1,14 @@
+{
+  "id": "narranexus-guide",
+  "name": "NarraNexus Guide",
+  "version": "1.0.0",
+  "description": "The complete NarraNexus user guide: what the product can do, how every major feature works, and copy-paste example prompts. Installed on the onboarding guide agent so it can teach new users.",
+  "author": {"name": "NarraNexus Team"},
+  "license": "Apache-2.0",
+  "entry": "SKILL.md",
+  "capabilities": [],
+  "tags": ["guide", "onboarding", "help", "documentation"],
+  "category": "guide",
+  "dependencies": {},
+  "default": false
+}

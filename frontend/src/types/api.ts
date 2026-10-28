@@ -8,10 +8,14 @@ import type { BusAttachment } from './messages';
 export interface ApiResponse {
   success: boolean;
   error?: string;
+  // Some backend envelopes carry a human-readable message alongside a machine
+  // error code (e.g. lark unbind: error="no_credential", message="No Lark bot
+  // bound to this agent."). Prefer `message` for display when present.
+  message?: string;
 }
 
 // Job types
-export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'cooling' | 'blocked' | 'blocked_failed' | 'completed' | 'failed' | 'cancelled';
+export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'paused_spend_cap' | 'cooling' | 'blocked' | 'blocked_failed' | 'completed' | 'failed' | 'cancelled';
 export type JobType = 'one_off' | 'scheduled' | 'ongoing';
 
 // Mirrors backend TriggerConfig (schema/job_schema.py); the list endpoint
@@ -22,6 +26,8 @@ export interface TriggerConfig {
   cron?: string;               // cron expression, e.g. "0 8 * * *"
   interval_seconds?: number;
   timezone?: string;           // IANA name, e.g. "Asia/Shanghai"
+  end_at?: string;             // scheduled jobs: naive local ISO horizon —
+                               // the platform completes the job past this
   end_condition?: string;      // ongoing jobs
   max_iterations?: number;     // ongoing jobs
   [key: string]: unknown;
@@ -122,7 +128,9 @@ export interface BusFailuresResponse extends ApiResponse {
 }
 
 // Real-time-layer Agent circuit-breaker status (agents_circuit_breaker.py).
-export type CircuitBreakerStatus = 'active' | 'cooling' | 'paused';
+// 'probing' (GitHub #117 half-open): exactly one turn is in flight as a
+// health-check probe after a PAUSED breaker's delay elapses.
+export type CircuitBreakerStatus = 'active' | 'cooling' | 'paused' | 'probing';
 
 export interface AgentCircuitBreakerResponse extends ApiResponse {
   agent_id: string;
@@ -153,6 +161,18 @@ export interface AwarenessResponse extends ApiResponse {
   awareness?: string;
   create_time?: string;
   update_time?: string;
+}
+
+/** Response of POST /api/runs/{run_id}/cancel. */
+export interface CancelRunResponse extends ApiResponse {
+  run_id: string;
+  /** The run's state at the moment the request was recorded. */
+  state: string;
+  /** True when the run had already finished — nothing was flagged. */
+  already_settled: boolean;
+  /** How many runs the stop was applied to, this one included. >1 means the
+   *  run had caused others and the whole trigger tree was stopped. */
+  cascaded?: number;
 }
 
 // Clear history types
@@ -227,6 +247,7 @@ export interface SimpleChatMessage {
   working_source?: string;  // "chat" | "job" | "lark" | etc.
   message_type?: string;    // "chat" (default) | "activity"
   event_id?: string;        // Associated Event ID (for loading event_log on demand)
+  bootstrap?: boolean;      // The seeded first-run greeting row (dedups the client's folded copy)
   attachments?: import('./messages').Attachment[];  // User uploads attached to this message
 }
 
@@ -253,6 +274,14 @@ export interface EventLogTimelineEntry {
   tool_input?: Record<string, unknown>;
   tool_output?: string;
   reply_via?: string;
+  /**
+   * `thinking` entries only: this block is NexusPower's own narration rather
+   * than provider chain-of-thought, so it replays at the PROGRESS tier. The
+   * backend already resolved the tier (a mixed block reports false), so this
+   * is a plain bool here while the live frame carries the subset text.
+   * Absent on rows persisted before the field existed → plain thinking.
+   */
+  monologue?: boolean;
 }
 
 // Mirrors backend EventLogMeta — run-level header for the activity card:
@@ -358,6 +387,13 @@ export interface ActiveRunInfo {
   current_stage?: string;
 }
 
+/** One channel an owned agent is bound to. `active` false = configured but
+ *  switched off (the credential's enable switch is 0). */
+export interface BoundChannel {
+  channel: string;
+  active: boolean;
+}
+
 export interface AgentInfo {
   agent_id: string;
   name?: string;
@@ -366,6 +402,21 @@ export interface AgentInfo {
   created_at?: string;
   is_public?: boolean;
   created_by?: string;
+  /**
+   * Effective agent-slot runtime identity, resolved server-side through the
+   * same overlay the runtime dispatches on (a rebinding per-agent override,
+   * else the owner's default, else the platform default). Present for the
+   * viewer's OWN agents only; absent for someone else's public agent, and
+   * the UI renders absent as '—' rather than inventing a brand.
+   */
+  agent_framework?: string;
+  model?: string;
+  /**
+   * Channels bound to this agent, each with its on/off state. Always [] for a
+   * public agent owned by someone else — another user's integrations are not
+   * the viewer's business.
+   */
+  bound_channels: BoundChannel[];
   bootstrap_active?: boolean;
   /** Per-agent first-run greeting (Arena etc.); falls back to the generic
    *  constant when absent. Must match the DB-persisted greeting so the
@@ -400,6 +451,10 @@ export interface NetmindLoginResponse extends ApiResponse {
   token?: string;        // our self-issued JWT
   role?: string;
   is_new_user?: boolean;
+  // Whether the deployment auto-provisions the onboarding guide agent —
+  // gates the "your first agent is already here" coachmark so the server's
+  // kill-switch silences the UI too.
+  guide_agent_provisioning?: boolean;
   display_name?: string;
   email?: string;
 }
@@ -426,11 +481,22 @@ export type QuotaMeResponse =
 
 export interface CreateUserResponse extends ApiResponse {
   user_id?: string;
+  // See NetmindLoginResponse.guide_agent_provisioning.
+  guide_agent_provisioning?: boolean;
 }
 
 export interface AgentListResponse extends ApiResponse {
   agents: AgentInfo[];
   count: number;
+}
+
+/** GET /api/auth/session — "is my session still alive, and until when?".
+ *  `expires_at` / `issued_at` are epoch SECONDS, null in local mode where
+ *  identity is a header and there is nothing to expire. */
+export interface SessionResponse {
+  user_id: string;
+  expires_at: number | null;
+  issued_at: number | null;
 }
 
 export interface UpdateTimezoneResponse extends ApiResponse {
@@ -443,6 +509,9 @@ export interface OnboardingProgress {
   first_agent_created: boolean;
   template_applied: boolean;
   dismissed: boolean;
+  /** The one-time first-run flow (WelcomePage) has been seen — finished OR
+   *  skipped. Server-side so another browser/machine doesn't replay it. */
+  landing_completed: boolean;
 }
 
 export interface OnboardingResponse extends ApiResponse {
@@ -460,6 +529,22 @@ export interface UpdateAgentRequest {
 
 export interface UpdateAgentResponse extends ApiResponse {
   agent?: AgentInfo;
+  /**
+   * agent_id of another agent of the same owner that already answers to the
+   * name just applied. NOT an error — handing a name from one agent to another
+   * is something owners do deliberately, so the rename IS applied; doing it
+   * silently is what let two agents answer to one name (Shenzhen P1).
+   * Optional and nullable: older backends omit it entirely.
+   */
+  name_clash_with?: string | null;
+  /**
+   * Did this agent's identity memory follow the rename? `null` when the call
+   * had nothing to do about it (renamed nothing, found nothing stale). `false`
+   * means the name IS stored but the memory was not corrected — the exact state
+   * where the agent keeps introducing itself by the old name, so the UI must
+   * not report a plain success.
+   */
+  identity_record_updated?: boolean | null;
 }
 
 export interface DeleteAgentResponse extends ApiResponse {
@@ -484,6 +569,8 @@ export interface FileInfo {
 export interface FileListResponse extends ApiResponse {
   tree: FileInfo[];
   workspace_path: string;
+  /** True when the backend's node/depth cap left visible entries out. */
+  truncated?: boolean;
 }
 
 export interface FileUploadResponse extends ApiResponse {
@@ -625,8 +712,8 @@ export type AgentKind =
   | 'A2A'
   | 'CALLBACK'
   | 'SKILL_STUDY'
-  | 'MATRIX'
-  | 'LARK';
+  // an IM channel session — the channel's working source upper-cased ('LARK', 'MATRIX', a plugin's 'ACME_CHAT')
+  | Uppercase<string>;
 
 export interface MessageBusDetails {
   src_channel?: string | null;
@@ -650,7 +737,7 @@ export interface JobProgress {
   estimated_pct?: number | null;
 }
 
-export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed' | 'cooling' | 'paused_no_quota' | 'blocked_failed';
+export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed' | 'cooling' | 'paused_no_quota' | 'blocked_failed' | 'paused_spend_cap';
 
 export interface SessionInfoResp {
   session_id: string;
@@ -699,6 +786,10 @@ export interface QueueCounts {
   blocked: number;
   paused: number;
   failed: number;
+  cooling: number;
+  paused_no_quota: number;
+  blocked_failed: number;
+  paused_spend_cap: number;
   total: number;
 }
 
@@ -803,6 +894,10 @@ export interface DashboardResponse extends ApiResponse {
 }
 
 // Lark / Feishu Integration types
+//
+// The credential views below are the generic channel store's public half
+// (`/api/channels/<channel>/credential`): identity fields plus `enabled`;
+// secrets never leave the server.
 export interface LarkCredentialData {
   agent_id: string;
   app_id: string;
@@ -811,12 +906,9 @@ export interface LarkCredentialData {
   owner_open_id: string;
   owner_name: string;
   auth_status: string;
-  is_active: boolean;
+  enabled: boolean;
 }
 
-export interface LarkCredentialResponse extends ApiResponse {
-  data: LarkCredentialData | null;
-}
 
 /**
  * Structured Lark/Feishu bind failure — translator-rendered.
@@ -892,13 +984,10 @@ export interface SlackCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
-export interface SlackCredentialResponse extends ApiResponse {
-  data: SlackCredentialData | null;
-}
 
 export interface SlackBindResponse extends ApiResponse {
   data?: {
@@ -932,13 +1021,10 @@ export interface TelegramCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
+  /** Why the platform switched the binding off (revoked token, competing poller); "" while enabled. */
+  disabled_reason?: string;
 }
 
-export interface TelegramCredentialResponse extends ApiResponse {
-  data: TelegramCredentialData | null;
-}
 
 export interface NarramessengerCredentialData {
   agent_id: string;
@@ -952,13 +1038,10 @@ export interface NarramessengerCredentialData {
   owner_name: string;
   connection_mode: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
-export interface NarramessengerCredentialResponse extends ApiResponse {
-  data: NarramessengerCredentialData | null;
-}
 
 export interface NarramessengerBindResponse extends ApiResponse {
   data?: {
@@ -993,13 +1076,10 @@ export interface WeChatCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
-export interface WeChatCredentialResponse extends ApiResponse {
-  data: WeChatCredentialData | null;
-}
 
 // /qrcode/start → the login QR. `qr_url` is a WeChat URL the user scans;
 // `qrcode` is the opaque handle passed back to /qrcode/poll. `base_url` is
@@ -1039,13 +1119,10 @@ export interface DiscordCredentialData {
   owner_user_id: string;
   owner_name: string;
   enabled: boolean;
-  created_at: string | null;
-  updated_at: string | null;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
 }
 
-export interface DiscordCredentialResponse extends ApiResponse {
-  data: DiscordCredentialData | null;
-}
 
 export interface DiscordBindResponse extends ApiResponse {
   data?: {
@@ -1083,6 +1160,11 @@ export interface SubscriptionPlan {
   quota_limits: { rpm?: number };
   features: { support?: boolean; member_price?: boolean };
   monthly_grant_usd: number;
+  // What a month COSTS, as opposed to monthly_grant_usd (what it gives you).
+  // They happen to be equal today; the one-time purchase total must be built
+  // from the price, because a change to either would otherwise silently
+  // mis-price a 12-month checkout. Nullable upstream on the free plan.
+  usd_monthly_price?: number | null;
   prices: SubscriptionPlanPrice[];
 }
 
@@ -1092,6 +1174,21 @@ export interface SubscriptionStatus {
   current_period_start: number; // Unix seconds
   current_period_end: number; // Unix seconds
   auto_renew: boolean;
+  // Which product this subscription actually is. Load-bearing, not decorative:
+  // a one-time (Alipay/WeChat) purchase never renews, so `auto_renew` is false
+  // for its whole life — the exact tuple a CANCELLED card subscription sits in.
+  // Every other field reads identically in the two states, so this is what the
+  // panel branches on — and the two need opposite actions (resume auto-renew
+  // vs buy more months).
+  //
+  // Optional because every subscription created before the nexus account is a
+  // card one and predates the field; absent therefore means "card", which is
+  // what the pre-existing reading already assumed — and what keeps the
+  // branching correct whether upstream spells the card case "stripe" or omits
+  // it entirely. Only the one-time shape was measured (dev 2026-08-19, a live
+  // Alipay purchase); the card case is inferred, which is why the fallback
+  // rather than an equality test is what the code relies on.
+  payment_method?: SubscribePaymentMethod;
 }
 
 // GET /api/billing/subscription -> data. Plan fields are flat at top level;
@@ -1112,10 +1209,19 @@ export interface PlanListResponse extends ApiResponse {
   data?: PlanList;
 }
 
+// Which Pro product to start. `stripe` is a card subscription that renews
+// itself; `alipay` / `wechat` cannot pay a Stripe subscription at all and are
+// therefore a ONE-TIME purchase of N months that ends when the period does.
+export type SubscribePaymentMethod = 'stripe' | 'alipay' | 'wechat';
+
 // POST /api/billing/subscribe -> Stripe checkout to redirect the user to.
 export interface SubscribeCheckout {
   session_id: string;
   checkout_url: string;
+  // Only on a CNY (WeChat) one-time purchase; see RechargeCheckout.
+  charge_currency?: string;
+  charge_amount?: string;
+  fx_rate?: string | null;
 }
 
 export interface SubscribeResponse extends ApiResponse {
@@ -1188,12 +1294,45 @@ export interface RecordsResponse extends ApiResponse {
   has_next?: boolean;
 }
 
+// Which rail the payer picked. `default` is the card page (Stripe shows Alipay
+// alongside the card form there too); the explicit values force one rail.
+// WeChat is the only one that settles in a foreign currency — see FxQuote.
+export type RechargePaymentMethod = 'default' | 'alipay' | 'wechat';
+
 // POST /api/billing/recharge -> hosted Stripe checkout for a top-up (module E).
 export interface RechargeCheckout {
   recharge_id?: string;
   session_id: string;
   checkout_url: string;
   status?: string; // pending at creation
+  // Present only when the charge is not in USD (WeChat). `charge_amount` is
+  // what the payer's bank actually takes; the credit they receive is still the
+  // USD `amount` they asked for.
+  charge_currency?: string;
+  charge_amount?: string;
+  fx_rate?: string | null;
+}
+
+// GET /api/billing/fx-rate -> what a CNY charge would cost right now.
+//
+// Every field is a STRING (upstream sends money as text to avoid float drift)
+// and every field is optional: the backend proxies the upstream body without
+// schema validation, so a partial 200 is possible and call sites must not
+// assume presence — the same rule FeeInfo carries.
+export interface FxQuote {
+  from?: string;
+  to?: string;
+  rate?: string;
+  amount_usd?: string;
+  charge_amount?: string;
+  // The floor below which upstream rejects the payment outright. Shown and
+  // enforced before checkout so the user never meets that 400.
+  min_amount_usd?: string;
+  min_charge?: string;
+}
+
+export interface FxQuoteResponse extends ApiResponse {
+  data?: FxQuote;
 }
 
 export interface RechargeResponse extends ApiResponse {
@@ -1233,3 +1372,228 @@ export interface AgentSlotView {
   override: AgentSlotEffective | null;
   owner_default: AgentSlotEffective | null;
 }
+
+// ── owner-scoped bulk slot ops (Model Defaults "apply to all agents") ──────
+export interface SlotOverrideStats {
+  agent: number;
+  helper_llm: number;
+  total_agents: number;
+}
+
+// ── local-only plugin installs (Settings › Plugins) ────────────────────────
+// Claude Code / Codex CLI are user-installed local plugins rather than
+// baked into the desktop image, so the frontend has to show install state
+// and drive a pip/npm install through the backend orchestrator.
+export type PluginId = 'claude_code' | 'codex_cli';
+
+export interface PluginStatus {
+  id: PluginId;
+  display_name: string;
+  installed: boolean;
+  version: string | null;
+  target_version: string;
+  update_available: boolean;
+  logged_in: boolean;
+  size_hint: string;
+  /** An install/uninstall is in flight for this plugin right now. */
+  busy: boolean;
+}
+
+export interface PluginsListResponse extends ApiResponse {
+  data?: {
+    plugins: PluginStatus[];
+    /** Cloud deployments manage plugins centrally — the panel hides itself. */
+    cloud_managed: boolean;
+  };
+}
+
+export interface PluginUninstallResponse extends ApiResponse {
+  data?: PluginStatus;
+}
+
+// ---------------------------------------------------------------- plugin factory
+// `/api/plugin-factory` — user plugins (GitHub / local), managed by the kernel
+// registry file. Distinct from the framework installer above.
+
+export type FactoryPluginState =
+  | 'registered' | 'validated' | 'enabled' | 'active'
+  | 'incompatible' | 'blocked' | 'missing' | 'deps_missing' | 'crashed' | 'disabled' | 'slow';
+
+export interface FactoryPlugin {
+  id: string;
+  display_name: string;
+  description: string;
+  version: string;
+  mode: 'copy' | 'link';
+  path: string;
+  source: { type: 'github' | 'github_repo' | 'local'; repo?: string; tag?: string; ref?: string; commit?: string };
+  enabled: boolean;
+  state: FactoryPluginState;
+  scope: string;
+  last_error: string | null;
+  crash_count: number;
+  warnings: string[];
+  permissions: { network?: string[]; filesystem?: string[]; subprocess?: boolean; env?: string[] };
+  permissions_acknowledged: boolean;
+  installed_by: string;
+  installed_at: string;
+  provides: string[];
+  size: { backend_deps_mb?: number; frontend_kb?: number };
+  loaded: boolean;
+  isolated: string | null;
+  recent_errors: number;
+  frontend: { entry: string; integrity?: string } | null;
+  activation_events: string[];
+  protected: boolean;
+}
+
+export interface FactoryBisect {
+  candidates: string[];
+  trial: string[];
+  cleared: string[];
+}
+
+/** GET /api/channels/{channel}/schema — the generic bind form of a channel (plugin platform batch 4b). */
+/** One row of `GET /api/plugins/channels` — the host's `ingress.channels` registry as data. */
+export interface PluginChannelRow {
+  name: string;
+  display_name?: string;
+  owner: string;
+  ui?: { label?: string; icon?: string; order?: number };
+}
+
+export interface ChannelSchemaField {
+  name: string;
+  kind: 'string' | 'secret' | 'url' | 'bool' | 'int' | 'select';
+  label: string;
+  help: string;
+  required: boolean;
+  options: string[];
+  public: boolean;
+}
+
+export interface ChannelSchema {
+  channel: string;
+  display_name: string;
+  transport: 'socket' | 'poll' | 'webhook' | 'none';
+  has_bind: boolean;
+  has_test: boolean;
+  manager_backed: boolean;
+  /** The stored credential shape (identity fields shown back after bind). */
+  fields: ChannelSchemaField[];
+  /** What a bind call takes — differs from `fields` for builtin channels whose service binds from e.g. a pasted link. */
+  bind_fields: ChannelSchemaField[];
+  external_id_field: string;
+}
+
+/** One registered module as the owner's capability panel sees it (plugin platform batch 5c). */
+export interface AgentCapabilityItem {
+  module_class: string;
+  name: string;
+  icon: string;
+  description: string;
+  owner: string;
+  builtin: boolean;
+  enabled: boolean;
+  default_enabled: boolean;
+  explicit: boolean;
+  locked: boolean;
+  always_load: boolean;
+  context_cost_hint: number | null;
+  priority: number;
+}
+
+export interface AgentCapabilitiesView {
+  agent_id: string;
+  capabilities: AgentCapabilityItem[];
+  budget: { baseline_tokens: number; enabled_tokens: number; ratio: number; over_budget: boolean };
+}
+
+/** The public half of a generic channel credential (identity fields only; secrets never leave the server). */
+export interface ChannelCredentialView {
+  channel: string;
+  agent_id: string;
+  enabled: boolean;
+  external_id: string | null;
+  /** Why the platform switched the binding off (permanent upstream failure); "" while enabled. */
+  disabled_reason?: string;
+  [field: string]: unknown;
+}
+
+export interface FactoryBuiltin {
+  id: string;
+  display_name: string;
+  description: string;
+  version: string;
+  enabled: boolean;
+  /** The running distribution leaves this builtin out: it is never loaded, so `enabled` is false and cannot be changed. */
+  excluded: boolean;
+  protected: boolean;
+  hosts: string[];
+  provides: string[];
+  dependencies: Record<string, string>;
+  /** Declares heavy dependencies installed on first boot of a slim build. */
+  on_demand?: boolean;
+  pip?: string[];
+  /** Why the last boot ran without this builtin (its on-demand dependencies are unavailable); null when fine. */
+  deps_missing?: string | null;
+}
+
+export interface FactoryListResponse extends ApiResponse {
+  data?: {
+    plugins: FactoryPlugin[];
+    /** Builtin (feature-level) plugins with their enabled flag from registry.json builtin_overrides. */
+    builtins?: FactoryBuiltin[];
+    safe_mode: boolean;
+    safe_mode_reason: string;
+    bisect: FactoryBisect | null;
+    cloud_managed: boolean;
+    boot: { role: string; loaded: string[]; isolated: Record<string, string>; rejected: Record<string, string>; duration_ms: number } | null;
+  };
+}
+
+export interface FactoryInstallResponse extends ApiResponse {
+  data?: {
+    id: string;
+    version: string;
+    path: string;
+    mode: 'copy' | 'link';
+    warnings: string[];
+    deps_installed: string[];
+    permissions: FactoryPlugin['permissions'];
+    restart_required: boolean;
+  };
+}
+
+export interface FactoryProposal {
+  id: string;
+  plugin_id: string;
+  agent_id: string;
+  user_id: string;
+  action: 'activate' | 'install' | 'upgrade' | 'deactivate';
+  scope: string;
+  summary: string;
+  permissions: FactoryPlugin['permissions'];
+  test_report: { ok?: boolean; passed?: number; report_hash?: string };
+  diff_hash: string;
+  created_at: number;
+  decision: 'pending' | 'approved' | 'rejected' | 'expired';
+  extra: Record<string, unknown>;
+}
+
+export interface FactoryProposalsResponse extends ApiResponse {
+  data?: { proposals: FactoryProposal[] };
+}
+
+export interface FactoryErrorsResponse extends ApiResponse {
+  data?: { errors: { at: number; kind: string; message: string; stack: string }[] };
+}
+
+export interface FactoryIndexResponse extends ApiResponse {
+  data?: { plugins: { id: string; repo: string; author: string; description: string; tags: string[]; kinds: string[] }[] };
+}
+
+/** One line of the `POST /api/plugins/{id}/install` ndjson stream. */
+export type PluginInstallEvent =
+  | { done: false; phase: 'pip' | 'npm'; line: string }
+  | { done: true; ok: boolean; error: string | null; status: PluginStatus | null };

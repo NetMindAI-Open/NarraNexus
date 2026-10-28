@@ -1,0 +1,5 @@
+{
+  "acme.hello_world": {
+    "0.0.1": "example: pulled for a manifest bug; upgrade to 0.0.2"
+  }
+}

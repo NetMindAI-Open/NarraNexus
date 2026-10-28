@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     LLMConfigNotConfigured,
     LLMResolverError,
@@ -36,8 +36,8 @@ from xyz_agent_context.agent_framework.api_config import (
     set_current_user_id,
     set_provider_source,
 )
-from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -46,7 +46,7 @@ from xyz_agent_context.schema.provider_schema import (
     SlotConfig,
 )
 
-_CLOUD = "xyz_agent_context.utils.deployment_mode.is_cloud_mode"
+_CLOUD = "narranexus.platform.utils.deployment_mode.is_cloud_mode"
 
 
 def _cfg(source=ProviderSource.USER, *, key="sk-own"):
@@ -82,9 +82,9 @@ def _reset_context():
 def wiring(monkeypatch):
     """Stub the outer wiring (db factory + user provider service + the
     single-point config builder) and let the REAL resolver decide."""
-    from xyz_agent_context.agent_framework.providers import driver as driver_mod
-    from xyz_agent_context.agent_framework.providers import user_service as us_mod
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.agent_framework.providers import driver as driver_mod
+    from narranexus.platform.agent_framework.providers import user_service as us_mod
+    from narranexus.platform.utils.db import db_factory
 
     state = {"cfg": _cfg(), "built": None, "agent_id": "unset"}
 
@@ -159,7 +159,7 @@ async def test_resolver_errors_stay_in_the_llm_resolver_family(wiring):
 
 @pytest.mark.asyncio
 async def test_local_mode_delegates_to_the_strict_own_config_path(monkeypatch, wiring):
-    from xyz_agent_context.agent_framework import api_config as api_mod
+    from narranexus.platform.agent_framework import api_config as api_mod
 
     sentinel = RuntimeLLMConfigs(
         claude=ClaudeConfig(api_key="strict"), openai=OpenAIConfig()

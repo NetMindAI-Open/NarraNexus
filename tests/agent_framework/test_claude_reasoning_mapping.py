@@ -25,8 +25,8 @@ We never produce a positive --max-thinking-tokens, hence never the rejected
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.agent_framework.adapters.claude.sdk import (
+from narranexus.platform.agent_framework.api_config import ClaudeConfig
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _resolve_reasoning_options,
 )
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_command_security import (
+from narranexus_plugins.lark_module._lark_command_security import (
     validate_command,
 )
 

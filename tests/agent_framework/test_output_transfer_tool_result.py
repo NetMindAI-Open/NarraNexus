@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.agent_framework.loop.output_transfer import (
+from narranexus.platform.agent_framework.loop.output_transfer import (
     _stringify_tool_result_content,
 )
 
@@ -55,11 +55,35 @@ def test_list_of_plain_strings_concatenates() -> None:
 
 
 def test_dict_without_text_key_falls_back_to_json() -> None:
-    # A non-text content block (e.g. an image block) shouldn't crash — it
-    # round-trips through json.dumps so the result stays machine-readable.
-    content = [{"type": "image", "source": {"data": "..."}}]
+    # A non-text, non-image block shouldn't crash — it round-trips through
+    # json.dumps so the result stays machine-readable.
+    content = [{"type": "resource_link", "uri": "file:///tmp/report.csv"}]
     out = _stringify_tool_result_content(content)
-    assert json.loads(out)["type"] == "image"
+    assert json.loads(out)["uri"] == "file:///tmp/report.csv"
+
+
+def test_sdk_image_block_keeps_a_descriptor_but_never_its_base64() -> None:
+    # The model already received the image natively. The persisted tool
+    # output feeds the UI, the database and later-turn history replay, so
+    # megabytes of base64 there would be pure context and storage bloat.
+    data = "iVBORw0KGgo" + "A" * 300_000
+    content = [
+        {"type": "text", "text": '{"observation_id": "view_1"}'},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}},
+    ]
+    out = _stringify_tool_result_content(content)
+    assert data not in out
+    assert len(out) < 500
+    assert out.startswith('{"observation_id": "view_1"}')
+    assert "image/png" in out
+
+
+def test_mcp_shaped_image_block_is_described_not_inlined() -> None:
+    data = "R0lGOD" + "B" * 50_000
+    out = _stringify_tool_result_content([{"type": "image", "mimeType": "image/jpeg", "data": data}])
+    assert data not in out
+    described = json.loads(out)
+    assert described == {"type": "image", "mime_type": "image/jpeg", "base64_chars": len(data)}
 
 
 def test_multi_block_list_is_joined_in_order() -> None:

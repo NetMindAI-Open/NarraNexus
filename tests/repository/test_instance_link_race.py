@@ -14,10 +14,10 @@ now caught and treated as "already linked" (return 0).
 """
 import pytest
 
-from xyz_agent_context.repository.instance_link_repository import (
+from narranexus.platform.repository.instance_link_repository import (
     InstanceNarrativeLinkRepository,
 )
-from xyz_agent_context.schema.instance_schema import LinkType
+from narranexus.platform.schema.instance_schema import LinkType
 
 
 async def _seed(db, inst="inst_x", nar="nar_x"):

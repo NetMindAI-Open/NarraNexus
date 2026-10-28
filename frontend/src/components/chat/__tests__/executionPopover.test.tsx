@@ -17,11 +17,14 @@ function step(id: string, stepNo: string, title: string, status: Step['status'])
   };
 }
 
+// Backend titles here are the raw pipeline titles; the popover must show the
+// SAME localized phase names RunPhases does (consistency), not the raw
+// English backend title.
 const STEPS: Step[] = [
-  step('s0', '0', 'Initialize', 'completed'),
-  step('s1', '1', 'Load context', 'completed'),
-  step('s3', '3', 'Agent loop', 'running'),
-  step('s34', '3.4', 'Tool call', 'running'),
+  step('s0', '0', 'Initialization', 'completed'),
+  step('s1', '1', '📚 Narrative Selection', 'completed'),
+  step('s3', '3', 'Build Context', 'completed'),
+  step('s34', '3.4', 'Run Agent', 'running'),
 ];
 
 describe('ExecutionPopover', () => {
@@ -29,11 +32,32 @@ describe('ExecutionPopover', () => {
     render(<ExecutionPopover steps={STEPS} />);
     const trigger = screen.getByLabelText('Show execution steps');
     expect(trigger).toHaveTextContent('Processing');
-    // The current stage = the latest running step, shown by name.
-    expect(trigger).toHaveTextContent('Tool call');
+    // The current stage = the latest running step, shown by its LOCALIZED
+    // name (3.4 = run agent), matching RunPhases — not the raw title.
+    expect(trigger).toHaveTextContent('Running agent');
     // The old "seen-steps-as-total" fraction (2/4, 3/4, …) is gone.
     expect(trigger).not.toHaveTextContent('2/4');
     expect(trigger.textContent).not.toMatch(/\d+\/\d+/);
+  });
+
+  // The two surfaces used to disagree: the phase rows showed localized labels
+  // while this popover printed the raw backend title for the same step. Now
+  // both go through PHASE_LABEL_KEYS; only genuine sub-steps keep raw titles.
+  it('main phases show localized labels (consistent with RunPhases); sub-steps keep raw title', () => {
+    const steps: Step[] = [
+      step('s3', '3', 'Build Context', 'completed'),
+      step('s34', '3.4', 'Run Agent', 'running'),
+      step('s341', '3.4.1', 'read_file', 'running'),
+    ];
+    render(<ExecutionPopover steps={steps} />);
+    fireEvent.click(screen.getByLabelText('Show execution steps'));
+    expect(screen.getByText(/Building context/)).toBeInTheDocument();
+    expect(screen.getByText(/Running agent/)).toBeInTheDocument();
+    // Raw backend title for a mapped phase must NOT leak.
+    expect(screen.queryByText('Build Context')).toBeNull();
+    expect(screen.queryByText('Run Agent')).toBeNull();
+    // A genuine sub-step (not a mapped phase) keeps its own title.
+    expect(screen.getByText('read_file')).toBeInTheDocument();
   });
 
   it('renders each step description and the narrative selection reason', () => {
@@ -57,11 +81,15 @@ describe('ExecutionPopover', () => {
     fireEvent.click(screen.getByLabelText('Show execution steps'));
 
     expect(screen.getByText('Execution')).toBeInTheDocument();
-    expect(screen.getByText('Initialize')).toBeInTheDocument();
-    expect(screen.getByText('Agent loop')).toBeInTheDocument();
-    expect(screen.getByText('Tool call')).toBeInTheDocument();
-    expect(screen.getAllByLabelText('completed')).toHaveLength(2);
-    expect(screen.getAllByLabelText('running')).toHaveLength(2);
+    // Localized phase labels (step 0 / 1 / 3 / 3.4), consistent with RunPhases.
+    expect(screen.getByText(/Initializing/)).toBeInTheDocument();
+    expect(screen.getByText(/Selecting narrative/)).toBeInTheDocument();
+    expect(screen.getByText(/Building context/)).toBeInTheDocument();
+    // "Running agent" is the current stage, so it shows on BOTH the chip and
+    // the list row — hence getAllByText, not getByText.
+    expect(screen.getAllByText(/Running agent/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByLabelText('completed')).toHaveLength(3);
+    expect(screen.getAllByLabelText('running')).toHaveLength(1);
   });
 
   it('empty steps show the waiting placeholder', () => {

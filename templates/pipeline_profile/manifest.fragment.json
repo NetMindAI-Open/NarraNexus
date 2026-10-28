@@ -1,0 +1,15 @@
+{
+  "api": {
+    "pipeline_profile": 0
+  },
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "provides": {
+    "turn.profiles": [
+      "nxplugins.__PLUGIN_PKG__:PROFILES"
+    ]
+  }
+}

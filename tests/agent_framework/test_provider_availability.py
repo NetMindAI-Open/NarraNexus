@@ -27,14 +27,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
-from xyz_agent_context.agent_framework.providers.resolver import (
+from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+from narranexus.platform.agent_framework.providers.resolver import (
     ProviderAvailability,
     ProviderResolver,
     is_runnable,
     is_user_config_complete,
 )
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -43,7 +43,7 @@ from xyz_agent_context.schema.provider_schema import (
     SlotConfig,
 )
 
-_CLOUD = "xyz_agent_context.utils.deployment_mode.is_cloud_mode"
+_CLOUD = "narranexus.platform.utils.deployment_mode.is_cloud_mode"
 
 
 def _cfg(*, source=ProviderSource.USER, active=True):

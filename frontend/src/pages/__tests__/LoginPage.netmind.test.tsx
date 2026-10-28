@@ -40,12 +40,11 @@ describe('LoginPage cloud branch (NetMind)', () => {
     expect(screen.getByLabelText(/confirm password/i)).toBeTruthy();
   });
 
-  test('shows the account-migration notice with support contact', () => {
+  test('no account-migration banner (removed: migration is long done and it wrongly told everyone to reset their password)', () => {
     render(<MemoryRouter><LoginPage /></MemoryRouter>);
-    expect(screen.getByText(/reorganized our account system/i)).toBeTruthy();
-    const support = screen.getByRole('link', {
-      name: /bin\.liang@netmind\.ai/i,
-    }) as HTMLAnchorElement;
-    expect(support.href).toContain('mailto:bin.liang@netmind.ai');
+    expect(screen.queryByText(/reorganized our account system/i)).toBeNull();
+    expect(
+      screen.queryByRole('link', { name: /bin\.liang@netmind\.ai/i }),
+    ).toBeNull();
   });
 });

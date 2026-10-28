@@ -13,7 +13,7 @@ Whisper transcription entirely because the upload route's
 """
 from __future__ import annotations
 
-from xyz_agent_context.utils.mime_sniff import (
+from narranexus.platform.utils.mime_sniff import (
     _audio_video_container_override,
     sniff_mime_type,
 )

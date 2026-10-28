@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/OnboardingJourney.tsx
-last_verified: 2026-06-20
+last_verified: 2026-08-06
 stub: false
 ---
+
+## 2026-08-06 — Chat UI v4:JourneyBand → 流内卡片
+
+全高 JourneyBand(eyebrow + 三站 band + 建议 chips)重写为流内 onboarding
+卡片(v4 #1,Codex 式):"<Agent> is ready" 标题 + 一句引导 + 建议 chips
++ 右上关闭钮。关闭按 agent 持久化(localStorage
+`onboarding_card_dismissed:<agentId>`)。不变量:chips 只填充 composer
+绝不自动发送;文案保持场景通用(铁律 #4);与 BOOTSTRAP_GREETING 互斥的
+触发条件仍由 ChatPanel 的 showEmptyState 管。旧 band 的 animate-travel
+CSS 已从 index.css 移除。
 
 # OnboardingJourney.tsx — "JourneyBand" empty state for a fresh conversation
 

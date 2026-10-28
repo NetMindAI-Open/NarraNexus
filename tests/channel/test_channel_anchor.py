@@ -11,7 +11,7 @@ which diluted the retrieval vector in prod.
 """
 from __future__ import annotations
 
-from xyz_agent_context.channel.channel_context_builder_base import build_channel_anchor
+from narranexus.platform.channel.channel_context_builder_base import build_channel_anchor
 
 
 def test_channel_anchor_format():

@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context.marketplace._skill_marketplace_seed import (
+import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from narranexus.platform.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from narranexus.platform.marketplace._skill_marketplace_seed import (
     _skills_root,
     seed_skill_marketplace,
 )
-from xyz_agent_context.repository.skill_catalog_repository import SkillCatalogRepository
+from narranexus.platform.repository.skill_catalog_repository import SkillCatalogRepository
 
 
 def _fixture_skills(tmp_path: Path) -> Path:
@@ -39,7 +39,7 @@ def _fixture_skills(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def seeded_env(db_client, tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
@@ -49,7 +49,7 @@ def seeded_env(db_client, tmp_path, monkeypatch):
 
     # RegistryService(db) uses get_artifact_store(); point it at a temp store.
     store = LocalArtifactStore(tmp_path / "skill_store")
-    import xyz_agent_context.marketplace._skill_marketplace_impl.registry as reg
+    import narranexus.platform.marketplace._skill_marketplace_impl.registry as reg
 
     monkeypatch.setattr(reg, "get_artifact_store", lambda: store)
     return {"store": store}
@@ -98,3 +98,51 @@ def test_real_repo_skills_root_exists_and_has_defaults():
     for name in ("netmind-vision", "netmind-transcribe"):
         manifest = json.loads((root / name / "manifest.json").read_text())
         assert manifest.get("default") is True, f"{name} must be a default skill"
+
+
+def test_real_repo_guide_skill_is_vendored_and_not_default():
+    """narranexus-guide ships with the repo but must NOT auto-install on every
+    new agent — onboarding provisioning installs it on the guide agent only."""
+    root = _skills_root()
+    assert root is not None
+    guide = root / "narranexus-guide"
+    assert (guide / "SKILL.md").exists() and (guide / "manifest.json").exists()
+    manifest = json.loads((guide / "manifest.json").read_text())
+    assert manifest["id"] == "narranexus-guide"
+    assert manifest.get("default") is False
+
+
+@pytest.fixture
+def real_seed_env(db_client, tmp_path, monkeypatch):
+    """Like seeded_env but pointing at the REAL vendored marketplace_skills/."""
+    from narranexus.platform.settings import settings
+
+    monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
+    monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
+    monkeypatch.delenv("SKILL_SECRETS_KEY", raising=False)
+    monkeypatch.setattr(secret_box_module, "_default_box", None)
+    monkeypatch.delenv("MARKETPLACE_SKILLS_DIR", raising=False)
+
+    store = LocalArtifactStore(tmp_path / "skill_store")
+    import narranexus.platform.marketplace._skill_marketplace_impl.registry as reg
+
+    monkeypatch.setattr(reg, "get_artifact_store", lambda: store)
+    return {"store": store}
+
+
+@pytest.mark.asyncio
+async def test_real_guide_skill_survives_the_publish_scan_into_the_catalog(
+    db_client, real_seed_env
+):
+    """The seed's registry.publish runs a security scan and REJECTS silently
+    (warning + skip). If narranexus-guide ever trips it, every guide agent's
+    awareness points at a skills/narranexus-guide/SKILL.md that will never be
+    installed — the feature's core value gone with all lights green. Seed the
+    REAL vendored tree and pin the catalog row."""
+    await seed_skill_marketplace(db_client)
+    entry = await SkillCatalogRepository(db_client).get_version(
+        "narranexus-guide", "1.0.0"
+    )
+    assert entry is not None, "narranexus-guide was rejected or skipped by the seed"
+    assert entry.is_default is False
+    assert real_seed_env["store"].exists(entry.s3_key)

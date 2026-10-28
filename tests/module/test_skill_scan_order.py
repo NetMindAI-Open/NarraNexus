@@ -5,8 +5,8 @@
 @description: R4d — SkillModule directory iteration must be name-sorted, not
 raw readdir order.
 
-The skills table reaches the system prompt (hook_data_gathering ->
-ctx_data.extra_data["skills_table"] -> get_instructions), and
+The skills table reaches the system prompt (gather ->
+ctx_data.extra_data["skills_table"] -> contribute_instructions), and
 ``Path.iterdir()`` yields whatever order the filesystem hands back. APFS is
 NOT alphabetical: a live workspace listed as
 ``officecli, home-assistant-setup, netmind-transcribe, netmind-vision``.
@@ -25,11 +25,11 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.module.skill_module.skill_module import (
+from narranexus_plugins.skill_module.skill_module import (
     SKILL_INSTRUCTIONS_TEMPLATE,
     SkillModule,
 )
-from xyz_agent_context.schema import ContextData
+from narranexus.platform.schema import ContextData
 
 # The APFS order observed on a real workspace (non-alphabetical on purpose).
 _APFS_ORDER = [
@@ -89,8 +89,8 @@ async def _render(skills_dir: Path) -> str:
     ctx = ContextData(
         agent_id=mod.agent_id, user_id=mod.user_id, input_content="hi"
     )
-    ctx = await mod.hook_data_gathering(ctx)
-    return await mod.get_instructions(ctx)
+    ctx = await mod.gather(ctx)
+    return await mod.contribute_instructions(ctx)
 
 
 @pytest.mark.asyncio

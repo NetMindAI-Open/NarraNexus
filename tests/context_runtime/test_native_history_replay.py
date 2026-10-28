@@ -6,7 +6,7 @@
 
 Contract (Owner decisions 2026-07-29):
 - ONLY when the agent's framework consumes structured history
-  (NATIVE_REPLAY_FRAMEWORKS) do current-narrative assistant rows expand
+  (declaring the ``native_replay`` capability) do current-narrative assistant rows expand
   into the event_log-rebuilt assistant/tool sequence;
 - the user row of a replayed turn keeps its flattened form (timeline
   tag anchoring); cross-narrative rows and rows without a foldable log
@@ -21,9 +21,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import xyz_agent_context.agent_framework.providers.model_identity as model_identity
-from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-from xyz_agent_context.schema import ContextData
+import narranexus.platform.agent_framework.providers.model_identity as model_identity
+from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+from narranexus.platform.schema import ContextData
 
 AGENT_ID = "agent_nhr"
 USER_ID = "u_nhr"
@@ -108,7 +108,7 @@ def _identity(framework: str):
 
 
 async def _build(runtime: ContextRuntime, ctx: ContextData) -> list[dict]:
-    final_messages, _mcp, _dis, _expr = await runtime.build_input_for_framework(
+    final_messages, _mcp, _dis, _expr, _deferred = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="SYSTEM",
         active_instances=[],

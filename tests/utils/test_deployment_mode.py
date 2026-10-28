@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.utils.deployment_mode import (
+from narranexus.platform.utils.deployment_mode import (
     DEPLOYMENT_MODE_ENV_VAR,
     POWER_LOGIN_ENV_VAR,
     get_deployment_mode,

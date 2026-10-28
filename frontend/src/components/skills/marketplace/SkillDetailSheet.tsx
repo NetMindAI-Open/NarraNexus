@@ -55,7 +55,7 @@ export function SkillDetailSheet({
           </h3>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+            className="p-1.5 rounded-[var(--radius-lg)] hover:bg-[var(--nm-paper-warm)] transition-colors"
           >
             <X className="w-4 h-4 text-[var(--text-tertiary)]" />
           </button>

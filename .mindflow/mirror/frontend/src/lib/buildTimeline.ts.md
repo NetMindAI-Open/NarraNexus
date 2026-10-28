@@ -1,8 +1,31 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-08-04
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-11 — no-response marker comes from turnMarkers
+
+The non-chat junk filter compares `msg.content === NO_RESPONSE_MARKER`
+(imported from [[turnMarkers]]) instead of repeating the literal. Still an
+exact, language-independent comparison: the marker is the persisted
+English string, localized only by `MessageBubble` at render time.
+
+## 2026-09-08（dev 实测）— 折叠问候按身份去重
+
+`BOOTSTRAP_GREETING_SESSION_ID` 的会话消息在历史含 `bootstrap` 行时直接丢弃；此前靠内容匹配，前端中文副本对不上后端英文原文，回合结束后问候显示两遍、刷新才消失。
+
+## 2026-08-21 — 不再在 history 循环里丢弃 message_bus 活动行
+
+删掉了 history 循环里 `message_type === 'activity' && working_source === 'message_bus'`
+的 `continue`。它原意是「别让 message_bus 活动出现在 1:1 对话里」,但生产里
+**所有** peer/team turn 的 `working_source` 都是 `message_bus`(`MessageBusTrigger._invoke_runtime`
+对 A2A/team/patrol 一律写 MESSAGE_BUS,全仓无代码写 `a2a`)——于是这条 filter 把 Activity Log
+要显示的行**全部**丢掉,bug 2 端到端成了空操作。现在让这些行通过,由更靠前的两道机制保证对话 tab
+仍然干净:① 对话 tab 请求 `include='chat'`,后端就把 `activity` 行剔掉;② `ChatPanel.visibleTimeline`
+按 `messageType === 'activity'` 把活动行排除在对话 tab 外(session 侧活动行靠这一道)。`:140` 只在
+history 循环,session 循环无同类 filter,删除不影响 live session。用例:
+`buildTimeline.test.ts` 断言 `{activity, message_bus}` history 行会出现在结果里(删了会回来的非空守卫)。
 
 ## 2026-08-04 — 空白历史行兜底过滤
 
@@ -42,10 +65,14 @@ live in MessageBubble) silently stopped firing. This re-connects the data.
 The chat view shows one chronological conversation, but the data comes
 from two independently-produced sources:
 
-- **history** — `agent_messages` rows from `getSimpleChatHistory`
+- **history** — the transcript in `instance_json_format_memory_chat`
+  (ChatModule's per-instance JSON memory), via `getSimpleChatHistory`. **Not**
+  the `events` table, and **not** `agent_messages` — that one is a tombstone
+  with no writer, and mistaking it for the source is how the 0802 ordering
+  report got misdiagnosed (see [[agent_message_repository]] 2026-08-05).
 - **session** — live messages in `[[chatStore.ts]]` (the user prompt added
   on send; the assistant reply assembled at `stopStreaming` from the
-  `send_message_to_user_directly` tool args)
+  `reply_owner` tool args)
 
 Once a turn finishes it exists in **both** — history has the persisted
 copy, session still holds the live copy. Something has to drop the
@@ -68,7 +95,7 @@ identity.
 This replaced a `${role}:${content}` exact-string key. That key silently
 missed whenever the session-assembled content and the DB-persisted
 content drifted by even one character — and they ARE produced by
-different code paths (session joins `send_message_to_user_directly` args
+different code paths (session joins `reply_owner` args
 with `\n\n`; the backend persists independently and sometimes *rewrites*
 content, e.g. owner-notify substitution in `agents/chat_history.py`).
 That drift made the latest reply occasionally render twice — the bug

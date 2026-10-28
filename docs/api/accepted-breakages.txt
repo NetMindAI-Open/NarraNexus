@@ -1,0 +1,7 @@
+# Deliberate public-API changes of the stable contracts, one fully-qualified symbol per line (e.g. narranexus.contracts.STABILITY), reason after " # ".
+# scripts/dev/api_check.sh (griffe) fails CI on any breakage not listed here; remove an entry once
+# the base branch carries the change. Governed by docs/API_POLICY.md.
+narranexus.contracts.STABILITY # batch 6: every contract kind flips ALPHA -> STABLE (the stable point itself, not a break for consumers)
+narranexus.contracts.API_VERSIONS # batch 6: ui contract 0 -> 1 (frontend HostAPI registries/slot-point surface); a value change of the version table, not a symbol break
+narranexus.contracts.MIN_SUPPORTED_VERSIONS # batch 6: ui floor stays 0 through the deprecation window while current is 1 — the table's shape is unchanged
+narranexus.sdk.API_VERSIONS # batch 6: re-export of narranexus.contracts.API_VERSIONS (same change)

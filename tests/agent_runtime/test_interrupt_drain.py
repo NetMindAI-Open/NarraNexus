@@ -2,7 +2,7 @@
 @file_name: test_interrupt_drain.py
 @author: Bin Liang
 @date: 2026-07-30
-@description: _stream_step3_with_interrupt_drain — bounded tail drain.
+@description: stream_with_interrupt_drain — bounded tail drain.
 
 Interrupt continuity depends on the driver's post-cancel tail (pairing
 synthetics, turn_done, PathExecutionResult) reaching ctx; the old
@@ -17,10 +17,10 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_runtime.agent_runtime import (
-    _stream_step3_with_interrupt_drain,
+from narranexus.platform.agent_runtime.steps import (
+    stream_with_interrupt_drain,
 )
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
 
 
 async def _collect(agen) -> list:
@@ -34,7 +34,7 @@ async def test_uncancelled_run_passes_everything_through():
             yield f"m{i}"
 
     token = CancellationToken()
-    out = await _collect(_stream_step3_with_interrupt_drain(driver(), token))
+    out = await _collect(stream_with_interrupt_drain(driver(), token))
     assert out == ["m0", "m1", "m2", "m3", "m4"]
 
 
@@ -50,7 +50,7 @@ async def test_cancel_mid_stream_still_delivers_the_tail():
         yield "synthetic_result"
         yield "turn_done"
 
-    out = await _collect(_stream_step3_with_interrupt_drain(driver(), token))
+    out = await _collect(stream_with_interrupt_drain(driver(), token))
     assert out == ["delta", "synthetic_result", "turn_done"]
 
 
@@ -69,7 +69,7 @@ async def test_stuck_driver_is_abandoned_within_budget():
             closed.set()
 
     out = await _collect(
-        _stream_step3_with_interrupt_drain(driver(), token, budget_s=0.1)
+        stream_with_interrupt_drain(driver(), token, budget_s=0.1)
     )
     assert out == ["delta"]
     # The generator was explicitly closed, not leaked.
@@ -84,5 +84,5 @@ async def test_cancel_before_first_message_still_drains():
     async def driver():
         yield "tail_event"
 
-    out = await _collect(_stream_step3_with_interrupt_drain(driver(), token))
+    out = await _collect(stream_with_interrupt_drain(driver(), token))
     assert out == ["tail_event"]

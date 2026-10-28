@@ -1,0 +1,22 @@
+{
+  "name": "@narranexus/chat-widget",
+  "version": "1.21.11",
+  "description": "NarraNexus chat as a web component: <narranexus-chat agent-id user-id>.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": ["src", "dist", "README.md"],
+  "publishConfig": {
+    "main": "dist/narranexus-chat.js",
+    "types": "dist/index.d.ts"
+  },
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@narranexus/ui-kit": "^1.15.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}

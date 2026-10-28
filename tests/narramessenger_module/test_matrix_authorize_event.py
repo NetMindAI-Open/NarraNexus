@@ -29,15 +29,15 @@ from unittest.mock import AsyncMock
 import aiohttp
 import pytest
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module import matrix_trigger as mt_mod
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module import matrix_trigger as mt_mod
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
     _AuthorizeVerdict,
 )
-from xyz_agent_context.schema.parsed_message import ChatType, ParsedMessage
+from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 
 ROOM = "!room:h"
@@ -366,7 +366,7 @@ async def test_process_message_dm_allowed_falls_through_to_super(trigger):
     async def _fake_super(*args, **kwargs):
         super_called["n"] += 1
 
-    import xyz_agent_context.channel.channel_trigger_base as base_mod
+    import narranexus.platform.channel.channel_trigger_base as base_mod
     original = base_mod.ChannelTriggerBase._process_message
     base_mod.ChannelTriggerBase._process_message = _fake_super
     try:

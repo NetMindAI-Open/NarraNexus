@@ -27,16 +27,16 @@ import pytest
 from pydantic import BaseModel
 
 import claude_agent_sdk as cas
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
     CliHelperConfig,
     OpenAIConfig,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.llm.cli_helper import HelperUsage, CliHelperSDK
-from xyz_agent_context.settings import settings
+from narranexus_plugins.llm_clients.anthropic_helper import AnthropicHelperSDK
+from narranexus_plugins.llm_clients.cli_helper import HelperUsage, CliHelperSDK
+from narranexus.platform.settings import settings
 
 
 class _Val(BaseModel):

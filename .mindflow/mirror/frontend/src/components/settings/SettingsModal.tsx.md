@@ -1,7 +1,16 @@
 ---
 code_file: frontend/src/components/settings/SettingsModal.tsx
-last_verified: 2026-07-23
+last_verified: 2026-09-23
 ---
+
+## 2026-09-23 浏览器支持
+
+新增 Browser 设置分区，复用 BrowserSettings 安装、取消、进度及错误处理；与 /app/settings 的同名分区保持一致。
+
+The legacy modal subscribes to the Browser panel registration, whose owner is
+`builtin.browser`. Disabling the feature removes both its nav entry and an already
+open browser settings pane. Selection falls back to providers immediately so the
+modal remains usable without importing the full settings-page chunk.
 
 ## 2026-07-23 — Desktop section (Locked Use)
 
@@ -10,6 +19,13 @@ with the Locked Use prevent-sleep toggle, wired to [[powerStore.ts]] —
 same row/switch treatment as the Privacy analytics toggle. i18n keys
 `settings.modal.navDesktop / desktopHeading / desktopIntro /
 lockedUseTitle / lockedUseDesc` in all 10 locales.
+
+## 2026-08-10 — analytics privacy copy matches database-only collection
+
+The privacy description no longer calls the facts anonymous. It now states
+that local/desktop product metadata remains on-device, no external analytics
+service receives it, and conversation content is never collected. All ten
+locales carry the same privacy boundary.
 
 ## 2026-06-10 — review fix: English-only label, identity via auth header
 

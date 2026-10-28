@@ -10,7 +10,7 @@ Recovery semantics added 2026-05-25 for the fallback-context redesign:
     should render the recovered reply normally and show the error as a
     warning badge.
   - "recovered_after_reply": the agent successfully called
-    send_message_to_user_directly first, *then* a fatal happened.
+    reply_owner first, *then* a fatal happened.
     No fallback runs (we already spoke); the badge surfaces the
     truncated execution so the user knows the turn didn't finish all
     planned work.
@@ -23,7 +23,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from xyz_agent_context.schema import ErrorMessage
+from narranexus.platform.schema import ErrorMessage
 
 
 def test_default_severity_is_fatal():

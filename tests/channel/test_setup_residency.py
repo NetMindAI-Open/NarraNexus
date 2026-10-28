@@ -7,7 +7,7 @@ modules.
 While an agent has no binding for a channel, the module stays loaded but
 degrades to a "setup surface": instructions collapse to a one-liner and
 every tool except the ones in ``setup_tool_names`` is suppressed via
-``get_disallowed_tools``. This file pins the cross-channel contract:
+``disallowed_tools``. This file pins the cross-channel contract:
 
   1. Drift guard — ``all_tool_names`` equals the set of tools the module
      actually registers on its FastMCP server, so a newly added tool
@@ -28,16 +28,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.channel.channel_module_base import ChannelModuleBase
-from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
-from xyz_agent_context.module.discord_module.discord_module import DiscordModule
-from xyz_agent_context.module.lark_module.lark_module import LarkModule
-from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+from narranexus.platform.channel.channel_module_base import ChannelModuleBase
+from narranexus.platform.channel.channel_sender_registry import ChannelSenderRegistry
+from narranexus_plugins.discord_module.discord_module import DiscordModule
+from narranexus_plugins.lark_module.lark_module import LarkModule
+from narranexus_plugins.narramessenger_module.narramessenger_module import (
     NarramessengerModule,
 )
-from xyz_agent_context.module.slack_module.slack_module import SlackModule
-from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
-from xyz_agent_context.module.wechat_module.wechat_module import WeChatModule
+from narranexus_plugins.slack_module.slack_module import SlackModule
+from narranexus_plugins.telegram_module.telegram_module import TelegramModule
+from narranexus_plugins.wechat_module.wechat_module import WeChatModule
 
 
 CHANNEL_MODULES = [
@@ -94,7 +94,7 @@ async def test_unbound_disallows_every_non_setup_tool(cls, monkeypatch):
     module = _make_module(cls)
     monkeypatch.setattr(module, "get_credential", AsyncMock(return_value=None))
 
-    disallowed = await module.get_disallowed_tools()
+    disallowed = await module.disallowed_tools()
     expected = sorted(
         f"mcp__{module.mcp_server_name}__{name}"
         for name in module.all_tool_names
@@ -120,7 +120,29 @@ async def test_bound_disallows_nothing(cls, monkeypatch):
     module = _make_module(cls)
     monkeypatch.setattr(module, "get_credential", AsyncMock(return_value=object()))
 
-    assert await module.get_disallowed_tools() == []
+    assert await module.disallowed_tools() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cls", CHANNEL_MODULES, ids=lambda c: c.__name__)
+async def test_a_bound_channel_tool_stays_reachable_on_a_foreign_turn(cls, monkeypatch):
+    """Capability follows the agent (PR-2): a bound channel's tools are NOT gated
+    to turns that originated on that channel. An agent woken on the bus — a
+    foreign surface for every IM channel here — keeps its Lark/WeChat/… tools on
+    the desk, so it can reach a contact there using a conversation id from the
+    social graph. Re-introducing a working_source gate on disallowed_tools
+    turns this red; it is the guarantee the reachability flow relies on.
+    """
+    from narranexus.platform.schema import ContextData
+    from narranexus.platform.schema.hook_schema import WorkingSource
+
+    module = _make_module(cls)
+    monkeypatch.setattr(module, "get_credential", AsyncMock(return_value=object()))
+
+    ctx = ContextData(agent_id="agent_a", user_id=None, input_content="hi")
+    ctx.working_source = WorkingSource.MESSAGE_BUS  # foreign to every channel here
+
+    assert await module.disallowed_tools(ctx) == []
 
 
 # ── 4. Credential lookup failure → fail-open ───────────────────────────
@@ -137,7 +159,7 @@ async def test_credential_error_fails_open(cls, monkeypatch):
     monkeypatch.setattr(module, "get_credential", _boom)
 
     assert await module.is_bound() is True
-    assert await module.get_disallowed_tools() == []
+    assert await module.disallowed_tools() == []
 
 
 # ── 5. Zero-arg bind tools serve the full setup guide ──────────────────
@@ -166,16 +188,16 @@ def _bind_tool(register_fn, tool_name: str):
 
 
 def _bind_registrations():
-    from xyz_agent_context.module.discord_module._discord_mcp_tools import (
+    from narranexus_plugins.discord_module._discord_mcp_tools import (
         register_discord_mcp_tools,
     )
-    from xyz_agent_context.module.narramessenger_module._narramessenger_mcp_tools import (
+    from narranexus_plugins.narramessenger_module._narramessenger_mcp_tools import (
         register_narramessenger_mcp_tools,
     )
-    from xyz_agent_context.module.slack_module._slack_mcp_tools import (
+    from narranexus_plugins.slack_module._slack_mcp_tools import (
         register_slack_mcp_tools,
     )
-    from xyz_agent_context.module.telegram_module._telegram_mcp_tools import (
+    from narranexus_plugins.telegram_module._telegram_mcp_tools import (
         register_telegram_mcp_tools,
     )
 
@@ -204,7 +226,7 @@ async def test_lark_entry_tools_zero_credential_args_return_setup_guide():
     """Lark's entry points keep their orchestrator shape; calling them
     with empty credential args must yield the discovery guide, not an
     error."""
-    from xyz_agent_context.module.lark_module._lark_mcp_tools import (
+    from narranexus_plugins.lark_module._lark_mcp_tools import (
         register_lark_mcp_tools,
     )
 
@@ -233,7 +255,7 @@ async def test_bound_channel_declares_qualified_reply_tools(cls):
     module = _make_module(cls)
     module.get_credential = AsyncMock(return_value={"bound": True})
 
-    declared = await module.get_expressive_tools()
+    declared = await module.expressive_tools()
     assert declared, f"{cls.__name__} must declare at least one reply tool"
     assert declared == [
         f"mcp__{module.mcp_server_name}__{name}" for name in module.reply_tool_names
@@ -249,4 +271,4 @@ async def test_bound_channel_declares_qualified_reply_tools(cls):
 async def test_unbound_channel_declares_no_reply_tools(cls):
     module = _make_module(cls)
     module.get_credential = AsyncMock(return_value=None)
-    assert await module.get_expressive_tools() == []
+    assert await module.expressive_tools() == []

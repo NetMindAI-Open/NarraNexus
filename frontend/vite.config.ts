@@ -29,7 +29,19 @@ export default defineConfig({
       output: {
         manualChunks: {
           // React core (used by almost every page, cached separately)
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // `use-sync-external-store` is React's own shim, shared by eager
+          // code (react-i18next in App's global banners) and by lazy vendors
+          // (reactflow's store). Left unassigned, Rollup hoists it into
+          // whichever vendor chunk claims it first — vendor-reactflow — and
+          // the entry then preloads that whole lazy chunk (bundle budget
+          // forbids it). It belongs with React.
+          'vendor-react': [
+            'react',
+            'react-dom',
+            'react-router-dom',
+            'use-sync-external-store/shim',
+            'use-sync-external-store/shim/with-selector',
+          ],
           // ReactFlow + d3 dependencies (only used by JobsPanel, lazy loaded)
           'vendor-reactflow': ['reactflow'],
           // Markdown rendering (used by multiple panels, but not required for initial load)

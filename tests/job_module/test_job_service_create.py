@@ -9,8 +9,8 @@ from unittest.mock import patch, AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.job_module.job_service import JobInstanceService
-from xyz_agent_context.repository import InstanceRepository
+from narranexus_plugins.job_module.job_service import JobInstanceService
+from narranexus.platform.repository import InstanceRepository
 
 
 @pytest.mark.asyncio

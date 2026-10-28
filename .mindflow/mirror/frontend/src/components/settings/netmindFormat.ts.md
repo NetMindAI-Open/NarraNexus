@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/settings/netmindFormat.ts
-last_verified: 2026-07-28
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — `moneyOrNull`：缺失时返回 null，而不是 `money` 的 `"—"`
+
+同一份判断（上游金额是高精度字符串，显示两位）为什么要有第二个出口：**调用方把
+金额折进一句标签里时，缺值必须让整句消失**。充值按钮写的是 `充值 ¥73.00`，没有
+报价时它应该退回 `充值` —— 而 `money()` 会让它变成 **`充值 ¥—`**，一个比没有数字
+更糟的按钮。
+
+`money` 的 `"—"` 是套餐行、余额 hero 依赖的行为（表格里空着的格子需要占位符），
+**两者的差异本身就是这条要记的信息**，不要把其中一个改成另一个。
+
+它存在的直接原因是一次真实缺陷：`Number(quote.charge_amount).toFixed(2)` 被就地
+写了三处，而 `FxQuote` 每个字段都是可选的（后端不校验上游的 200），于是缺字段时
+渲染出 **`¥NaN`**，位置正好是用户按下付款前看的最后一行。守卫只该存在一次。
+
 
 ## 2026-07-28（补）— 免费额度专用 `creditMoney`，6 位小数
 
@@ -43,6 +58,10 @@ copy-paste 漂移,且纯函数可独立单测(12 用例)。
 
 ## 各 helper 的语义决策
 
+> **2026-08-19 补**:本节列的是 `money` / `freeTierPctLeft` / `formatPeriod` /
+> `formatDate`,现在还有第五个 `moneyOrNull` —— 判断写在顶部条目里,不在这里重复。
+
+
 - `money()`:NetMind 金额字符串可带 4 位小数("9.9300")→ 固定显示 2 位;
   null/空/垃圾 → "—"(绝不显示 NaN)。
 - `freeTierPctLeft()`:**取 input/output 两条中更耗尽的一侧**(min)——那才是
@@ -56,5 +75,5 @@ copy-paste 漂移,且纯函数可独立单测(12 用例)。
 
 ## 上下游
 
-消费方:[[NetmindAccountPanel]]、[[NetmindUpsellCard]]。输入形状来自
+消费方:[[NetmindAccountPanel]]、[[NetmindUpsellCard]]、[[NetmindTopUpControls]]、[[NetmindProPurchase]]（后两个 2026-08-19 起，都是为了不再就地写 `Number().toFixed()`）。输入形状来自
 `QuotaMeResponse` / `SubscriptionPlan`(frontend/src/types/api.ts)。

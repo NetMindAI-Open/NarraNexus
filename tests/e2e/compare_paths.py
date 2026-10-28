@@ -10,7 +10,11 @@ for "why does CHAT succeed but MANYFOLD fail with invalid beta flag".
 """
 
 from __future__ import annotations
-import asyncio, json, os, sys, time
+import asyncio
+import json
+import os
+import sys
+import time
 import httpx
 import websockets
 
@@ -63,7 +67,7 @@ async def path_a_ws():
 
 
 async def path_b_manyfold():
-    print(f"=== Path B: POST /v1/chat/completions Bearer (working_source=manyfold) ===")
+    print("=== Path B: POST /v1/chat/completions Bearer (working_source=manyfold) ===")
     url = f"http://{HOST}/v1/chat/completions"
     body = {
         "model": AGENT,

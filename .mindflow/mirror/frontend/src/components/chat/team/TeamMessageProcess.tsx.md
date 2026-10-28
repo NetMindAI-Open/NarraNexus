@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/team/TeamMessageProcess.tsx
-last_verified: 2026-07-31
+last_verified: 2026-08-19
 stub: false
 ---
+
+## 2026-08-19 — 移到气泡顶部
+
+挂载点从 [[TeamMessageFooter]] 移到 [[TeamChatPanel]] 的 renderHeader
+(经 [[TeamMessageBubble]] 新 header 插槽);样式从 mt/border-t 翻成
+mb/border-b(顶部形态,单聊同款)。
 
 # team/TeamMessageProcess.tsx — per-message "view reasoning & tools"
 

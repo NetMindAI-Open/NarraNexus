@@ -9,7 +9,7 @@ and name, so the summary should say WHAT happened, not repeat the source. It
 uses the channel_tag the IM triggers attach (sender / room) to be informative
 instead of the old "Background activity (wechat)" boilerplate.
 """
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 
 
 def _summary(working_source, **tag):

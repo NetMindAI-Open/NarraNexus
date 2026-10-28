@@ -37,7 +37,8 @@ export interface JobComplexJobRequest {
 
 export interface CreateJobComplexRequest {
   agent_id: string;
-  user_id: string;
+  // No user_id: the backend derives identity from the authenticated request,
+  // never the body (a body-supplied user_id was the create_job_complex IDOR).
   group_id?: string;
   jobs: JobComplexJobRequest[];
 }

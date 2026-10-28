@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactPreviewCard.tsx
-last_verified: 2026-05-15
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 改查 `ARTIFACT_KINDS` 注册表并订阅
+
+`KIND_REGISTRY[kind]` → `ARTIFACT_KINDS.get(kind)`，并 `useRegistryEntries(ARTIFACT_KINDS)` 订阅：插件在首屏之后
+注册的 kind 会让已打开的视图重渲染，而不是停在「不支持的类型」。
+
+## 2026-08-19 — setCollapsed 死调用移除(下方 08-12 条的调用顺序不变量随之失效)
+
+`open()` 里的 `setCollapsed(false)` 删除——v4 后 artifactStore 的 `collapsed`
+无人再读,该写入是空操作(见 [[ArtifactColumn]]/[[artifactStore]] 08-19 条)。
+点击行为不变:`restoreTab(artifact_id)` 独自完成打开。下方 08-12 条里
+「setCollapsed(false) 必须先于 setActive()」的顺序契约与「Reads from
+setCollapsed」「经 setCollapsed 间接唤醒 ArtifactColumn」的描述**已随删除
+失效**,以本条为准。[[ArtifactInlineBadge]] 的同名调用同轮删除。
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+同 InlineBadge:激活改 `restoreTab`,防激活到最小化 tab。
 
 ## 2026-05-15 — no longer mounted from chat
 
@@ -54,3 +72,10 @@ The `useEffect` dependency array uses stable scalar fields `(kind, agent_id, art
 **Error path (I3, 2026-05-09)**: The fetch chain now checks `r.ok` and catches network errors. A `previewError` state slot stores the error string; when set, a small red fallback line renders below the thumbnail area. The effect uses an async IIFE (matching ChartRenderer's pattern) so that the `setPreviewError(null)` reset and the async `setPreviewError(String(e))` are in the same async microtask batch — required by `react-hooks/set-state-in-effect` (eslint-plugin-react-hooks v7).
 
 **No spinner-forever bug**: Previously, a failed fetch would leave csvHead/mdHead as null with no error indicator, producing an empty 80px div with no feedback. The error path makes the failure visible.
+
+## 2026-08-19 — kind 分支改查注册表
+
+`kind ===` 链换成 `KIND_REGISTRY[kind].preview` 策略
+(image/csv-head/md-head/placeholder/none)+ `previewPlaceholderKey`。
+行为逐一保持(office-live/x-url 依旧无预览体)。加 kind 的预览形态
+在注册表声明,本组件不再改。

@@ -43,7 +43,7 @@ async def test_m0002_moves_flat_to_nested_and_is_idempotent(tmp_path, monkeypatc
     _make_flat(tmp_path, "agent_a1_userx")
     _make_flat(tmp_path, "agent_b2_usery")
 
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
 
     db = _FakeDB({"userx", "usery"})
@@ -63,7 +63,7 @@ async def test_m0002_moves_flat_to_nested_and_is_idempotent(tmp_path, monkeypatc
 async def test_m0002_unknown_owner_left_in_place(tmp_path, monkeypatch):
     _make_flat(tmp_path, "agent_a1_stranger")  # 'stranger' not a known user
 
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
 
     db = _FakeDB({"userx"})
@@ -79,7 +79,7 @@ async def test_m0002_tolerates_missing_users_table(tmp_path, monkeypatch):
     # the startup runner; it just migrates nothing.
     _make_flat(tmp_path, "agent_a1_userx")
 
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
 
     class _BadDB:
@@ -94,7 +94,7 @@ async def test_m0002_tolerates_missing_users_table(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_m0002_noop_when_base_dir_missing(tmp_path, monkeypatch):
     # Fresh install with no workspaces dir yet — early no-op, db untouched.
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "does_not_exist"))
 
     stats = await MIGRATION.apply(object())  # db must never be touched

@@ -1,8 +1,29 @@
 ---
 code_file: backend/routes/agents/core.py
-last_verified: 2026-07-13
+last_verified: 2026-09-04
 stub: false
 ---
+
+## 2026-08-11 (PR-A) — 挂载 channel_credentials_router
+
+新增 [[channel_credentials]] 路由（`GET /{agent_id}/channels/{channel}/credential` + `/channels/name`）到 /api/agents，
+是 [[channel_store]] HttpStore 的后端孪生（返回原始 channel 密钥，service+owner 双门）。
+
+## 2026-08-10 (PR-9) — 挂载 profile_router
+
+新增 [[profile]] seam 孪生路由（`POST /{agent_id}/profile/update`）到 /api/agents 前缀下，与其它 seam 路由并列。
+
+## 2026-08-10 (PR-8) — 挂载 jobs_router（job 读 seam 孪生，agent-scoped）
+
+新增 [[jobs]] 路由聚合到 `/api/agents`，与 narrative/general_memory 等 seam 路由并列。
+
+
+## 2026-08-10 — 挂载 general_memory / narrative 子路由（MCP seam PR-2）
+
+`include_router(general_memory_router)` + `include_router(narrative_router)`,
+把 [[general_memory]] 与 [[narrative]] 的端点挂进 `/api/agents`——MCP 数据访问
+seam 的 backend 半边(remember/grep/retain 与 view/switch/create)。纯聚合注册,
+逻辑在各子路由文件。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
@@ -46,3 +67,11 @@ is the recovery half of the NetMindAI-Open/NarraNexus#52 fix — see
 ## 新人易踩的坑
 
 新增 agent 资源子域时，需要同时做两件事：创建新的 `agents_xxx.py` 文件，并在本文件里 import 并 `router.include_router()`。只做一步会导致路由要么缺失要么孤立。
+
+## 2026-09-04 · data-access providers (batch 3c.4)
+
+The six data-access twin routers (awareness, social_network, chat_history, narrative, jobs, profile) are no longer included here: they are `backend.routes` contributions of their builtin plugins and are mounted under `/api/agents` by `backend/plugins_host.mount_plugin_routes`, so the HTTP twin disappears together with the capability when the plugin is disabled.
+
+## 2026-09-04 · mounts the capabilities router (batch 5c)
+
+`/api/agents/{id}/capabilities` joins llm-config under the agents prefix.

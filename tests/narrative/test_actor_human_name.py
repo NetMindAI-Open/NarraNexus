@@ -12,10 +12,10 @@ from datetime import datetime
 
 import pytest
 
-from xyz_agent_context.narrative.models import (
+from narranexus.platform.narrative.models import (
     Narrative, NarrativeInfo, NarrativeActor, NarrativeActorType, NarrativeType,
 )
-from xyz_agent_context.narrative._narrative_impl.prompt_builder import PromptBuilder
+from narranexus.platform.narrative._narrative_impl.prompt_builder import PromptBuilder
 
 
 def _narrative(actors):
@@ -35,7 +35,7 @@ def _narrative(actors):
 
 @pytest.mark.asyncio
 async def test_user_actor_rendered_as_name_agent_kept_as_id(db_client, monkeypatch):
-    import xyz_agent_context.utils.db.db_factory as dbf
+    import narranexus.platform.utils.db.db_factory as dbf
     async def _fake_db():
         return db_client
     monkeypatch.setattr(dbf, "get_db_client", _fake_db)

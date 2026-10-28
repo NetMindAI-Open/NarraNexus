@@ -13,11 +13,13 @@
  * helpers in lib/agentFramework so this offers exactly the same choices the
  * Settings default editor does.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useFlashFlag } from '@/hooks/useFlashFlag';
 import { Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
+import { refreshOnboardDefaults } from '@/lib/onboardDefaults';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
@@ -25,13 +27,19 @@ import {
   providerBacksFramework,
   getModelsForSlot,
   prettifyModel,
-  RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
+  defaultAgentModel,
+  recommendedHelperModel,
+  type OnboardDefaults,
   cloudNetmindOnly,
   frameworkAllowedInCloud,
   isSlotBindableSource,
+  frameworkAvailabilityMap,
+  withFrameworkAvailability,
+  isFrameworkAvailable,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
+  type LiveFrameworkEntry,
 } from '@/lib/agentFramework';
 import type { AgentSlotView, AgentSlotEffective } from '@/types';
 
@@ -56,7 +64,8 @@ const EMPTY_DRAFT: Draft = {
   model: '',
   thinking: '',
   reasoning_effort: '',
-  agent_framework: 'claude_code',
+  // Filled by load() — no hardcoded framework id (see ownerFramework below).
+  agent_framework: '',
 };
 
 function draftFrom(eff: AgentSlotEffective | null, fallbackFramework: string): Draft {
@@ -86,8 +95,22 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // wry webview doesn't render window.alert, so never use the native one.
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
+  // Server-owned per-source default models (see lib/onboardDefaults); {} until loaded.
+  const [onboardDefaults, setOnboardDefaults] = useState<OnboardDefaults>({});
   const [slots, setSlots] = useState<Record<string, AgentSlotView>>({});
+  // Plugin-install gate (Claude Code / Codex CLI are user-installed local
+  // plugins, not baked into the image) — name→available. This is an
+  // account-wide fact, not per-agent, but the agent-framework endpoint is
+  // the only place it's reported, so it's fetched alongside the per-agent
+  // config on every open.
+  const [frameworkAvailability, setFrameworkAvailability] = useState<Record<string, boolean>>({});
+  // The live `frameworks[]` list itself (B6, 2026-09-07 final cut) —
+  // `providerBacksFramework` reads `protocol`/`oauth_source` straight off it
+  // and fails closed with no hardcoded fallback, so this stays `undefined`
+  // (not `[]`) until a response actually lands.
+  const [liveFrameworks, setLiveFrameworks] = useState<LiveFrameworkEntry[] | undefined>(undefined);
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
+  const knobIds = useId();
   const [helperDraft, setHelperDraft] = useState<Draft>(EMPTY_DRAFT);
   // Snapshot of what was loaded — so Save only writes slots the user changed.
   const [agentInitial, setAgentInitial] = useState<Draft>(EMPTY_DRAFT);
@@ -95,35 +118,55 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  // While the owner's cloud free tier has budget, the runtime pins every run to
-  // the fixed system model and ignores what's edited here — surface that
-  // honestly (the edits still persist and apply once the free tier is spent).
-  const [freeTier, setFreeTier] = useState<{ active: boolean; model: string | null }>({
-    active: false,
-    model: null,
-  });
+  // Success feedback (GitHub #96): a Save that landed used to look
+  // identical to a click that did nothing — the dialog stays open by
+  // design (see file header), but nothing told the user it worked. Mirrors
+  // ModelDefaultsSettings' "✓ Saved" indicator so the two editors read the
+  // same way.
+  const [saved, flashSaved] = useFlashFlag(2500);
 
-  const load = useCallback(async () => {
+  // `keepHelperDraft`: after a partial save, reload the stored state but keep
+  // the user's still-unsaved helper edit in the draft.
+  const load = useCallback(async (keepHelperDraft?: Draft) => {
     setLoading(true);
     setError('');
     try {
-      const [cfgRes, provRes] = await Promise.all([
+      const [cfgRes, provRes, fwRes, defaultsRes] = await Promise.all([
         api.getAgentLlmConfig(agentId),
         api.getProviders(),
+        api.getAgentFramework(),
+        // Per-source default models are server-owned; never rejects, reports ok.
+        refreshOnboardDefaults(),
       ]);
-      const provMap = (provRes?.data?.providers ?? {}) as Record<string, ProviderSummary>;
+      const provMap = (provRes?.data?.providers ?? {});
       setProviders(provMap);
+      // Whole replace; a failed fetch keeps the previous table (and says so below).
+      if (defaultsRes.ok) setOnboardDefaults(defaultsRes.defaults);
+      const liveFwList = fwRes?.success ? fwRes.data.frameworks : undefined;
+      setFrameworkAvailability(frameworkAvailabilityMap(liveFwList));
+      setLiveFrameworks(liveFwList);
       const s = (cfgRes?.data?.slots ?? {}) as Record<string, AgentSlotView>;
       setSlots(s);
-      setFreeTier(cfgRes?.data?.free_tier ?? { active: false, model: null });
+      // No owner slot bound → the framework the backend resolved for this
+      // user (its default already skips uninstalled plugins). Never a
+      // frontend literal: a hardcoded id can name a framework whose plugin
+      // is not installed on this build.
       const ownerFramework =
-        s.agent?.owner_default?.agent_framework || 'claude_code';
+        s.agent?.owner_default?.agent_framework || (fwRes?.success ? fwRes.data.framework : '');
       const a = draftFrom(s.agent?.effective ?? null, ownerFramework);
-      const h = draftFrom(s.helper_llm?.effective ?? null, 'claude_code');
+      // The helper slot carries no framework (its save never sends one).
+      const h = draftFrom(s.helper_llm?.effective ?? null, '');
       setAgentDraft(a);
-      setHelperDraft(h);
+      setHelperDraft(keepHelperDraft ?? h);
       setAgentInitial(a);
       setHelperInitial(h);
+      // A soft failure of the framework endpoint leaves no framework list to
+      // offer (and providerBacksFramework fails closed on it), so the form
+      // would render an empty framework select with no explanation. Say the
+      // load failed instead.
+      // The same goes for the server's onboarding defaults: without them a
+      // NetMind card would silently auto-select its omni list head.
+      if (!fwRes?.success || !defaultsRes.ok) setError(t('pages.settings.modelDefaults.loadFailed'));
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {
@@ -148,12 +191,15 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     (p) => !netmindOnly || isSlotBindableSource(p.source),
   );
   const agentProviders = bindableProviders.filter((p) =>
-    providerBacksFramework(p, agentDraft.agent_framework),
+    providerBacksFramework(p, agentDraft.agent_framework, liveFrameworks),
   );
   // Hide frameworks no bindable card can drive — picking one would leave the
-  // provider dropdown empty and the save rejected.
-  const frameworkOptions = availableFrameworks(
-    bindableProviders, agentDraft.agent_framework,
+  // provider dropdown empty and the save rejected. Plugin availability is
+  // layered on top and never hides further (see ModelDefaultsSettings for
+  // the shared rationale).
+  const frameworkOptions = withFrameworkAvailability(
+    availableFrameworks(bindableProviders, agentDraft.agent_framework, liveFrameworks),
+    frameworkAvailability,
   );
   const frameworksHidden = frameworkOptions.length < AGENT_FRAMEWORKS.length;
 
@@ -202,10 +248,19 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           provider_id: helperDraft.provider_id,
           model: helperDraft.model,
         });
-        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
+        if (!r.success) {
+          const failure = r.detail || t('pages.settings.modelDefaults.saveFailed');
+          if (!agentChanged) { setError(failure); return; }
+          // The agent half landed: reload it as saved, keep the helper edit.
+          await load(helperDraft);
+          onSaved?.();
+          setError(t('pages.settings.modelDefaults.agentSavedHelperFailed', { detail: failure }));
+          return;
+        }
       }
       await load();
       onSaved?.();
+      flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
@@ -220,6 +275,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       await api.resetAgentLlmConfig(agentId, slot);
       await load();
       onSaved?.();
+      flashSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.resetFailed'));
     } finally {
@@ -228,12 +284,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   };
 
   const selectCls =
-    'w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50';
+    'w-full px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50';
   const labelCls = 'block text-xs text-[var(--text-tertiary)] mb-1';
   const btnPrimary =
-    'px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
+    'px-4 py-2 text-sm font-medium rounded-[var(--radius-lg)] bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors';
   const btnGhost =
-    'px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors';
+    'px-3 py-2 text-sm rounded-[var(--radius-lg)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--nm-paper-warm)] disabled:opacity-40 transition-colors';
   const resetLink =
     'text-xs text-[var(--text-tertiary)] underline decoration-dotted hover:text-[var(--color-error)] transition-colors disabled:opacity-40';
 
@@ -248,10 +304,13 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
       </span>
     );
 
-  const helperRecModel =
-    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[
-      providers[helperDraft.provider_id]?.protocol || 'openai'
-    ] || 'gpt-5.4-mini';
+  const helperProvider = providers[helperDraft.provider_id];
+  const helperRecModel = recommendedHelperModel(
+    helperProvider?.source,
+    helperProvider?.protocol,
+    helperProvider ? getModelsForSlot(helperProvider, 'helper_llm', null, {}).map((m) => m.model_id) : [],
+    onboardDefaults,
+  );
 
   return (
     <>
@@ -268,19 +327,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
           </p>
         ) : (
           <div className="space-y-6">
-            {freeTier.active && (
-              <div className="rounded-xl border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-4 py-3 text-sm text-[var(--text-secondary)]">
-                {t('chat.model.freeTierBanner', {
-                  model: freeTier.model ? prettifyModel(freeTier.model) : '',
-                })}
-              </div>
-            )}
             <p className="text-sm text-[var(--text-tertiary)]">
               {t('pages.settings.modelDefaults.agentOnlyDescription', { agentId })}
             </p>
 
             {/* ---- Agent slot ---- */}
-            <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+            <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-[var(--text-primary)]">
                   {t('pages.settings.modelDefaults.agentMain')}
@@ -302,6 +354,37 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                     className={selectCls}
                     value={agentDraft.agent_framework}
                     onChange={(e) => {
+                      const picked = frameworkOptions.find((f) => f.id === e.target.value);
+                      // Plugin-install gate first — a framework backed by a
+                      // local plugin (Claude Code / Codex CLI) the user
+                      // hasn't installed can't be saved even though the
+                      // native <option disabled> already blocks most UIs
+                      // from reaching this branch.
+                      if (picked && !isFrameworkAvailable(picked)) {
+                        void showNotice({
+                          title: t(
+                            'pages.settings.modelDefaults.pluginRequiredTitle',
+                            'Plugin required',
+                          ),
+                          message: (
+                            <>
+                              {t(
+                                'pages.settings.modelDefaults.pluginRequired',
+                                'This framework needs its plugin installed first.',
+                              )}{' '}
+                              <button
+                                type="button"
+                                onClick={() => { onClose(); navigate('/app/settings?tab=plugins'); }}
+                                className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80"
+                              >
+                                {t('pages.settings.modelDefaults.pluginRequiredLink', 'Go to Settings › Plugins →')}
+                              </button>
+                            </>
+                          ),
+                        });
+                        e.target.value = agentDraft.agent_framework;
+                        return;
+                      }
                       // Ask the shared predicate, never re-derive the rule:
                       // the inlined `!== 'claude_code'` here and in
                       // ModelDefaultsSettings both kept rejecting NexusPower
@@ -330,7 +413,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                     }}
                   >
                     {frameworkOptions.map((f) => (
-                      <option key={f.id} value={f.id}>{f.label} — {f.desc}</option>
+                      <option key={f.id} value={f.id} disabled={!isFrameworkAvailable(f)}>
+                        {f.label} — {f.desc}
+                        {!isFrameworkAvailable(f)
+                          ? ` (${t('pages.settings.modelDefaults.pluginNotInstalledSuffix', 'plugin not installed')})`
+                          : ''}
+                      </option>
                     ))}
                   </select>
                   {frameworksHidden && (
@@ -355,7 +443,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                         ? getModelsForSlot(prov, 'agent', agentDraft.agent_framework, {})
                         : [];
                       setAgentDraft((d) => ({
-                        ...d, provider_id: pid, model: models[0]?.model_id || '',
+                        ...d, provider_id: pid, model: defaultAgentModel(prov?.source, models.map((m) => m.model_id), onboardDefaults),
                       }));
                     }}
                   >
@@ -385,10 +473,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
+                  {/* Thinking / reasoning effort belong to the slot binding:
+                      editable only once a provider is chosen, like the model. */}
+                  <label htmlFor={`${knobIds}-thinking`} className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
                   <select
+                    id={`${knobIds}-thinking`}
                     className={selectCls}
                     value={agentDraft.thinking}
+                    disabled={!agentDraft.provider_id}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}
                   >
                     <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
@@ -398,10 +490,12 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                 </div>
 
                 <div>
-                  <label className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
+                  <label htmlFor={`${knobIds}-effort`} className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
                   <select
+                    id={`${knobIds}-effort`}
                     className={selectCls}
                     value={agentDraft.reasoning_effort}
+                    disabled={!agentDraft.provider_id}
                     onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}
                   >
                     <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
@@ -423,7 +517,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
             </div>
 
             {/* ---- Helper slot ---- */}
-            <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+            <div className="p-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-[var(--text-primary)]">
                   {t('pages.settings.modelDefaults.helperTitle')}
@@ -441,7 +535,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                       const pid = e.target.value;
                       const prov = providers[pid];
                       const models = prov ? getModelsForSlot(prov, 'helper_llm', null, {}) : [];
-                      const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id));
+                      const model = defaultHelperModel(prov?.source, prov?.protocol, models.map((m) => m.model_id), onboardDefaults);
                       setHelperDraft((d) => ({ ...d, provider_id: pid, model }));
                     }}
                   >
@@ -525,6 +619,11 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
             ? t('pages.settings.modelDefaults.saving')
             : t('pages.settings.modelDefaults.save')}
         </button>
+        {saved && !isDirty && (
+          <span className="text-sm text-[var(--color-success)]">
+            ✓ {t('pages.settings.modelDefaults.saved')}
+          </span>
+        )}
       </DialogFooter>
     </Dialog>
     {noticeDialog}

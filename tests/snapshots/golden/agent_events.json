@@ -1,0 +1,36 @@
+{
+  "api_version": 0,
+  "cli_error_types": [
+    "authentication_failed",
+    "billing_error",
+    "invalid_request",
+    "rate_limit",
+    "server_error",
+    "unknown"
+  ],
+  "data_types": [
+    "response.text.delta",
+    "response.done",
+    "response.error",
+    "response.usage",
+    "response.reply.delta",
+    "response.retry"
+  ],
+  "done_superseded_key": "superseded_by_retry",
+  "families": [
+    "raw_response_event",
+    "run_item_stream_event"
+  ],
+  "item_types": [
+    "thinking_item",
+    "tool_call_item",
+    "tool_call_output_item",
+    "message_output_item",
+    "plan_item"
+  ],
+  "usage_cache_creation_key": "cache_creation_input_tokens",
+  "usage_cache_read_keys": [
+    "cache_read_input_tokens",
+    "cached_input_tokens"
+  ]
+}

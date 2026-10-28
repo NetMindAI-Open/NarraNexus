@@ -8,8 +8,8 @@ the (local, tz, utc) triple from a TriggerConfig.
 from datetime import datetime, timezone as dt_tz
 import pytest
 
-from xyz_agent_context.schema.job_schema import TriggerConfig, JobType
-from xyz_agent_context.module.job_module._job_scheduling import (
+from narranexus.platform.schema.job_schema import TriggerConfig, JobType
+from narranexus.platform.utils.job_scheduling import (
     compute_next_run,
     NextRunTuple,
 )

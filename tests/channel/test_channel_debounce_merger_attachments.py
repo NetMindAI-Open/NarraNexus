@@ -16,8 +16,8 @@ from typing import Any
 
 import pytest
 
-from xyz_agent_context.channel.channel_debounce_merger import ChannelDebounceMerger
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.channel.channel_debounce_merger import ChannelDebounceMerger
+from narranexus.platform.schema.parsed_message import ParsedMessage
 
 
 def _msg_with_refs(

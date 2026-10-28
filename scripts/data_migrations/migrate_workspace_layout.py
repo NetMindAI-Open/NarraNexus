@@ -23,14 +23,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.workspace_paths import migrate_flat_to_nested
+from narranexus.platform.settings import settings
+from narranexus.platform.utils.workspace_paths import migrate_flat_to_nested
 
 
 async def _load_known_user_ids() -> set[str]:
     """Authoritative real user ids from the DB — needed to disambiguate the
     legacy ``_user_`` infix form from a real user id starting with ``user_``."""
-    from xyz_agent_context.utils import get_db_client
+    from narranexus.platform.utils import get_db_client
     db = await get_db_client()
     rows = await db.execute("SELECT user_id FROM users", (), fetch=True)
     return {r["user_id"] for r in (rows or []) if r.get("user_id")}

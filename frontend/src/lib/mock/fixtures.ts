@@ -50,6 +50,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-14 * ONE_DAY),
     is_public: false,
     created_by: MOCK_USER_ID,
+    bound_channels: [{ channel: 'lark', active: true }, { channel: 'slack', active: false }],
     bootstrap_active: false,
   },
   {
@@ -60,6 +61,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-7 * ONE_DAY),
     is_public: true,
     created_by: MOCK_USER_ID,
+    bound_channels: [{ channel: 'telegram', active: true }],
     bootstrap_active: false,
   },
   {
@@ -70,6 +72,7 @@ export const mockAgents: AgentInfo[] = [
     created_at: iso(-30 * ONE_DAY),
     is_public: false,
     created_by: 'ops.team',
+    bound_channels: [],
     bootstrap_active: false,
   },
 ];
@@ -633,24 +636,22 @@ export const mockCostSummary: CostSummary = {
   total_output_tokens: 218_900,
   total_cache_read_tokens: 3_600_000,
   total_cache_creation_tokens: 640_000,
+  // GET /api/agents/{id}/costs does NOT key by model id: it buckets every row
+  // by call_type into exactly these two synthetic keys (backend/routes/agents/
+  // cost.py). A fixture full of plausible model ids is how a raw
+  // `__main_model__` once reached a real account page — the code that renders
+  // it was written against a shape the backend never returns. Demo mode must
+  // show the same shape production does.
   by_model: {
-    'claude-sonnet-4.6': {
-      cost: 8.12,
-      input_tokens: 820_000,
-      output_tokens: 140_000,
-      cache_read_tokens: 2_400_000,
-      cache_creation_tokens: 420_000,
-      call_count: 148,
+    __main_model__: {
+      cost: 11.87,
+      input_tokens: 1_068_000,
+      output_tokens: 198_000,
+      cache_read_tokens: 3_100_000,
+      cache_creation_tokens: 540_000,
+      call_count: 170,
     },
-    'claude-opus-4.8': {
-      cost: 3.75,
-      input_tokens: 248_000,
-      output_tokens: 58_000,
-      cache_read_tokens: 700_000,
-      cache_creation_tokens: 120_000,
-      call_count: 22,
-    },
-    'claude-haiku-4.5': {
+    __helper_model__: {
       cost: 0.60,
       input_tokens: 180_300,
       output_tokens: 20_900,
@@ -755,7 +756,7 @@ const ownedAtlas: OwnedAgentStatus = {
     active_narratives: 2,
     unread_bus_messages: 4,
   },
-  queue: { running: 1, active: 1, pending: 2, blocked: 1, paused: 1, failed: 1, total: 7 },
+  queue: { running: 1, active: 1, pending: 2, blocked: 1, paused: 1, failed: 1, cooling: 0, paused_no_quota: 0, blocked_failed: 0, paused_spend_cap: 0, total: 7 },
   recent_events: [
     { event_id: 'evt_001', kind: 'running', verb: 'summarising', target: 'Chen et al. 2026', created_at: iso(-2 * ONE_MIN) },
     { event_id: 'evt_002', kind: 'completed', verb: 'fetched', target: '12 papers', duration_ms: 3800, created_at: iso(-10 * ONE_MIN) },
@@ -795,7 +796,7 @@ const ownedScribe: OwnedAgentStatus = {
   running_jobs: [],
   pending_jobs: [],
   enhanced: { recent_errors_1h: 0, token_rate_1h: null, active_narratives: 1, unread_bus_messages: 1 },
-  queue: { running: 0, active: 0, pending: 0, blocked: 0, paused: 0, failed: 0, total: 0 },
+  queue: { running: 0, active: 0, pending: 0, blocked: 0, paused: 0, failed: 0, cooling: 0, paused_no_quota: 0, blocked_failed: 0, paused_spend_cap: 0, total: 0 },
   recent_events: [
     { event_id: 'evt_s01', kind: 'chat', verb: 'replied', target: 'dana.kim', duration_ms: 800, created_at: iso(-2 * ONE_HOUR) },
   ],
@@ -823,7 +824,7 @@ const ownedSentry: OwnedAgentStatus = {
   ],
   pending_jobs: [],
   enhanced: { recent_errors_1h: 2, token_rate_1h: 820, active_narratives: 1, unread_bus_messages: 3 },
-  queue: { running: 1, active: 0, pending: 0, blocked: 0, paused: 0, failed: 1, total: 2 },
+  queue: { running: 1, active: 0, pending: 0, blocked: 0, paused: 0, failed: 1, cooling: 0, paused_no_quota: 0, blocked_failed: 0, paused_spend_cap: 0, total: 2 },
   recent_events: [
     { event_id: 'evt_x01', kind: 'failed', verb: 'build failed', target: 'main#4821', duration_ms: 185000, created_at: iso(-2 * ONE_MIN) },
   ],

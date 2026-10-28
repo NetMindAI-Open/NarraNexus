@@ -97,7 +97,7 @@ export function InstallDialog({
           </h3>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+            className="p-1.5 rounded-[var(--radius-lg)] hover:bg-[var(--nm-paper-warm)] transition-colors"
           >
             <X className="w-4 h-4 text-[var(--text-tertiary)]" />
           </button>
@@ -116,7 +116,7 @@ export function InstallDialog({
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://github.com/username/skill-repo"
-                  className="w-full px-4 py-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
+                  className="w-full px-4 py-2.5 rounded-[var(--radius-xl)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
                 />
               </div>
 
@@ -129,7 +129,7 @@ export function InstallDialog({
                   value={branch}
                   onChange={(e) => setBranch(e.target.value)}
                   placeholder="main"
-                  className="w-full px-4 py-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
+                  className="w-full px-4 py-2.5 rounded-[var(--radius-xl)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
                 />
               </div>
             </>
@@ -143,7 +143,7 @@ export function InstallDialog({
               </label>
               <div
                 className={cn(
-                  'relative border-2 border-dashed rounded-xl p-6 transition-colors cursor-pointer',
+                  'relative border-2 border-dashed rounded-[var(--radius-xl)] p-6 transition-colors cursor-pointer',
                   file
                     ? 'border-[var(--color-success)] bg-[var(--color-success)]/5'
                     : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/50'
@@ -182,13 +182,13 @@ export function InstallDialog({
 
           {/* Error */}
           {error && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-lg)] bg-[var(--color-error)]/10 border border-[var(--color-error)]/20">
               <AlertCircle className="w-4 h-4 text-[var(--color-error)]" />
               <span className="text-xs text-[var(--color-error)]">{error}</span>
             </div>
           )}
 
-          <div className="rounded-lg border border-[var(--color-warning)]/20 bg-[var(--color-warning)]/8 px-3 py-2">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--color-warning)]/20 bg-[var(--color-warning)]/8 px-3 py-2">
             <p className="text-xs text-[var(--text-secondary)]">
               {t('skills.install.trustWarning')}
             </p>

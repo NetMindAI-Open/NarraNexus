@@ -6,7 +6,7 @@ last_verified: 2026-07-21
 
 ## Why it exists
 
-Thin dev CLI over the Agent Migration Scanner (`xyz_agent_context.migration`):
+Thin dev CLI over the Agent Migration Scanner (`narranexus.platform.migration`):
 `detect` (list frameworks in the standard home locations) and `scan [--path]
 [--framework]` (detect + extract → standardized JSON on stdout). For local
 exploration/testing while the Import Button UI is not built yet; the primary

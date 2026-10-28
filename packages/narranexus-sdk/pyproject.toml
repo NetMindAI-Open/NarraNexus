@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "narranexus-sdk"
+version = "1.15.0"
+description = "NarraNexus plugin SDK for Python: the PluginTestHost and testing helpers a plugin runs its tests against."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.13"
+dependencies = ["narranexus-contracts"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narranexus"]

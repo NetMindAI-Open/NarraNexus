@@ -25,7 +25,7 @@ so the diff is centralised).
 """
 from __future__ import annotations
 
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
 
 
 # Every p2 IM event the lark_oapi SDK exposes a register_p2_im_* method

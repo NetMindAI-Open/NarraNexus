@@ -43,9 +43,9 @@ function Stat({
 }) {
   const valueCls =
     tone === 'success'
-      ? 'text-[var(--color-green-500)]'
+      ? 'text-[var(--color-success)]'
       : tone === 'danger'
-        ? 'text-[var(--color-red-500)]'
+        ? 'text-[var(--color-error)]'
         : 'text-[var(--text-primary)]';
   return (
     <span

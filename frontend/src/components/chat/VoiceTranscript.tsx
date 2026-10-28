@@ -81,7 +81,7 @@ export function VoiceTranscript({
   return (
     <div
       className={cn(
-        'flex flex-col gap-1.5 max-w-[420px] rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-3 py-2',
+        'flex flex-col gap-1.5 max-w-[420px] rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-3 py-2',
         className,
       )}
     >

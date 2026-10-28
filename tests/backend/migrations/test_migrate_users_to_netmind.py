@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 _SCRIPT = (
     Path(__file__).resolve().parents[3] / "scripts" / "data_migrations" / "migrate_users_to_netmind.py"

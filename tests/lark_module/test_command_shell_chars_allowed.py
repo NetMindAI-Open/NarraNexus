@@ -18,7 +18,7 @@ These tests prevent re-introducing the denylist.
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_command_security import (
+from narranexus_plugins.lark_module._lark_command_security import (
     sanitize_command,
     validate_command,
 )

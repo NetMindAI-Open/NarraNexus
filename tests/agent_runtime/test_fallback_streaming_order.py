@@ -15,7 +15,7 @@ broke" UX even when we recovered cleanly. So the recovery generator
 must always yield in this order:
 
 1. ``AgentTextDelta`` frames from the helper_llm stream (zero or more).
-2. ``ProgressMessage`` synthesising a ``send_message_to_user_directly``
+2. ``ProgressMessage`` synthesising a ``reply_owner``
    tool call carrying ``details.reply_via`` (only if any content
    actually streamed).
 3. ``ErrorMessage`` with the right severity (only if we captured a
@@ -38,10 +38,10 @@ from unittest.mock import patch
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _stream_fallback_recovery,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     AgentTextDelta,
     ErrorMessage,
     ProgressMessage,
@@ -80,7 +80,7 @@ async def test_no_reply_mode_yields_deltas_then_synthetic_no_error():
     runs, we synthesize a tool call, no ErrorMessage at the tail."""
     helper = await _fake_helper_stream(["Hello ", "world"])
     with patch(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
         new=helper,
     ):
         msgs = await _collect(_stream_fallback_recovery(
@@ -114,7 +114,7 @@ async def test_after_error_yields_deltas_then_synthetic_then_recovered_error():
     ErrorMessage(severity=recovered), strictly in that order."""
     helper = await _fake_helper_stream(["Recovered ", "reply."])
     with patch(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
         new=helper,
     ):
         msgs = await _collect(_stream_fallback_recovery(
@@ -151,7 +151,7 @@ async def test_after_error_fallback_also_fails_yields_fatal_error():
     reply, ErrorMessage stays severity=fatal so frontend shows it."""
     helper = await _fake_helper_stream([], raise_after=0)
     with patch(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
         new=helper,
     ):
         msgs = await _collect(_stream_fallback_recovery(
@@ -179,7 +179,7 @@ async def test_after_error_partial_stream_then_fail_marks_partial():
     # Two-element deltas so iteration index 1 actually hits the raise.
     helper = await _fake_helper_stream(["Partial ", "unreachable"], raise_after=1)
     with patch(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
         new=helper,
     ):
         msgs = await _collect(_stream_fallback_recovery(
@@ -223,7 +223,7 @@ async def test_partial_reply_then_error_skips_helper_yields_error_only():
         yield ""  # never reached
 
     with patch(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
         new=_bad,
     ):
         msgs = await _collect(_stream_fallback_recovery(
@@ -281,7 +281,7 @@ async def test_cancellation_mid_stream_aborts_fallback():
         yield "third"
 
     with patch(
-        "xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop._generate_fallback_reply_stream",
         new=_flipping_helper,
     ):
         msgs = await _collect(_stream_fallback_recovery(

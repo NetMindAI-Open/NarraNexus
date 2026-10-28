@@ -17,6 +17,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 import { InnerThoughtCard } from '@/components/chat/InnerThoughtCard';
+import { useUIStore } from '@/stores/uiStore';
 
 const baseItem = {
   id: 'a1',
@@ -70,6 +71,47 @@ describe('InnerThoughtCard', () => {
     await waitFor(() => expect(getEventLogMock).toHaveBeenCalledWith('agent_a', 'evt_1'));
     expect(await screen.findByText('considering the request')).toBeTruthy();
     expect(screen.getByText('web_search')).toBeTruthy();
+  });
+
+  // This card is the ONLY view for turns that sent no reply (background jobs,
+  // channel triggers) — and those turns are nothing but monologue, so the
+  // narration tier matters more here than on either other surface. Must go
+  // through the `timeline` path: the legacy toEntries fallback carries no
+  // tier and would make any tier assertion vacuously false.
+  test('renders monologue at the progress tier, chain-of-thought receded', async () => {
+    useUIStore.setState({ interimNarration: true });
+    getEventLogMock.mockResolvedValue({
+      success: true,
+      event_id: 'evt_1',
+      tool_calls: [],
+      timeline: [
+        { type: 'thinking', content: 'narrating the step', monologue: true },
+        { type: 'thinking', content: 'private scratchpad', monologue: false },
+      ],
+    });
+    render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+    fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+
+    const narration = await screen.findByText('narrating the step');
+    expect(narration.className).not.toContain('italic');
+    const cot = screen.getByText('private scratchpad');
+    expect(cot.className).toContain('italic');
+  });
+
+  test('with the preference off, monologue falls back to the receded look', async () => {
+    useUIStore.setState({ interimNarration: false });
+    getEventLogMock.mockResolvedValue({
+      success: true,
+      event_id: 'evt_1',
+      tool_calls: [],
+      timeline: [{ type: 'thinking', content: 'narrating the step', monologue: true }],
+    });
+    render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+    fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+
+    const narration = await screen.findByText('narrating the step');
+    expect(narration.className).toContain('italic');
+    useUIStore.setState({ interimNarration: true });
   });
 
   test('falls back to thinking + tool_calls when timeline is absent', async () => {
@@ -198,5 +240,34 @@ describe('run meta header (activity card upgrade)', () => {
     await waitFor(() => {
       expect(screen.getByText('chat.inner.meta.stateFailed')).toBeTruthy();
     });
+  });
+});
+
+describe('InnerThoughtCard tool output renderers', () => {
+  test('an output row inherits its call name and uses the registered tool renderer', async () => {
+    const { TOOL_RENDERERS } = await import('@/platform/registries');
+    const dispose = TOOL_RENDERERS.register('acme_look', {
+      component: ({ output }) => <div data-testid="look-card">{output}</div>,
+    }, { owner: 'acme.tools' });
+    try {
+      getEventLogMock.mockResolvedValue({
+        success: true,
+        event_id: 'evt_1',
+        tool_calls: [],
+        timeline: [
+          { type: 'tool_call', tool_name: 'mcp__acme_module__acme_look', tool_input: {} },
+          // Stored outputs often carry no tool_name: it belongs to the call above.
+          { type: 'tool_output', tool_output: 'looked' },
+          { type: 'tool_call', tool_name: 'web_search', tool_input: {} },
+          { type: 'tool_output', tool_output: 'search results' },
+        ],
+      });
+      render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+      fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+      expect(await screen.findByTestId('look-card')).toHaveTextContent('looked');
+      expect(screen.getByText('search results')).toBeTruthy();
+    } finally {
+      dispose();
+    }
   });
 });

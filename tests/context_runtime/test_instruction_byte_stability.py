@@ -13,7 +13,7 @@ every turn pays full price again. R4 moved the known volatile spans out (into a
 ``[Turn context]`` block at the tail of ``messages``, where changing bytes cost
 nothing), and the transcript work moved history out the same way.
 
-But nothing STOPS the next one from appearing. ``BaseModule.get_instructions``
+But nothing STOPS the next one from appearing. ``BaseModule.contribute_instructions``
 renders ``self.instructions.format(**ctx_data.model_dump())``, so **any** module
 that references a volatile ``ContextData`` field in its template silently becomes
 a drift source. Four have already been found this way, each only after it showed
@@ -31,7 +31,7 @@ test makes the next one fail here instead.
 
 What it does NOT claim
 ----------------------
-It only covers module instructions rendered through ``get_instructions``. The
+It only covers module instructions rendered through ``contribute_instructions``. The
 narrative-name case above lives in ``context_runtime._format_timeline_tag`` (a
 ``messages`` prefix, not ``system``) and is out of scope — see
 ``reference/self_notebook/todo/2026-07-29-narrative-name-in-timeline-prefix.md``.
@@ -41,12 +41,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import MODULE_MAP
-from xyz_agent_context.schema.context_schema import ContextData
+from narranexus.platform.module_system import module_registry
+from narranexus.platform.schema.context_schema import ContextData
 
 # ContextData fields that legitimately differ between two turns of the SAME
 # conversation. A module instruction that varies when only these change has a
-# volatile span in its template and belongs in get_turn_context() instead.
+# volatile span in its template and belongs in contribute_turn_context() instead.
 #
 # Deliberately NOT listed: agent_id / user_id / narrative_id (identity, fixed for
 # a conversation) and deployment_* / agent_info_model_type / model_name
@@ -99,7 +99,8 @@ def _high() -> ContextData:
 #     todo file someone has to remember to read.
 #
 # BasicInfoModule was found in production on 2026-07-29: an agent renaming
-# itself via awareness_module__update_agent_name changed the instruction by ONE
+# itself via the Awareness rename tool (then update_agent_name, since folded
+# into awareness_module__update_agent_profile) changed the instruction by ONE
 # character, which voided the whole prefix behind it (measured ~8,800 full-price
 # tokens on the NetMind path, ~30,000 weighted on CC).
 _KNOWN_DRIFT: dict[str, str] = {
@@ -109,12 +110,12 @@ _KNOWN_DRIFT: dict[str, str] = {
         "prompt. The first two change whenever the agent edits its own identity; "
         "the last four change per SENDER, so any group channel drifts on every "
         "turn from a different person. Fix is the R4 pattern (static pointer in "
-        "get_instructions + the span in get_turn_context)."
+        "contribute_instructions + the span in contribute_turn_context)."
     ),
 }
 
 
-@pytest.mark.parametrize("module_name", sorted(MODULE_MAP))
+@pytest.mark.parametrize("module_name", sorted(module_registry))
 @pytest.mark.asyncio
 async def test_module_instruction_is_byte_stable_across_volatile_state(
     module_name, request
@@ -123,7 +124,7 @@ async def test_module_instruction_is_byte_stable_across_volatile_state(
 
     A failure means that module's template interpolates something that changes
     per turn. The fix is the R4 pattern: keep a static pointer in
-    ``get_instructions`` and emit the volatile span from ``get_turn_context()``
+    ``contribute_instructions`` and emit the volatile span from ``contribute_turn_context()``
     — which lands in the current user message, after the cache prefix. Moving
     bytes, never dropping them.
     """
@@ -133,9 +134,9 @@ async def test_module_instruction_is_byte_stable_across_volatile_state(
         )
 
     try:
-        module = MODULE_MAP[module_name](agent_id=_BASE["agent_id"])
-        a = await module.get_instructions(_low())
-        b = await module.get_instructions(_high())
+        module = module_registry[module_name](agent_id=_BASE["agent_id"])
+        a = await module.contribute_instructions(_low())
+        b = await module.contribute_instructions(_high())
     except (KeyError, AttributeError, TypeError) as e:
         # Either the module needs constructor arguments a bare call cannot supply
         # (the channel modules take a channel spec), or its template references a
@@ -145,9 +146,9 @@ async def test_module_instruction_is_byte_stable_across_volatile_state(
         pytest.skip(f"{module_name} could not render on a synthetic ContextData: {e!r}")
 
     assert a == b, (
-        f"{module_name}.get_instructions() changed when only per-turn volatile "
+        f"{module_name}.contribute_instructions() changed when only per-turn volatile "
         f"state changed — it has a drift source in its template. Move the "
-        f"volatile span to get_turn_context(). Lengths {len(a)} vs {len(b)}."
+        f"volatile span to contribute_turn_context(). Lengths {len(a)} vs {len(b)}."
     )
 
 
@@ -161,12 +162,12 @@ async def test_the_guard_actually_catches_a_drift_source():
     # Subclass a module the guard already constructs successfully, so this
     # exercises the SAME rendering path the parametrized cases use — only the
     # template differs.
-    class _Drifting(MODULE_MAP["ChatModule"]):  # type: ignore[misc]
+    class _Drifting(module_registry["ChatModule"]):  # type: ignore[misc]
         """A module whose template interpolates a volatile field."""
 
     drifting = _Drifting(agent_id="agent_stability")
     drifting.instructions = "the time is {current_time}"
 
-    a = await drifting.get_instructions(_low())
-    b = await drifting.get_instructions(_high())
+    a = await drifting.contribute_instructions(_low())
+    b = await drifting.contribute_instructions(_high())
     assert a != b, "the guard's rendering path is not sensitive to volatile fields"

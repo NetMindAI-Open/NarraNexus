@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/artifacts/users.py
-last_verified: 2026-07-21
+last_verified: 2026-08-18
 stub: false
 ---
 
@@ -69,3 +69,8 @@ option; workspace files are never touched by this endpoint.
   a giant request DOS'ing the lookup loop.
 - `_verify_user_self` is a no-op in local mode; in cloud mode it requires
   the JWT `request.state.user_id` to equal the path `user_id`.
+
+## 2026-08-18 — bulk delete 薄化为 ArtifactService.bulk_delete 调用
+
+归属校验/行捕获/"deleted" 事件staging 全在 Service(删除不可脱离事件被取走);
+路由只保留鉴权与请求/响应形状。

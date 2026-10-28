@@ -1,9 +1,40 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-07-30
+last_verified: 2026-10-28
 stub: false
 ---
 
+## 2026-10-28（PR #419 review I-4）— `assert_agent_visible` 的实现搬走，名字保留
+
+实现移到 [[_ownership.py]] 的 `assert_visible`；本文件 `from backend.routes._ownership import
+assert_visible as assert_agent_visible` 再导出，内部 4 处调用与 [[plugin_sdk_host]] 的 WebHost
+发布面都不变（`test_dashboard_reexports_the_canonical_visibility_helper` 钉住同一对象）。
+
+## 2026-09-10（review r1 C1）— 逐状态循环改为派生自 `_LIVE_JOB_STATES`
+
+`queue_counts` 与 `pending_jobs_items` 原来各自手抄一份状态元组（与 [[_helpers.py]] 的
+`_LIVE_JOB_STATES` 三份副本），加 `paused_spend_cap` 时又漏。现在分别遍历
+`_LIVE_JOB_STATES` / `_QUEUED_JOB_STATES`（后者 = 前者去掉 running），状态集合只在 _helpers
+定义一次；[[_schema.py]] 的响应模型仍需手动同步，由 `test_dashboard_live_job_states.py` 把关。
+
+## 2026-09-07 — `_resolve_viewer` / `_assert_agent_visible` 转公开（批 6c，G2-I1）
+
+改名为 `resolve_viewer` / `assert_agent_visible`。`builtin.job` 的 dashboard router
+自批 6b 起住在插件包里，却在 import 这两个**下划线私有**函数；
+一个第三方复制不到的私有符号被跨包调用，这个下划线就已经在说谎。
+它们现在是 `contracts.web.WebHost` 表面的一部分，由 [[plugin_sdk_host]] 发布，
+插件走 `narranexus.sdk.web`。本文件内部的 4 处调用同批改名。
+
+## 2026-08-27 — 只改了两行注释,但契约本身是这次修的重点
+
+本文件里「所有 6 个 live 状态 / 5 个非 running 状态」的说法早就过时了——实际发的是
+九个和八个。注释已改成不带数字的写法,免得下次加状态时又留下一个说谎的数字。
+
+真正的修复在 [[_schema.py]]:这里发的 `cooling` / `paused_no_quota` /
+`blocked_failed` 和 `next_run_at` / `next_run_timezone` 之前根本过不了
+`response_model=DashboardResponse` 的校验(直接 500)。**本文件是"发什么"的真相源,
+_schema.py 必须跟着它走,不是反过来**——加状态时先改这里,再去 _schema.py 放宽
+Literal,否则接口会在下一个 job 进入新状态时炸掉。
 # backend/routes/dashboard/routes.py — Intent
 
 ## 为什么存在
@@ -88,3 +119,5 @@ Dashboard v2.1 的 API 端点集合（`/api/dashboard/*`），为前端 dashboar
 
 - 任何在本文件里 `SELECT next_run_time ... FROM instance_jobs` 的查询都是错的——它绕开了协议。必须 SELECT β 列并在 response 里暴露 β
 - 排序/筛选的 "时间 cursor" 如果真的要做，内部可以查 α（`next_run_time` UTC），但 response payload 永远只给 β
+
+Merged with the plugin platform (2026-09-06): pages, drawer panels, sidebar items, commands and agent-row badges come from the frontend registries (`platform/registries`, registered in `platform/builtin.ts`); this file keeps dev's behaviour on top of that.

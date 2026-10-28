@@ -28,15 +28,15 @@ from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
-from xyz_agent_context.schema import (
+from backend.routes._ownership import require_owned_workspace_agent
+from narranexus.platform.schema import (
     FileInfo,
     FileListResponse,
     FileUploadResponse,
     FileDeleteResponse,
 )
-from xyz_agent_context.utils.file_safety import (
+from narranexus.platform.utils.file_safety import (
     enforce_max_bytes,
     ensure_within_directory,
     sanitize_filename,
@@ -45,14 +45,35 @@ from xyz_agent_context.utils.file_safety import (
 
 router = APIRouter()
 
+# Hard ceilings for the recursive tree (2026-10-28): the listing used to walk
+# to the bottom with no bound — one request returned 124 MB of other tenants'
+# trees during the incident, and even an honest, file-heavy workspace could
+# pin the backend. Past either cap the walk stops and the response says so.
+MAX_TREE_NODES = 5000
+MAX_TREE_DEPTH = 16
+
 
 def _get_workspace_path(agent_id: str, user_id: str) -> str:
-    """Get Agent-User workspace path (current layout, legacy-flat fallback)."""
-    from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
-    return str(resolve_existing_workspace(agent_id, user_id))
+    """Get Agent-User workspace path (current layout, legacy-flat fallback).
+
+    Only call with an ``agent_id`` that passed
+    :func:`backend.routes._ownership.require_owned_workspace_agent`.
+    """
+    from narranexus.platform.utils.workspace_paths import (
+        refuse_symlinked_dir,
+        resolve_existing_workspace,
+    )
+    workspace = resolve_existing_workspace(agent_id, user_id)
+    try:
+        refuse_symlinked_dir(workspace, label="agent workspace")
+    except ValueError:
+        # The owner replaced its workspace dir with a link (to anywhere);
+        # nothing under it is served, listed or deleted.
+        raise HTTPException(404, "agent not found")
+    return str(workspace)
 
 
-def _build_tree(workspace_root: Path) -> List[FileInfo]:
+def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     """Walk the workspace recursively, returning a tree of FileInfo nodes.
 
     Dotfolders (any directory whose name starts with `.`) are skipped entirely
@@ -67,9 +88,28 @@ def _build_tree(workspace_root: Path) -> List[FileInfo]:
 
     Sort order: directories first, then files, each alphabetically — so the
     tree renders predictably.
+
+    Returns ``(tree, truncated)``: ``truncated`` is True only when something
+    visible was actually left out — MAX_TREE_NODES ran out with entries still
+    pending, or a directory at MAX_TREE_DEPTH has at least one non-hidden
+    entry below it (an empty folder at the last level is a complete listing).
+    The workspace panel (frontend ``FileUpload``) renders a "partial listing"
+    note from it, so files past the cap read as "not shown", never as gone.
     """
-    def _walk(dir_path: Path) -> List[FileInfo]:
+    budget = {"nodes": MAX_TREE_NODES, "truncated": False}
+
+    def _walk(dir_path: Path, depth: int = 0) -> List[FileInfo]:
         nodes: List[FileInfo] = []
+        if depth >= MAX_TREE_DEPTH:
+            # Look before claiming truncation: only a visible entry below the
+            # ceiling is content the listing omits.
+            try:
+                with os.scandir(dir_path) as it:
+                    if any(not e.name.startswith(".") for e in it):
+                        budget["truncated"] = True
+            except OSError as e:
+                logger.warning(f"workspace scan failed at {dir_path}: {e}")
+            return nodes
         try:
             entries = list(os.scandir(dir_path))
         except OSError as e:
@@ -79,6 +119,10 @@ def _build_tree(workspace_root: Path) -> List[FileInfo]:
         for entry in entries:
             if entry.name.startswith("."):
                 continue
+            if budget["nodes"] <= 0:
+                budget["truncated"] = True
+                break
+            budget["nodes"] -= 1
             try:
                 stat = entry.stat(follow_symlinks=False)
             except OSError:
@@ -95,7 +139,7 @@ def _build_tree(workspace_root: Path) -> List[FileInfo]:
                         is_dir=True,
                         size=0,
                         modified_at=str(stat.st_mtime),
-                        children=_walk(entry_path),
+                        children=_walk(entry_path, depth + 1),
                     )
                 )
             elif entry.is_file(follow_symlinks=False):
@@ -115,8 +159,9 @@ def _build_tree(workspace_root: Path) -> List[FileInfo]:
         return nodes
 
     if not workspace_root.exists():
-        return []
-    return _walk(workspace_root)
+        return [], False
+    tree = _walk(workspace_root)
+    return tree, budget["truncated"]
 
 
 def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
@@ -138,10 +183,13 @@ def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
     if any(part in ("", ".", "..") or part.startswith(".") for part in parts):
         raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
 
+    # The workspace root is LEXICAL (base already realpath-ed by
+    # resolve_existing_workspace); only the candidate is resolved, so any
+    # symlink on its path — including a swapped workspace dir — lands it
+    # outside and is refused.
     candidate = (workspace / Path(*parts)).resolve()
-    workspace_real = workspace.resolve()
     try:
-        candidate.relative_to(workspace_real)
+        candidate.relative_to(workspace)
     except ValueError:
         raise HTTPException(400, "invalid path: outside the agent workspace")
     return candidate
@@ -157,18 +205,26 @@ async def list_workspace_files(
     Identity comes from auth_middleware (JWT in cloud, X-User-Id header in
     local); the URL no longer accepts a ``user_id`` param to avoid the
     cross-account-leak class of bug (a client could otherwise list any
-    other user's workspace tree by changing the query string)."""
-    user_id = await resolve_current_user_id(request)
+    other user's workspace tree by changing the query string). The
+    ``agent_id`` segment is proven owned by that identity first."""
+    user_id = await require_owned_workspace_agent(request, agent_id)
     logger.debug(f"Listing workspace tree for agent: {agent_id}, user: {user_id}")
     try:
         workspace_path = _get_workspace_path(agent_id, user_id)
-        tree = _build_tree(Path(workspace_path))
+        tree, truncated = _build_tree(Path(workspace_path))
+        if truncated:
+            logger.warning(
+                f"workspace tree truncated for agent {agent_id}: "
+                f">{MAX_TREE_NODES} nodes or >{MAX_TREE_DEPTH} levels"
+            )
         return FileListResponse(
-            success=True, tree=tree, workspace_path=workspace_path
+            success=True, tree=tree, workspace_path=workspace_path, truncated=truncated
         )
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Error listing workspace tree: {e}")
-        return FileListResponse(success=False, error=str(e))
+        return FileListResponse(success=False, error="Failed to list workspace files.")
 
 
 @router.get("/{agent_id}/files/raw")
@@ -185,7 +241,7 @@ async def fetch_workspace_file(
     Identity comes from auth_middleware, not the URL — see the listing
     endpoint above for the rationale.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await require_owned_workspace_agent(request, agent_id)
     workspace = Path(_get_workspace_path(agent_id, user_id))
     target = _resolve_within_workspace(workspace, path)
     if not target.is_file():
@@ -204,7 +260,7 @@ async def upload_file(
 
     Identity comes from auth_middleware, not the URL.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await require_owned_workspace_agent(request, agent_id)
     logger.info(f"Uploading file '{file.filename}' for agent: {agent_id}, user: {user_id}")
     try:
         safe_filename = sanitize_filename(file.filename or "", label="filename")
@@ -230,9 +286,11 @@ async def upload_file(
         )
     except ValueError as e:
         return FileUploadResponse(success=False, error=str(e))
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Error uploading file: {e}")
-        return FileUploadResponse(success=False, error=str(e))
+        return FileUploadResponse(success=False, error="Failed to upload file.")
 
 
 @router.delete("/{agent_id}/files/{path:path}", response_model=FileDeleteResponse)
@@ -249,7 +307,7 @@ async def delete_file(
 
     Identity comes from auth_middleware, not the URL.
     """
-    user_id = await resolve_current_user_id(request)
+    user_id = await require_owned_workspace_agent(request, agent_id)
     logger.info(f"Deleting workspace path '{path}' for agent: {agent_id}, user: {user_id}")
     try:
         workspace = Path(_get_workspace_path(agent_id, user_id))
@@ -265,7 +323,8 @@ async def delete_file(
     except HTTPException:
         raise
     except OSError as e:
-        return FileDeleteResponse(success=False, error=str(e))
+        logger.exception(f"OS error deleting workspace path: {e}")
+        return FileDeleteResponse(success=False, error="Failed to delete the file.")
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Error deleting workspace path: {e}")
-        return FileDeleteResponse(success=False, error=str(e))
+        return FileDeleteResponse(success=False, error="Failed to delete the file.")

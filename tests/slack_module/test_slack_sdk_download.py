@@ -27,8 +27,8 @@ import aiohttp
 import pytest
 from slack_sdk.errors import SlackApiError
 
-from xyz_agent_context.module.slack_module import slack_sdk_client as sdk_mod
-from xyz_agent_context.module.slack_module.slack_sdk_client import (
+from narranexus_plugins.slack_module import slack_sdk_client as sdk_mod
+from narranexus_plugins.slack_module.slack_sdk_client import (
     SlackSDKClient,
     SlackSDKError,
 )
@@ -238,3 +238,46 @@ async def test_download_url_exactly_at_cap_succeeds(fake_aiohttp) -> None:
         "https://files.slack.com/exact", max_bytes=1024
     )
     assert data == body
+
+
+# ────────────────────────────────────────────────────────────────────
+# Host allowlist: the bot token is only ever sent to Slack's file hosts
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://169.254.169.254/latest/meta-data/",
+        "https://attacker.example.com/files-pri/x.pdf",
+        "https://files.slack.com.attacker.example/x.pdf",   # suffix trick
+        "https://evilslack.com/x.pdf",                      # no dot boundary
+        "http://files.slack.com/x.pdf",                     # plaintext
+        "https://user:pw@internal-host/x.pdf",
+        "not a url",
+    ],
+)
+async def test_download_url_refuses_non_slack_host_before_sending_token(fake_aiohttp, url) -> None:
+    fake_aiohttp["session"] = _FakeSession(body_chunks=[b"x"])
+
+    client = SlackSDKClient("xoxb-mytoken")
+    with pytest.raises(SlackSDKError) as exc:
+        await client.download_url(url, max_bytes=1024)
+
+    assert exc.value.code == "untrusted_host"
+    assert fake_aiohttp["session"].last_url is None  # no request, no token sent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    ["https://files.slack.com/files-pri/T1-F1/a.pdf", "https://acme.slack.com/files/a.pdf"],
+)
+async def test_download_url_allows_slack_file_hosts(fake_aiohttp, url) -> None:
+    fake_aiohttp["session"] = _FakeSession(body_chunks=[b"ok"])
+
+    data = await SlackSDKClient("xoxb-mytoken").download_url(url, max_bytes=1024)
+
+    assert data == b"ok"
+    assert fake_aiohttp["session"].last_url == url

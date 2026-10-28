@@ -7,7 +7,7 @@ same-user agents (and per-user Executor mounts) can Read them.
 
 from __future__ import annotations
 
-from xyz_agent_context.utils.workspace_paths import (
+from narranexus.platform.utils.workspace_paths import (
     agent_workspace_path,
     bus_files_dir,
     team_shared_dir,

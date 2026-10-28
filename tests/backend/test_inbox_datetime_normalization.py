@@ -66,56 +66,59 @@ def test_to_iso_default_literal_sorts_before_real_isos():
 
 @pytest.fixture
 def mysql_like_db(monkeypatch):
-    """A fake db that returns rows with datetime.datetime created_at
-    values, the way aiomysql does for DATETIME(6) columns. The
-    in-memory SQLite fixture would store strings and hide the bug."""
+    """A fake db that returns rows with datetime.datetime created_at values,
+    the way aiomysql does for DATETIME(6) columns. The in-memory SQLite
+    fixture stores strings and would hide the bug.
+
+    Moved to `inbox_*` with the route 2026-08-17. The property under test is
+    unchanged: mixed datetime/str timestamps must not raise when compared
+    against the cursor."""
     now = datetime(2026, 5, 19, 5, 40, 0, tzinfo=timezone.utc)
 
-    members = [
+    threads = [
         {
-            "channel_id": "ch_test",
+            "thread_id": "im_lark_ch_test",
+            "owner_user_id": "usr_owner",
             "agent_id": "agent_a",
-            "last_processed_at": None,
+            "source": "lark",
+            "title": "Feishu: Bob",
+            "counterpart_id": "ou_bob",
+            "counterpart_name": "Bob",
             "last_read_at": None,
-        }
-    ]
-    channels = [
-        {
-            "channel_id": "ch_test",
-            "name": "test channel",
-            "channel_type": "group",
+            "last_message_at": now,  # NB: datetime, not str
         }
     ]
     messages = [
         {
             "message_id": "m1",
-            "channel_id": "ch_test",
-            "from_agent": "agent_b",
+            "thread_id": "im_lark_ch_test",
+            "direction": "in",
+            "sender_id": "ou_bob",
+            "sender_name": "Bob",
             "content": "hi",
             "created_at": now,  # NB: datetime, not str
         }
     ]
 
     class _FakeDB:
-        async def get(self, table, filters=None):
-            if table == "bus_channel_members":
-                return [r for r in members if all(r.get(k) == v for k, v in (filters or {}).items())]
+        async def get(self, table, filters=None, **kwargs):
+            if table == "inbox_threads":
+                return [r for r in threads if all(r.get(k) == v for k, v in (filters or {}).items())]
+            if table == "inbox_thread_messages":
+                return [
+                    m for m in messages
+                    if all(m.get(k) == v for k, v in (filters or {}).items())
+                ]
             return []
 
         async def get_by_ids(self, table, id_field, ids):
-            if table == "bus_channels":
-                return [c for c in channels if c[id_field] in ids]
-            if table == "agents":
-                return []
             return []
 
         async def get_one(self, table, filters):
             return None
 
         async def execute(self, query, params=None, fetch=True):
-            # SELECT * FROM bus_messages WHERE channel_id = %s ORDER BY ...
-            cid = params[0] if params else None
-            return [m for m in messages if m["channel_id"] == cid]
+            return []
 
     fake_db = _FakeDB()
     monkeypatch.setattr(inbox_mod, "_get_db", lambda: _async_return(fake_db))

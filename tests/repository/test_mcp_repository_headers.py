@@ -14,12 +14,19 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.mcp_repository import (
+from narranexus.platform.repository.mcp_repository import (
     MCPRepository,
     validate_mcp_sse_connection,
 )
 
 HEADERS = {"Authorization": "Bearer secret-token-1234567890"}
+
+
+async def _public_resolver(host, port):
+    """Resolve any host to a public IP so the SSRF gate lets header-plumbing
+    tests through without real DNS. The gate's reject behaviour is covered by
+    test_mcp_repository_ssrf.py."""
+    return ["93.184.216.34"]  # example.com's public address
 
 
 @pytest.mark.asyncio
@@ -157,7 +164,7 @@ async def test_validate_connection_sends_custom_headers(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
 
     ok, error = await validate_mcp_sse_connection(
-        "http://frps.example.com:6027/sse", headers=HEADERS
+        "http://frps.example.com:6027/sse", headers=HEADERS, resolver=_public_resolver
     )
     assert ok is True and error is None
     assert captured["headers"]["Authorization"] == HEADERS["Authorization"]
@@ -201,7 +208,10 @@ async def test_validate_connection_anonymous_without_headers(monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
 
-    ok, _ = await validate_mcp_sse_connection("http://localhost:7801/sse")
+    # local/desktop mode: the SSRF gate is off, so localhost is a valid target.
+    ok, _ = await validate_mcp_sse_connection(
+        "http://localhost:7801/sse", enforce_public_url=False
+    )
     assert ok is True
     assert set(captured["headers"].keys()) == {"Accept", "Cache-Control"}
 
@@ -248,6 +258,7 @@ async def test_validate_connection_baseline_accept_wins_over_user_header(monkeyp
     ok, _ = await validate_mcp_sse_connection(
         "http://localhost:7801/sse",
         headers={"Accept": "application/json", "Authorization": "Bearer t"},
+        enforce_public_url=False,
     )
     assert ok is True
     assert captured["headers"]["Accept"] == "text/event-stream"

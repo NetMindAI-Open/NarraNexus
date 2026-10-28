@@ -18,7 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module._mcp_identity import (
+from narranexus.platform.module_system.base import XYZBaseModule
+from narranexus.platform.module_system._mcp_identity import (
     AGENT_ID_HEADER,
     BEARER_AGENT_PREFIX,
 )
@@ -27,18 +28,24 @@ AGENT = "agent_d8795abf5021"
 
 
 class _FakeModule:
-    """A module that only needs to answer get_mcp_config()."""
+
+
+    # the base class composes the three tool hooks into the Assemble cell (batch 5c)
+
+
+    contribute_tools = XYZBaseModule.contribute_tools
+    """A module that only needs to answer mcp_server()."""
 
     def __init__(self, name: str, url: str):
         self._name, self._url = name, url
 
-    async def get_mcp_config(self):
+    async def mcp_server(self):
         return SimpleNamespace(server_name=self._name, server_url=self._url)
 
-    async def get_turn_context(self, ctx_data):
+    async def contribute_turn_context(self, ctx_data):
         return ""
 
-    async def get_expressive_tools(self, ctx_data=None):
+    async def expressive_tools(self, ctx_data=None):
         # Accepts ctx_data since #228 — context_runtime calls it WITH the
         # arg and logs "declaration DROPPED" (error) on signature drift, so a
         # stale fake here would silently exercise that error path.
@@ -53,8 +60,8 @@ def _instance(module_class: str, module) -> SimpleNamespace:
 
 @pytest.mark.asyncio
 async def test_mcp_spec_carries_the_callers_identity():
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData
 
     runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
                              database_client=object())
@@ -90,8 +97,8 @@ async def test_mcp_spec_carries_the_callers_identity():
 @pytest.mark.asyncio
 async def test_injected_identity_is_this_agent_not_a_constant():
     """Guard against a hardcoded/stale id: two runtimes must inject their own."""
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData
 
     seen = {}
     for agent in (AGENT, "agent_25dec880a426"):
@@ -112,8 +119,8 @@ async def test_injected_identity_is_this_agent_not_a_constant():
 
 
 async def _bus_turn_headers(extra_data: dict) -> dict:
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.schema import ContextData, WorkingSource
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData, WorkingSource
 
     runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
                              database_client=object())
@@ -141,7 +148,7 @@ async def test_errand_continuation_bus_turn_injects_its_errand_scope():
     same turn gives to unrelated peers, which reproduced the P1 one seat over
     (2026-08-03 review).
     """
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_FIELD_SEP,
         ERRAND_CHANNEL_HEADER,
         ERRAND_PEER_HEADER,
@@ -169,7 +176,7 @@ async def test_errand_continuation_bus_turn_injects_its_errand_scope():
 @pytest.mark.asyncio
 async def test_a_plain_bus_turn_carries_no_errand_scope():
     """Answering a peer is not an errand of ours — nothing to inherit."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_FIELD_SEP,
         ERRAND_CHANNEL_HEADER,
         ERRAND_PEER_HEADER,
@@ -189,9 +196,9 @@ async def test_a_plain_bus_turn_carries_no_errand_scope():
 @pytest.mark.asyncio
 async def test_mcp_spec_carries_the_turn_owner():
     """user_id rides the same seam — and an ownerless turn omits it."""
-    from xyz_agent_context.context_runtime.context_runtime import ContextRuntime
-    from xyz_agent_context.module._mcp_identity import BEARER_FIELD_SEP, USER_ID_HEADER
-    from xyz_agent_context.schema import ContextData
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.module_system._mcp_identity import BEARER_FIELD_SEP, USER_ID_HEADER
+    from narranexus.platform.schema import ContextData
 
     for user_id, expect in (("user_tc", "user_tc"), (None, None)):
         runtime = ContextRuntime(agent_id=AGENT, user_id=user_id,
@@ -210,3 +217,61 @@ async def test_mcp_spec_carries_the_turn_owner():
         if expect is None:
             # No trailing blank either: the bearer drops empty tail fields.
             assert not headers["Authorization"].endswith(BEARER_FIELD_SEP)
+
+
+async def _headers_with_event_id(extra_data: dict, event_id: str) -> dict:
+    from narranexus.platform.context_runtime.context_runtime import ContextRuntime
+    from narranexus.platform.schema import ContextData, WorkingSource
+
+    runtime = ContextRuntime(agent_id=AGENT, user_id="user_tc",
+                             database_client=object(), event_id=event_id)
+    ctx = ContextData(agent_id=AGENT, input_content="hi")
+    ctx.working_source = WorkingSource.MESSAGE_BUS
+    ctx.extra_data = extra_data
+    _m, servers, *_r = await runtime.build_input_for_framework(
+        messages=[],
+        system_prompt="sys",
+        active_instances=[
+            _instance("MessageBusModule",
+                      _FakeModule("message_bus_module", "http://x/sse"))
+        ],
+        ctx_data=ctx,
+    )
+    return servers["message_bus_module"]["headers"]
+
+
+@pytest.mark.asyncio
+async def test_a_root_turn_stamps_its_own_event_id_as_root_run_id():
+    """A turn whose trigger carries no `root_run_id` (nothing sent this turn's
+    prompt on behalf of an existing tree) IS the root of a new tree — exactly
+    what `RunRecorder` already writes into `events.root_run_id` for it
+    (`inherited_root_run_id or run_id`).
+
+    Before this fix the MCP header stayed "" on a root turn, so any work-board
+    item this turn created (e.g. via `record_handoffs`) was stamped with an
+    EMPTY `root_run_id`. Stopping the run later reads the correct, non-empty
+    `root_run_id` off the `events` row and calls `pause_by_root(root)`, but
+    that lookup is `WHERE root_run_id = root` — it can never match a row that
+    was written with "" instead, so the item is silently orphaned forever
+    (in_progress) even though the run itself DID stop (GitHub #124).
+    """
+    from narranexus.platform.module_system._mcp_identity import ROOT_RUN_ID_HEADER
+
+    headers = await _headers_with_event_id({"bus_channel_id": "ch_dm_1"}, event_id="evt_root_1")
+
+    assert headers.get(ROOT_RUN_ID_HEADER) == "evt_root_1"
+
+
+@pytest.mark.asyncio
+async def test_a_child_turn_still_inherits_its_parents_root_run_id():
+    """A turn whose trigger DOES carry a `root_run_id` (this turn's prompt was
+    itself sent by a run inside an existing tree) must keep tracing that
+    tree — never overwrite it with its own event id."""
+    from narranexus.platform.module_system._mcp_identity import ROOT_RUN_ID_HEADER
+
+    headers = await _headers_with_event_id(
+        {"bus_channel_id": "ch_dm_1", "root_run_id": "evt_root_1"},
+        event_id="evt_child_2",
+    )
+
+    assert headers.get(ROOT_RUN_ID_HEADER) == "evt_root_1"

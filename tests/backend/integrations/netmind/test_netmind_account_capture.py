@@ -59,12 +59,12 @@ async def test_existing_user_backfilled_on_login(db_client, monkeypatch):
     # Pre-existing netmind row with no account captured (pre-feature mint).
     await _seed(db_client, "p_old")
 
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
     monkeypatch.setattr(settings, "netmind_use_subscription_enabled", True, raising=False)
 
     async def fake_db():
         return db_client
-    monkeypatch.setattr("xyz_agent_context.utils.db.db_factory.get_db_client", fake_db)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", fake_db)
 
     async def fake_verify(self, token):
         return NetmindUser(user_system_code="acct_old", email="carol@example.com")

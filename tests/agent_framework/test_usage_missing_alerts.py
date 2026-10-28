@@ -20,10 +20,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import xyz_agent_context.agent_framework.llm.gemini_api as gem
-import xyz_agent_context.agent_framework.adapters.openai_agents as oai
-import xyz_agent_context.utils.cost_tracker as ct
-from xyz_agent_context.utils.cost_tracker import (
+import narranexus.platform.agent_framework.llm.gemini_api as gem
+import narranexus.platform.agent_framework.adapters.openai_agents as oai
+import narranexus.platform.utils.cost_tracker as ct
+from narranexus.platform.utils.cost_tracker import (
     clear_cost_context,
     set_cost_context,
 )

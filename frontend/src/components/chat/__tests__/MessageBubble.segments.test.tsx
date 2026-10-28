@@ -49,7 +49,8 @@ describe('MessageBubble segments', () => {
       ],
     };
     renderBubble(<MessageBubble message={noReply} />);
-    expect(screen.getByText('(Agent decided no response needed)')).toBeInTheDocument();
+    // The marker is localized on render (lib/turnMarkers.ts).
+    expect(screen.getByText('The agent decided no reply was needed')).toBeInTheDocument();
   });
 
   it('无 segments 的老消息回落 content 单段渲染', () => {

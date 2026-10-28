@@ -1,15 +1,111 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-08-04
+last_verified: 2026-09-11
 stub: false
 ---
+
+## 2026-09-09 (revised 2026-09-11) — a cancelled turn with no reply gets its own marker (GitHub #87)
+
+`stopStreaming`'s no-reply fallback used to write the same content
+("(Agent decided no response needed)") whether the agent genuinely chose
+silence OR the user cut the turn short. The `cancelled` flag was already
+threaded through (the `case 'cancelled':` branch in `processMessage`
+passes `{ cancelled: true }`), it just wasn't branched on. A third arm
+now writes `INTERRUPTED_MARKER` — `(Interrupted by user)`, the exact
+string the backend chat module persists for an interrupted turn — and the
+plain fallback writes `NO_RESPONSE_MARKER`; both come from
+[[turnMarkers]]. The store deliberately writes the persisted marker, not
+a localized label: the live bubble and its reloaded history row then carry
+identical content, and literal comparisons (buildTimeline's junk filter,
+the backend `is_no_response` check) keep working. `MessageBubble`
+localizes the markers at render time.
+Test: `__tests__/chatStore.blankReply.test.ts` drives
+`processMessage(AGENT, { type: 'cancelled' })` end to end (dropping the
+`{ cancelled: true }` argument turns it red) plus the uncancelled
+no-reply case.
+
+## 2026-08-30 — thinking 合并加一条「换档即边界」
+
+`agent_thinking` 的相位合并（回溯找 open bubble，只有 tool_call/reply 打断）
+现在多一个条件：**open bubble 与新帧必须同档**（[[monologueTier]] 的
+`isMonologueFrame`）。
+
+为什么不能只按相位合并：一个 thinking 块只带**一个** `monologue` 标记，而
+独白与 provider CoT 走同一条通道。跨档合并出来的块必然把两档文本标成一档
+——要么把独白дим掉，要么把草稿纸提亮。后者是不能犯的那一侧
+（理由全文在 [[monologueTier]]）。
+
+### 「未知档位」那套机制已经拆掉（2026-08-30 第二版）
+
+曾经存在一个 `replayed: true` / `undefined` 档位的三态，用来兜住回放帧没有
+档位这件事——它自己在 review 里错过两次（当成 false 会劈句子，向上采纳会把
+CoT 提亮）。**根因在源头**：`run_recorder` / `broadcaster` 不持久化档位。
+
+那条根因这一单补掉了（见 [[run_recorder]] / [[broadcaster]] / [[wsManager]]），
+三条回放路现在都带真实档位，于是三态退回布尔，`replayed` 字段删除。
+**边界的正确性从「前端防御性合并」换成了「上游不跨档合并」**——
+[[_thinking_batcher]] 与 [[run_recorder]] 各自换档即 flush，所以到这里的帧
+不可能骑在一次切换上。
+
+**独白必须留在 thinking 车道**，这是一条红线，不是风格选择：本文件
+`agent_response` 分支有 `alreadyReplied` 全量丢弃（本轮出现任何 `reply` 之后
+的 native 文本一律 `return {}`，为治模型「回完又复述一遍」）。把独白改走
+native_output 那条"直觉捷径"，会**静默吃掉 reply 之后的所有独白**——那是
+减少用户今天已经看得到的内容，直接违反铁律 #16。夹具钉在
+`__tests__/chatStore.monologueTier.test.ts`「红线 1」那条。
+
+## 2026-08-24 (review #349 M4) — `runId` 接成守卫;`currentRunId` 进 flat fields
+
+`resumedRun.runId` 原是死字段。现在 ChatPanel 的 chip 渲染条件要求
+`resumedRun.runId === currentRunId`——锚点只给**它自己的** run 打标;
+将来若出现第二条开流路径,陈旧锚点是隐形而不是错标。`currentRunId`
+为此加入 flat fields。
+
+## 2026-08-21 — session 增 `resumedRun`(续接锚点,深圳复测 B1)
+
+`{ runId, startedAtMs } | null`:当前流式轮是「重连到既有 run」时由
+[[../services/wsManager.ts]] 的 run_reconnect 分支写入,携带 run 的
+**真实开始时间**。`startStreaming` 清空(重连流程是 onopen→startStreaming
+→run_reconnect,清空发生在写入前,顺序安全);渲染只在 isStreaming 时,
+settle 无需显式清。透传进 flat fields(`deriveFlatFields`)。
+## 2026-08-24 — steer 三态 + currentSteerable
+
+AgentChatState 加 `currentSteerable`(run_started 设、startStreaming 重置 false、进 deriveFlatFields 让 ChatPanel reactive)。新增 `addSteerMessage(agentId,content,clientMsgId)`=乐观 `queued` 气泡;`markSteerRejected(agentId,clientMsgId,reason)`=按 `steerClientMsgId` 就地翻 `rejected`+`rejectReason`,供**发送根本没离开客户端**(`steer()` 返 false)时用——后端不会来 ack,故本地标红,不让气泡永远挂 `queued`(与后端 `steer_rejected` 帧殊途同归,无匹配 id 时无害 no-op)。processMessage:`steer_consumed{ids}`→把 `steerClientMsgId∈ids` 的气泡翻 `merged`;`steer_rejected{client_msg_id,reason}`→翻 `rejected`+`rejectReason`;`steer_queued`/`run_reconnect` no-op(乐观气泡已 queued;重连不可 steer)。无匹配 id 的 consumed 是无害 no-op。**run 收尾兜底**:`stopStreaming` 里把仍 `queued` 的 steer 气泡统一翻 `rejected`+`rejectReason='run_ended'`——run 已结束、不会再来 `steer_consumed/steer_rejected`(晚到、跑完没 drain 的 steer,或 error/circuit-open 无 ack 收尾),否则气泡永挂 `queued`,违反三态不变量;已 resolve 的(merged/rejected)不动。`not_sent`/`run_ended` 两个 client 侧 reason 在 `chat.steer.reason.*` 有 i18n key(否则前端直显裸 token)。**四处「按 steerClientMsgId 认气泡+翻状态」的 map 收敛成一个 helper `patchSteerBubbles(messages, match, patch)`**(markSteerRejected/steer_consumed/steer_rejected/stopStreaming 兜底共用):helper 内建 `m.steerClientMsgId &&` 前置守卫——一条无 `steerClientMsgId` 的普通消息永不是 steer 气泡、永远不动,这道守卫挡住「后端某天发来 `steer_rejected` 而 `client_msg_id` 缺失(undefined)→命中所有 undefined-id 的历史气泡、整屏误标 rejected」;`match` 同时收(已定义的)client id 和整条 m,故收尾兜底能按 `steerStatus==='queued'` 匹配。一处定义,加第四态或新调用方(#354/team)时只改一处、守卫不漂。`run_reconnect` 分支:通常在 wsManager 上游被 translateReconnectFrame 吸收(返回 null),store 侧保留一个显式 no-op(reconnect 无 live channel、无 steer 状态可改),不靠 switch 静默兜底;`RunReconnectMessage` 也删掉了永不被读的 `steerable?` 字段(见 [[messages.ts]])。
+
+## 2026-08-17 — 气泡提取改用 `isOwnerReplyTool`
+
+三处按工具名挑 owner 回复内容的地方（`stopStreaming` 的拼接、内联时间线的 reply 事件、
+`complete` 的 `hasReply`）改用 [[ownerTools]] 的共享判定。
+
+后端把一个 owner 工具拆成了 `reply_owner` / `notify_owner`，每轮桌上只有一个。前端只匹配
+其中一个名字时，另一条表面上的回复内容是真的、字也在，**气泡就是不渲染**——一个不报错的
+静默失败。
+
+## 2026-08-14 — ToastItem 成为可辨识联合
+
+`ToastItem` 从 `{agentId, agentName, timestamp}` 改成
+`{kind:'agent',…} | {kind:'team',…}`，`dismissToast` 从按 agentId 改成按
+`toastKey(item)`（`agent:<id>` / `team:<id>`）。
+
+原因见 [[AgentCompletionToast.tsx]]：团队房间的 toast 既没有可切换的 agent，也没有
+可以当键的 agent id。**键按 kind 限定**，是因为无法从代码确认 team id 和 agent id
+是否可能相等——不能确认的事就让它不可能发生，而不是依赖它。
+
+这个改动的价值在改的过程中就兑现了：tsc 立刻指出 [[useAutoRefresh.ts]] 里还有一处
+没带 `kind` 的入队。联合类型让"少写一个字段"从运行时的怪现象变成编译错误。
+
+## 2026-08-10 — rendered reply as value outcome
+
+On `complete`, the store verifies a nonblank user-facing reply, commits the
+assistant message, then records `reply_rendered` with run/agent IDs. Error-only
+and no-response turns never count as value DAU.
 
 ## 2026-08-04 — 回复提取过滤空白部分；删除死方法 getUserVisibleResponse
 
 stopStreaming 的回复提取 `.filter(Boolean)` 收紧为
 `.filter((s) => !isBlankText(s))`（谓词统一在 lib/isBlankText.ts）：空
 白 content 的 send_message 调用不算回复，落到既有占位文案分支——与后
-端 hook_persist_turn 的 strip 守卫同口径，否则出现「当场有空气泡、刷
+端 persist_turn 的 strip 守卫同口径，否则出现「当场有空气泡、刷
 新后消失」的 session/落库漂移。同批删除 getUserVisibleResponse（接口
 +实现）：frontend/src 内零生产调用方，铁律 #2/#8 不留死码。
 
@@ -79,6 +175,21 @@ data wipe ([[wipe_service.py]] / [[AgentList.tsx]]) it kept showing stale
 messages. Bumping the tick makes ChatPanel re-fetch (now-empty) history
 immediately. Deliberately a single global counter (not per-agent): a wipe is
 rare and only the mounted panel reacts, so the extra generality isn't worth it.
+
+## 2026-08-10 — workspaceRefreshTick / requestWorkspaceRefresh
+
+The same idea one layer over, for [[TeamChatPanel.tsx]]'s workspace panel.
+
+A SEPARATE counter rather than a reuse of `historyRefreshTick`, because the two
+wipes are independently selectable. Clearing only a team's files empties the
+workspace (and its artifacts — they live in that folder) while leaving the
+transcript byte-identical, and the workspace loader keys on message count, so
+nothing about the chat changes to tell it the rows are gone. Firing the history
+tick for a file-only wipe would ALSO make every mounted ChatPanel refetch
+history it already knows is current — one signal covering two unrelated wipes
+is how a refresh turns into a stampede.
+
+Producer: [[AgentList.tsx]]'s clear-team-data flow, on the `files` scope.
 
 ## 2026-06-10 — run_started 帧驱动 bookmarkStore.onRunStart
 
@@ -159,7 +270,7 @@ Depends on `@/lib/utils` for `generateId` and `@/types` for the `RuntimeMessage`
 
 **No persistence.** Deliberate: in-flight streaming state does not survive a page reload. Conversation history is re-hydrated from `preloadStore` (backed by the server) on mount, not from localStorage.
 
-**`send_message_to_user_directly` as display content.** The agent's final visible reply is extracted by filtering tool calls whose name ends with that string. The store is otherwise agnostic to tool semantics — all tool calls are stored but only this specific one populates the chat bubble.
+**`reply_owner` as display content.** The agent's final visible reply is extracted by filtering tool calls whose name ends with that string. The store is otherwise agnostic to tool semantics — all tool calls are stored but only this specific one populates the chat bubble.
 
 **Rejected: separate stores per agent.** Would require dynamic store creation and explicit cross-store wiring for the toast/badge system. A single store with a session map is easier to subscribe to and requires no lifecycle management for agent removal.
 
@@ -172,3 +283,8 @@ Depends on `@/lib/utils` for `generateId` and `@/types` for the `RuntimeMessage`
 **Background agent toast lifecycle.** When `stopStreaming(agentId)` fires for a non-active agent, it pushes to both `completedAgentIds` and `toastQueue`. Consumers must call `dismissToast(agentId)` after displaying the toast and `clearCompletedNotification(agentId)` when the user switches to that agent. Omitting either leaves stale badge indicators permanently.
 
 **`processMessage` silently drops unknown types.** If a future backend version emits an unrecognized message type, the store does nothing. If the backend stops sending a `complete` message (protocol change), the session stays `isStreaming: true` until the WebSocket closes and `onclose` triggers `stopStreaming` as a fallback.
+
+## 2026-08-18 — ToastItem 增 artifact-repointed 变体 + 通用 pushToast
+
+heal 重指的诚实提示(标题/旧新路径尾/hash 是否验证)。pushToast 按 toastKey
+去重(同键重推=重置自动消失计时)。

@@ -26,20 +26,20 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import (
+from narranexus_plugins.chat_module.chat_module import (
     ChatModule,
     _FAILED_TURN_ANNOTATION_TEMPLATE,
     _apply_failed_turn_filter,
     _detect_fatal_error_in_agent_loop,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     ContextData,
     ErrorMessage,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -136,7 +136,7 @@ async def test_failed_turn_persists_error_message_in_meta(chat_module):
     )
     params = _hook_params(agent_loop_response=[err])
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_sev_instance"
@@ -194,7 +194,7 @@ def test_failed_turn_annotation_handles_missing_error_message_field():
 
 
 def _no_reply_progress() -> ProgressMessage:
-    """A progress message that is NOT send_message_to_user_directly —
+    """A progress message that is NOT reply_owner —
     something else the agent ran during the turn."""
     return ProgressMessage(
         step="3.4.1",
@@ -211,7 +211,7 @@ def _no_reply_progress() -> ProgressMessage:
 @pytest.mark.asyncio
 async def test_helper_llm_fallback_marker_is_propagated(chat_module):
     """When step_3_agent_loop's helper_llm fallback fires, it emits a
-    synthetic send_message_to_user_directly ProgressMessage carrying
+    synthetic reply_owner ProgressMessage carrying
     `details.reply_via = "helper_llm_fallback"`. chat_module persists
     the resulting assistant row with that same marker so observability
     tooling can separate organic replies from recovered ones.
@@ -225,7 +225,7 @@ async def test_helper_llm_fallback_marker_is_propagated(chat_module):
         description="Agent did not call send_message; helper_llm generated reply.",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": "Recovered reply text."},
             "reply_via": "helper_llm_no_reply",
         },
@@ -235,7 +235,7 @@ async def test_helper_llm_fallback_marker_is_propagated(chat_module):
         final_output="agent internal reasoning that should NOT leak as reply",
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_sev_instance"
@@ -254,15 +254,15 @@ async def test_helper_llm_fallback_marker_is_propagated(chat_module):
 
 @pytest.mark.asyncio
 async def test_fallback_does_not_fire_when_send_message_was_called(chat_module):
-    """Regression: when the agent DID call send_message_to_user_directly,
+    """Regression: when the agent DID call reply_owner,
     we must keep using its content, not blindly switch to final_output."""
     send_msg = ProgressMessage(
         step="3.4.1",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": "tool-call content (preferred)"},
         },
     )
@@ -271,7 +271,7 @@ async def test_fallback_does_not_fire_when_send_message_was_called(chat_module):
         final_output="final_output would be a side-channel summary",
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_sev_instance"
@@ -296,7 +296,7 @@ async def test_no_reply_tool_and_no_helper_llm_fallback_persists_placeholder(cha
         final_output="some internal reasoning that must NOT be persisted as reply",
     )
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_sev_instance"

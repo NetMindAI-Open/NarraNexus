@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactRenderer.tsx
-last_verified: 2026-08-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-09-07 — 改查 `ARTIFACT_KINDS` 注册表并订阅
+
+`KIND_REGISTRY[kind]` → `ARTIFACT_KINDS.get(kind)`，并 `useRegistryEntries(ARTIFACT_KINDS)` 订阅：插件在首屏之后
+注册的 kind 会让已打开的视图重渲染，而不是停在「不支持的类型」。
+
+## 2026-08-19 — 渲染表迁出:kind 能力注册表(kindRegistry.ts)
+
+`RENDERER_BY_KIND` 与全部 lazy import 迁入 [[kindRegistry.ts]] —— 本组件
+只剩 Suspense/滚动盒外壳,渲染器经 `KIND_REGISTRY[kind].renderer` 查表。
+懒加载 memoisation 不受影响(lazy 调用点仍是模块级、单处)。加新 kind
+不再动本文件:注册表加一行 + renderer 文件即可。
 
 ## 2026-08-04 — bounded 开关：列内包装盒拥有全部滚动，弹窗零包装
 

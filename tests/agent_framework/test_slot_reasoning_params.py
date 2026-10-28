@@ -23,7 +23,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from xyz_agent_context.schema.provider_schema import (
+from narranexus.platform.schema.provider_schema import (
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -94,7 +94,7 @@ def _anthropic_provider(provider_id: str = "prov_a1") -> ProviderConfig:
 @pytest.fixture
 async def svc(db_client):
     """(service, provider_id) with one Anthropic provider for user_1."""
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         UserProviderService,
     )
 
@@ -176,7 +176,7 @@ async def test_corrupt_params_json_degrades_to_auto(svc, db_client):
 
 
 def test_registry_set_slot_carries_reasoning_params():
-    from xyz_agent_context.agent_framework.providers.registry import ProviderRegistry
+    from narranexus.platform.agent_framework.providers.registry import ProviderRegistry
 
     registry = ProviderRegistry()
     config = LLMConfig(providers={"prov_a1": _anthropic_provider()})

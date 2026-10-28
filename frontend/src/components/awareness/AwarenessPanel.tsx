@@ -236,7 +236,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                 <div className="h-3 bg-[var(--bg-tertiary)] w-2/3" />
               </div>
             ) : awarenessError ? (
-              <div className="text-xs text-[var(--color-red-500)] py-2 font-[family-name:var(--font-mono)]">
+              <div className="text-xs text-[var(--color-error)] py-2 font-[family-name:var(--font-mono)]">
                 {awarenessError}
               </div>
             ) : awareness ? (
@@ -378,7 +378,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                 {hasSearched && (
                   <button
                     onClick={handleClearSearch}
-                    className="ml-auto px-1.5 py-0.5 uppercase tracking-[0.1em] text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors"
+                    className="ml-auto px-1.5 py-0.5 uppercase tracking-[0.1em] text-[var(--text-tertiary)] hover:text-[var(--color-error)] transition-colors"
                   >
                     {t('awareness.panel.clear')}
                   </button>
@@ -395,7 +395,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                 {searchError && (
                   <div
                     role="alert"
-                    className="text-xs text-[var(--color-red-500)] border border-[var(--color-red-500)] px-2 py-1.5 mb-2"
+                    className="text-xs text-[var(--color-error)] border border-[var(--color-error)] px-2 py-1.5 mb-2"
                   >
                     {searchError}
                   </div>
@@ -487,7 +487,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
             {saveError && (
               <div
                 role="alert"
-                className="text-xs text-[var(--color-red-500)] border border-[var(--color-red-500)] px-2 py-1.5"
+                className="text-xs text-[var(--color-error)] border border-[var(--color-error)] px-2 py-1.5"
               >
                 {saveError}
               </div>

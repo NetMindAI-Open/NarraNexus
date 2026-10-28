@@ -2,7 +2,7 @@
 @file_name: test_logging.py
 @author: Bin Liang
 @date: 2026-04-28
-@description: Tests for xyz_agent_context.utils.logging public API.
+@description: Tests for narranexus.platform.utils.logging public API.
 
 Covers the four exported names — setup_logging, bind_event, timed,
 redact — plus the InterceptHandler bridge. Each test isolates loguru
@@ -21,13 +21,13 @@ from typing import Any
 import pytest
 from loguru import logger
 
-from xyz_agent_context.utils.logging import (
+from narranexus.platform.utils.logging import (
     bind_event,
     redact,
     setup_logging,
     timed,
 )
-from xyz_agent_context.utils.logging._setup import _reset_for_tests
+from narranexus.platform.utils.logging._setup import _reset_for_tests
 
 
 # ---------------------------------------------------------------------------

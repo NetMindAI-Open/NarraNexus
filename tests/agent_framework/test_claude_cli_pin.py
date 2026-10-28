@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.claude import cli_binary
-from xyz_agent_context.agent_framework.adapters.claude.cli_binary import (
+from narranexus_plugins.frameworks_claude_code import cli_binary
+from narranexus_plugins.frameworks_claude_code.cli_binary import (
     PINNED_CLI_VERSION,
     resolve_cli_path,
 )
@@ -49,23 +49,23 @@ def test_pin_is_a_plain_semver():
     assert re.fullmatch(r"\d+\.\d+\.\d+", PINNED_CLI_VERSION), PINNED_CLI_VERSION
 
 
-def test_run_sh_pins_the_same_version():
-    text = (_REPO / "run.sh").read_text(encoding="utf-8")
-    m = re.search(r'_CLAUDE_CLI_VERSION="([0-9.]+)"', text)
-    assert m, "run.sh no longer declares _CLAUDE_CLI_VERSION"
-    assert m.group(1) == PINNED_CLI_VERSION, (
-        f"run.sh pins {m.group(1)}, cli_binary pins {PINNED_CLI_VERSION}"
-    )
+def test_run_sh_no_longer_installs_claude_code():
+    """Lightweight build: `bash run.sh` must NOT install Claude Code at startup
+    anymore — it is an optional plugin installed on demand from Settings →
+    Plugins. Re-add a boot-time `npm install ... @anthropic-ai/claude-code` and
+    this goes red (the whole point of the slim-down would be undone).
 
-
-def test_run_sh_installs_the_pinned_version_not_latest():
-    """An unpinned `npm install -g` is the original bug: the version then
-    depends on when the machine was provisioned."""
+    Scans non-comment lines only, so the explanatory comment may still name the
+    package while an actual install command may not.
+    """
     text = (_REPO / "run.sh").read_text(encoding="utf-8")
-    installs = re.findall(r"npm install -g [\"']?@anthropic-ai/claude-code([^\"'\s]*)", text)
-    assert installs, "run.sh no longer installs @anthropic-ai/claude-code"
-    for suffix in installs:
-        assert suffix.startswith("@"), f"unpinned install found: ...claude-code{suffix}"
+    code_lines = [
+        ln for ln in text.splitlines() if not ln.lstrip().startswith("#")
+    ]
+    offending = [ln for ln in code_lines if "@anthropic-ai/claude-code" in ln]
+    assert not offending, f"run.sh still runs a claude-code install: {offending}"
+    # The boot-time pin variable is gone too.
+    assert not any("_CLAUDE_CLI_VERSION=" in ln for ln in code_lines)
 
 
 def test_dockerfile_pins_the_same_version():
@@ -81,7 +81,7 @@ def test_dockerfile_pins_the_same_version():
 
 
 def test_gate_off_uses_bundled(monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_cli_prefer_pinned", False)
     assert resolve_cli_path() is None
@@ -90,7 +90,7 @@ def test_gate_off_uses_bundled(monkeypatch):
 def test_missing_explicit_path_is_ignored_not_honoured(monkeypatch, tmp_path):
     """A typo'd CLAUDE_CLI_PATH must degrade to the bundled binary. Passing it
     through would surface as CLINotFoundError on every single turn."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_cli_prefer_pinned", True)
     monkeypatch.setattr(settings, "claude_cli_path", str(tmp_path / "nope"))
@@ -98,7 +98,7 @@ def test_missing_explicit_path_is_ignored_not_honoured(monkeypatch, tmp_path):
 
 
 def test_explicit_path_wins_when_it_exists(monkeypatch, tmp_path):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\necho 9.9.9\n")
@@ -109,7 +109,7 @@ def test_explicit_path_wins_when_it_exists(monkeypatch, tmp_path):
 
 
 def test_no_claude_on_path_uses_bundled(monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_cli_prefer_pinned", True)
     monkeypatch.setattr(settings, "claude_cli_path", "")
@@ -120,7 +120,7 @@ def test_no_claude_on_path_uses_bundled(monkeypatch):
 def test_version_mismatch_uses_bundled(monkeypatch, tmp_path):
     """The pin's whole purpose: an unverified version is worse than the
     known-quantity bundled one."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\necho '1.0.0 (Claude Code)'\n")
@@ -132,7 +132,7 @@ def test_version_mismatch_uses_bundled(monkeypatch, tmp_path):
 
 
 def test_matching_version_is_adopted(monkeypatch, tmp_path):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text(f"#!/bin/sh\necho '{PINNED_CLI_VERSION} (Claude Code)'\n")
@@ -145,7 +145,7 @@ def test_matching_version_is_adopted(monkeypatch, tmp_path):
 
 def test_unreadable_version_uses_bundled(monkeypatch, tmp_path):
     """A binary that exists but cannot report a version is not trustworthy."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text("#!/bin/sh\necho 'no version here'\nexit 0\n")
@@ -158,7 +158,7 @@ def test_unreadable_version_uses_bundled(monkeypatch, tmp_path):
 
 def test_probe_failure_never_raises(monkeypatch, tmp_path):
     """Anything the subprocess call can do — timeout, OSError — is absorbed."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     def _boom(*_a, **_k):
         raise OSError("simulated exec failure")
@@ -173,7 +173,7 @@ def test_probe_failure_never_raises(monkeypatch, tmp_path):
 def test_decision_is_resolved_once(monkeypatch, tmp_path):
     """The probe spawns a subprocess; a hot agent loop must not pay it per
     turn."""
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     fake = tmp_path / "claude"
     fake.write_text(f"#!/bin/sh\necho '{PINNED_CLI_VERSION}'\n")

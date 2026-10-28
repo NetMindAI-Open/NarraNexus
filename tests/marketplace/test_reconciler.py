@@ -17,13 +17,13 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
-from xyz_agent_context.module.skill_module import SkillModule
-from xyz_agent_context.repository.skill_installation_repository import (
+import narranexus.platform.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+from narranexus_plugins.skill_module import SkillModule
+from narranexus.platform.repository.skill_installation_repository import (
     SkillInstallationRepository,
 )
-from xyz_agent_context.services.skill_sync_service import SkillSyncService
+from narranexus.platform.services.skill_sync_service import SkillSyncService
 
 AGENT_ID = "agt_test"
 USER_ID = "usr_test"
@@ -31,7 +31,7 @@ USER_ID = "usr_test"
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
     monkeypatch.delenv("SKILL_SECRETS_KEY", raising=False)
@@ -40,7 +40,7 @@ def workspace(tmp_path, monkeypatch):
     async def _noop_backup(**kwargs):
         return None
 
-    import xyz_agent_context.bundle.skill_backup as skill_backup
+    import narranexus.platform.bundle.skill_backup as skill_backup
 
     monkeypatch.setattr(skill_backup, "backup_after_api_install", _noop_backup)
     return tmp_path

@@ -44,7 +44,7 @@ export function Sparkline({ agentId, health, hours = 24 }: Props) {
   if (buckets === null) {
     return <div className="flex items-end gap-0.5 h-6 opacity-30">
       {Array.from({ length: hours }).map((_, i) => (
-        <div key={i} className={`w-[3px] ${barColor} rounded-sm`} style={{ height: '2px' }} />
+        <div key={i} className={`w-[3px] ${barColor} rounded-[var(--radius-sm)]`} style={{ height: '2px' }} />
       ))}
     </div>;
   }
@@ -58,7 +58,7 @@ export function Sparkline({ agentId, health, hours = 24 }: Props) {
         return (
           <div
             key={i}
-            className={`w-[3px] ${barColor} rounded-sm ${isLast ? 'opacity-100' : 'opacity-60'}`}
+            className={`w-[3px] ${barColor} rounded-[var(--radius-sm)] ${isLast ? 'opacity-100' : 'opacity-60'}`}
             style={{ height: `${h}px` }}
             title={t('dashboard.sparkline.barTitle', { hoursAgo: hours - buckets.length + i + 1, count: v })}
           />

@@ -16,17 +16,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from xyz_agent_context.agent_framework.adapters.claude.sdk import (
+from narranexus_plugins.frameworks_claude_code.sdk import (
     _build_claude_mcp_config,
 )
-from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
+from narranexus_plugins.frameworks_codex_cli.official_sdk import (
     _build_codex_config_overrides,
     codex_mcp_bearer_env,
 )
-from xyz_agent_context.agent_runtime.executor_protocol import (
+from narranexus.platform.agent_runtime.executor_protocol import (
     build_agent_loop_request,
 )
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     OpenAIConfig,
     set_user_config,
@@ -184,7 +184,7 @@ def test_claude_adapter_forwards_the_caller_identity_headers():
     headers, and the claude adapter must hand them to the CLI verbatim —
     otherwise the module MCP server never learns who is calling and the fix
     silently degrades to the old "trust the model's agent_id" behaviour."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         AGENT_ID_HEADER,
         agent_id_headers,
     )
@@ -203,7 +203,7 @@ def test_codex_adapter_transmits_identity_via_the_borrowed_bearer():
     """Codex cannot carry arbitrary headers, which is exactly why identity
     also rides an Authorization bearer. Assert that channel survives, or the
     fix would work on claude and silently do nothing on codex."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         agent_id_headers,
     )
@@ -253,7 +253,7 @@ def test_identity_header_does_not_warn_on_codex():
     drop is expected and must not warn — otherwise every codex turn logs one
     line per module server (~16/turn) and buries the warnings that matter
     (a USER's custom header silently vanishing)."""
-    from xyz_agent_context.module._mcp_identity import agent_id_headers
+    from narranexus.platform.module_system._mcp_identity import agent_id_headers
 
     specs = {"social_network_module": {
         "url": "http://localhost:7802/sse",
@@ -292,10 +292,10 @@ def test_nexus_power_spec_preserves_the_identity_headers():
     CLIs — exactly the "one framework away from breaking" shape iron rule #9
     warns about. Verified live 2026-08-03 against the running module server.
     """
-    from xyz_agent_context.agent_framework.nexus_power.contracts.model import (
+    from narranexus_plugins.frameworks_nexus_power.core.contracts.model import (
         McpServerSpec,
     )
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         AGENT_ID_HEADER,
         agent_id_headers,
     )
@@ -328,7 +328,7 @@ def test_turn_source_survives_the_codex_bearer_channel():
     recipient fell back to the "have I spoken here" heuristic, which flips a
     FOLLOW-UP question to Owner Relay and reproduces the P1. It now rides the
     bearer too, which is the one header codex forwards."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         BEARER_FIELD_SEP,
         agent_id_headers,
@@ -351,7 +351,7 @@ def test_turn_source_survives_the_codex_bearer_channel():
 def test_bearer_without_a_turn_source_is_still_valid():
     """A caller that does not know its own source must not produce a
     malformed bearer."""
-    from xyz_agent_context.module._mcp_identity import (
+    from narranexus.platform.module_system._mcp_identity import (
         BEARER_AGENT_PREFIX,
         BEARER_FIELD_SEP,
         agent_id_headers,

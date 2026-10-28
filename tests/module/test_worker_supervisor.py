@@ -23,7 +23,7 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.module import run_worker_supervisor as sup
+from narranexus.platform.module_system import run_worker_supervisor as sup
 
 
 class FakeAudit:

@@ -34,10 +34,10 @@ export function EventCard({ event, index, total }: EventCardProps) {
   return (
     <div
       className={cn(
-        'rounded-xl border overflow-hidden transition-all duration-300',
+        'rounded-[var(--radius-xl)] border overflow-hidden transition-all duration-300',
         isExpanded
           ? 'border-[var(--accent-primary)]/30 bg-[var(--bg-elevated)] shadow-[0_0_15px_var(--accent-glow)]'
-          : 'border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--accent-primary)]/20 hover:bg-[var(--bg-elevated)]'
+          : 'border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--accent-primary)]/20 hover:bg-[var(--nm-paper-warm)]'
       )}
     >
       {/* Event Header */}
@@ -58,7 +58,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
 
         {/* Event number indicator */}
         <span className={cn(
-          'w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-mono shrink-0 transition-all duration-300',
+          'w-6 h-6 rounded-[var(--radius-lg)] flex items-center justify-center text-[10px] font-mono shrink-0 transition-all duration-300',
           isExpanded
             ? 'bg-[var(--accent-primary)] text-[var(--bg-deep)]'
             : 'bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] group-hover:bg-[var(--accent-glow)] group-hover:text-[var(--accent-primary)]'
@@ -101,7 +101,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
                 <User className="w-3 h-3" />
                 {t('runtime.event.userInput')}
               </div>
-              <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] font-mono">
+              <div className="p-3 bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] font-mono">
                 {typeof userInput === 'string' ? userInput : JSON.stringify(userInput, null, 2)}
               </div>
             </div>
@@ -113,7 +113,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
               <Bot className="w-3 h-3" />
               {t('runtime.event.agentResponse')}
             </div>
-            <ScrollArea className="max-h-[200px] bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]" viewportClassName="p-3">
+            <ScrollArea className="max-h-[200px] bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]" viewportClassName="p-3">
               <div className="text-xs">
               {event.final_output ? (
                 <Markdown content={event.final_output} />
@@ -217,7 +217,7 @@ function EventLogEntry({ entry }: EventLogEntryProps) {
   const typeConfig = getTypeConfig(entry.type);
 
   return (
-    <div className={cn('rounded-lg p-2.5 border', typeConfig.bg, typeConfig.border)}>
+    <div className={cn('rounded-[var(--radius-lg)] p-2.5 border', typeConfig.bg, typeConfig.border)}>
       <div className="flex items-start gap-2">
         <span className="text-[9px] text-[var(--text-tertiary)] font-mono shrink-0 mt-0.5">
           {formatTime(entry.timestamp)}
@@ -251,7 +251,7 @@ function EventLogEntry({ entry }: EventLogEntryProps) {
                 )}
               </button>
               {isExpanded && (
-                <ScrollArea className="mt-2 max-h-[150px] bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]" viewportClassName="p-3">
+                <ScrollArea className="mt-2 max-h-[150px] bg-[var(--bg-sunken)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)]" viewportClassName="p-3">
                   <pre className="text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap break-all font-mono">
                     {contentStr}
                   </pre>

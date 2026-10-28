@@ -32,7 +32,7 @@ lesson for the shell-metacharacter denylist in 2026-04.
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_command_security import (
+from narranexus_plugins.lark_module._lark_command_security import (
     BLOCKED_FLAGS,
     BLOCKED_PATTERNS,
     validate_command,

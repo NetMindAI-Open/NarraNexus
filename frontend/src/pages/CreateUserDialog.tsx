@@ -64,7 +64,7 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
         {/* Close Button */}
         <button
           onClick={() => !loading && onClose()}
-          className="absolute top-4 right-4 p-2 rounded-xl hover:bg-[var(--bg-secondary)] transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-[var(--radius-xl)] hover:bg-[var(--nm-paper-warm)] transition-colors"
           disabled={loading}
         >
           <X className="w-5 h-5 text-[var(--text-tertiary)]" />
@@ -73,10 +73,10 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
         {/* Header */}
         <div className="text-center mb-7">
           <div className="relative inline-block mb-4">
-            <div className="w-14 h-14 rounded-xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_30px_var(--accent-glow)]">
+            <div className="w-14 h-14 rounded-[var(--radius-xl)] bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_30px_var(--accent-glow)]">
               <UserPlus className="w-7 h-7 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
             </div>
-            <div className="absolute -inset-2 bg-[var(--accent-primary)] rounded-2xl opacity-20 blur-xl -z-10" />
+            <div className="absolute -inset-2 bg-[var(--accent-primary)] rounded-[var(--radius-2xl)] opacity-20 blur-xl -z-10" />
           </div>
           <h2 className="text-xl font-bold font-[family-name:var(--font-display)] text-[var(--text-primary)]">
             {t('pages.createUser.title')}
@@ -85,8 +85,8 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
 
         {/* Success Message */}
         {success && (
-          <div className="mb-5 p-4 bg-[var(--color-success)]/10 border border-[var(--color-success)]/30 rounded-xl flex items-center gap-3 animate-slide-up">
-            <div className="w-8 h-8 rounded-lg bg-[var(--color-success)]/20 flex items-center justify-center">
+          <div className="mb-5 p-4 bg-[var(--color-success)]/10 border border-[var(--color-success)]/30 rounded-[var(--radius-xl)] flex items-center gap-3 animate-slide-up">
+            <div className="w-8 h-8 rounded-[var(--radius-lg)] bg-[var(--color-success)]/20 flex items-center justify-center">
               <Check className="w-5 h-5 text-[var(--color-success)]" />
             </div>
             <span className="text-[var(--color-success)] text-sm font-medium">
@@ -126,7 +126,7 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
           </div>
 
           {/* Explanation */}
-          <div className="flex gap-2 p-3 bg-[var(--bg-tertiary)] rounded-xl">
+          <div className="flex gap-2 p-3 bg-[var(--bg-tertiary)] rounded-[var(--radius-xl)]">
             <Info className="w-4 h-4 text-[var(--accent-primary)] shrink-0 mt-0.5" />
             <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
               {t('pages.createUser.explanation')}

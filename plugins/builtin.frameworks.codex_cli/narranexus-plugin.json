@@ -1,0 +1,21 @@
+{
+  "id": "builtin.frameworks.codex_cli",
+  "version": "1.0.0",
+  "displayName": "Codex agent loop",
+  "description": "OpenAI Codex SDK driver; SDK installed on demand on the local build.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "framework": 0
+  },
+  "provides": {
+    "turn.pipeline.act.framework": "narranexus_plugins.frameworks_codex_cli.contribution:CONTRIBUTION"
+  },
+  "install": {
+    "deps": "on_demand"
+  },
+  "quality": "gold"
+}

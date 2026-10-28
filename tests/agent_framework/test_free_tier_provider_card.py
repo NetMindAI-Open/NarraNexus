@@ -12,18 +12,18 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers import user_service as us
-from xyz_agent_context.agent_framework.providers.cloud_policy import (
+from narranexus.platform.agent_framework.providers import user_service as us
+from narranexus.platform.agent_framework.providers.cloud_policy import (
     CLOUD_BINDABLE_SOURCES,
     CloudPolicyViolation,
     ensure_slot_provider_allowed,
 )
-from xyz_agent_context.agent_framework.providers.free_tier import (
+from narranexus.platform.agent_framework.providers.free_tier import (
     FREE_TIER_SOURCE,
     free_tier_endpoints,
     is_free_tier_enabled,
 )
-from xyz_agent_context.agent_framework.providers.model_catalog import (
+from narranexus.platform.agent_framework.providers.model_catalog import (
     get_default_agent_model,
     get_default_helper_model,
 )
@@ -82,6 +82,27 @@ def test_onboarding_defaults_exist_for_the_card():
     assert get_default_helper_model(FREE_TIER_SOURCE)
 
 
+@pytest.mark.parametrize("source", ["netmind", FREE_TIER_SOURCE])
+def test_netmind_family_defaults_both_slots_to_v4_flash(source, monkeypatch):
+    """Owner decision: NetMind agent AND helper both start on V4.1-Flash."""
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    flash = "deepseek-ai/DeepSeek-V4.1-Flash"
+    assert get_default_agent_model(source) == flash
+    assert get_default_helper_model(source) == flash
+
+
+def test_free_tier_provisioning_default_agent_is_v4_flash(monkeypatch):
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    from narranexus.platform.agent_framework.providers.free_tier import (
+        free_tier_default_models,
+    )
+    assert free_tier_default_models() == (
+        "deepseek-ai/DeepSeek-V4.1-Flash", "deepseek-ai/DeepSeek-V4.1-Flash",
+    )
+
+
 def test_cloud_policy_lets_the_free_card_drive_a_slot():
     """Cloud non-staff may only bind NetMind capacity. The free wallet IS
     NetMind capacity (through our gateway), so it must be bindable — otherwise
@@ -92,7 +113,7 @@ def test_cloud_policy_lets_the_free_card_drive_a_slot():
 
 def test_cloud_policy_still_rejects_a_byok_card(monkeypatch):
     monkeypatch.setattr(
-        "xyz_agent_context.agent_framework.providers.cloud_policy.is_cloud_mode",
+        "narranexus.platform.agent_framework.providers.cloud_policy.is_cloud_mode",
         lambda: True,
     )
     ensure_slot_provider_allowed({"source": FREE_TIER_SOURCE}, False)
@@ -105,7 +126,7 @@ def test_free_tier_is_off_in_local_mode(monkeypatch):
     desktop install must never try to provision one."""
     monkeypatch.setenv("FREE_TIER_ENABLED", "true")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: False
+        "narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: False
     )
     assert is_free_tier_enabled() is False
 
@@ -116,7 +137,7 @@ def test_free_tier_is_off_in_local_mode(monkeypatch):
 # dev. These two pin the whole chain: source → driver_type → registered class.
 
 def test_source_derives_a_driver_type():
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         derive_driver_type,
     )
 
@@ -129,11 +150,11 @@ def test_source_derives_a_driver_type():
 
 
 def test_driver_type_resolves_to_a_registered_driver():
-    import xyz_agent_context.agent_framework.providers.driver  # noqa: F401 — registers
-    from xyz_agent_context.agent_framework.providers.driver.drivers.netmind import (
+    import narranexus.platform.agent_framework.providers.driver  # noqa: F401 — registers
+    from narranexus_plugins.providers.netmind import (
         NetMindDriver,
     )
-    from xyz_agent_context.agent_framework.providers.driver.registry import (
+    from narranexus.platform.agent_framework.providers.driver.registry import (
         get_driver_class,
     )
 
@@ -146,11 +167,11 @@ def test_driver_type_resolves_to_a_registered_driver():
 
 def test_every_dual_card_type_has_a_driver():
     """The guard that would have caught this class of miss up front."""
-    import xyz_agent_context.agent_framework.providers.driver  # noqa: F401
-    from xyz_agent_context.agent_framework.providers.driver.derive import (
+    import narranexus.platform.agent_framework.providers.driver  # noqa: F401
+    from narranexus.platform.agent_framework.providers.driver.derive import (
         derive_driver_type,
     )
-    from xyz_agent_context.agent_framework.providers.driver.registry import (
+    from narranexus.platform.agent_framework.providers.driver.registry import (
         get_driver_class,
     )
 
@@ -165,7 +186,7 @@ def test_build_dual_providers_accepts_per_protocol_model_dict():
     # anthropic sets genuinely differ); each card row must get its own.
     import json
 
-    from xyz_agent_context.agent_framework.providers.user_service import (
+    from narranexus.platform.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
 
@@ -176,3 +197,25 @@ def test_build_dual_providers_accepts_per_protocol_model_dict():
     by_proto = {r["protocol"]: json.loads(r["models"]) for r in rows}
     assert by_proto["openai"] == ["a", "b"]
     assert by_proto["anthropic"] == ["a"]
+
+
+@pytest.mark.parametrize("source", ["netmind", FREE_TIER_SOURCE])
+def test_netmind_onboarding_defaults_are_registered_catalog_models(source, monkeypatch):
+    """A default the catalogue has no metadata for loses thinking/budget flags."""
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    from narranexus.platform.agent_framework.providers.model_catalog import (
+        get_model_meta,
+    )
+    for model in (get_default_agent_model(source), get_default_helper_model(source)):
+        assert get_model_meta(model) is not None
+
+
+def test_v41_flash_thinks_by_default_is_the_mirrored_v4_family_guess():
+    """Pins the thinks_by_default flag that was COPIED from the V4 family, not
+    measured. If V4.1-Flash is ever measured otherwise, change this together
+    with the ModelMeta entry -- a red here is that reminder, not a regression."""
+    from narranexus.platform.agent_framework.providers.model_catalog import (
+        get_model_meta,
+    )
+    assert get_model_meta("deepseek-ai/DeepSeek-V4.1-Flash").thinks_by_default is True

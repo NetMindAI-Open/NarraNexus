@@ -22,13 +22,20 @@
 # Auth / identity — requires extra eyes.
 /backend/auth.py                       @johnsonice @BinLiang2021
 /backend/routes/auth.py                @johnsonice @BinLiang2021
-/src/xyz_agent_context/agent_framework/providers/driver/ @johnsonice @BinLiang2021
+# The plugin platform moved the "who is this user" decision and the
+# auth-exemption / install surfaces out of auth.py — same eyes.
+/backend/auth_provider.py              @johnsonice @BinLiang2021
+/backend/plugins_host.py               @johnsonice @BinLiang2021
+/backend/plugins_factory/              @johnsonice @BinLiang2021
+/plugins/builtin.auth.local/           @johnsonice @BinLiang2021
+/plugins/builtin.auth.netmind/         @johnsonice @BinLiang2021
+/src/narranexus/platform/agent_framework/providers/driver/ @johnsonice @BinLiang2021
 
 # Bundle export / import — credentials and chat content flow here.
-/src/xyz_agent_context/bundle/ @johnsonice @BinLiang2021
+/src/narranexus/platform/bundle/ @johnsonice @BinLiang2021
 
 # Schema — never silently widen or narrow.
-/src/xyz_agent_context/utils/db/schema_registry.py @johnsonice @BinLiang2021
+/src/narranexus/platform/utils/db/schema_registry.py @johnsonice @BinLiang2021
 
 # Release tooling.
 /.github/workflows/build-desktop.yml @johnsonice @BinLiang2021

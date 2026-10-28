@@ -7,7 +7,7 @@ kwarg propagation through the client seam.
 
 Silent mode is used by IM triggers (Matrix / Lark / Slack) to run the
 memory-only path for group non-@ messages and reconnect burst backfill:
-narrative selection, module load, instance sync, hook_persist_turn,
+narrative selection, module load, instance sync, persist_turn,
 step_5 hooks all fire; step_3 (agent LLM) is skipped. See
 `AgentRuntime.run(silent=True)` docstring for the full contract.
 
@@ -27,9 +27,9 @@ import inspect
 
 import pytest
 
-from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-from xyz_agent_context.agent_runtime.client import InProcessAgentRuntimeClient
-from xyz_agent_context.schema.runtime_message import MessageType
+from narranexus.platform.agent_runtime.agent_runtime import AgentRuntime
+from narranexus.platform.agent_runtime.client import InProcessAgentRuntimeClient
+from narranexus.platform.schema.runtime_message import MessageType
 
 
 class _FakeMsg:
@@ -58,7 +58,7 @@ class _FakeRuntime:
 def patch_runtime(monkeypatch):
     _FakeRuntime.last_kwargs = None
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+        "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
         _FakeRuntime,
     )
 

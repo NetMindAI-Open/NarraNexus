@@ -47,24 +47,33 @@ import time
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
+from backend.run_lifecycle import RunTasks
 
 from backend.routes.manyfold.sync import (
     build_inbound_run_context,
     execute_job_once,
     parse_run_job_control,
+    retag_managed_input,
 )
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken
-from xyz_agent_context.channel.message_source_handler import (
+from narranexus.platform.agent_framework.loop.circuit_breaker import (
+    describe_skip_reason,
+    release_probe,
+    should_skip,
+    try_begin_probe,
+)
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
+from narranexus.platform.agent_runtime.cancellation import CancellationToken
+from narranexus.platform.channel.message_source_handler import (
     MessageSourceHandler,
     MessageSourceRegistry,
 )
-from xyz_agent_context.schema import WorkingSource
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.schema import WorkingSource
+from narranexus.platform.utils.db.db_factory import get_db_client
+from backend.auth_errors import API_KEY_INVALID, AuthError
 
 
 router = APIRouter()
@@ -115,9 +124,9 @@ class ChatCompletionsRequest(BaseModel):
 
 def _require_manyfold_auth(request: Request, model_echo: str = "") -> None:
     if not getattr(request.state, "manyfold_authed", False):
-        raise HTTPException(
-            status_code=401,
-            detail=_openai_error(
+        raise AuthError(
+            API_KEY_INVALID,
+            _openai_error(
                 "missing or invalid MANYFOLD_GATEWAY_TOKEN",
                 etype="invalid_request_error",
                 model_echo=model_echo,
@@ -185,7 +194,7 @@ async def _resolve_agent_creator(agent_id: str) -> Optional[str]:
     Delegates to the shared AgentRepository.resolve_owner seam (one home
     for ownership semantics); this wrapper only keeps the Optional
     contract its callers branch on."""
-    from xyz_agent_context.repository.agent_repository import AgentRepository
+    from narranexus.platform.repository.agent_repository import AgentRepository
 
     owner = await AgentRepository(await get_db_client()).resolve_owner(agent_id)
     return owner or None
@@ -226,12 +235,12 @@ _TERMINAL_TYPES = ("complete", "run_ended", "completed", "done", "failed", "canc
 
 def _ensure_source_handlers_registered() -> None:
     """Channel modules register their MessageSourceHandler at import time
-    (lark_module, wechat_module, ...). Importing MODULE_MAP forces those
+    (lark_module, wechat_module, ...). Importing module_registry forces those
     imports so a managed-IM turn classifies with the channel's declared
     reply tools even when this request is the process's first
     agent-related code path. Cached by sys.modules after the first call."""
     try:
-        from xyz_agent_context.module import MODULE_MAP  # noqa: F401
+        from narranexus.platform.module_system import module_registry  # noqa: F401
     except Exception as e:  # pragma: no cover - broken module tree
         logger.warning(f"MessageSource registration import failed: {e}")
 
@@ -268,7 +277,7 @@ def _classify_event(
       monologue. Routed to ``delta.reasoning_content`` (OpenAI o1 /
       DeepSeek convention).
     - ``("content",   str)``  — the user-visible reply text the agent
-      explicitly emits via ``send_message_to_user_directly``. Routed
+      explicitly emits via ``reply_owner``. Routed
       to ``delta.content``.
     - ``("tool_call", {name, arguments})`` — any OTHER internal tool the
       agent invokes (lark_cli, skill_module, etc.). Routed to
@@ -300,7 +309,7 @@ def _classify_event(
     # 1b. The other inner stream: actual response tokens being generated
     # (before any tool call wrap them up). Same destination —
     # delta.reasoning_content — because for narranexus the ONLY
-    # user-facing text is the explicit send_message_to_user_directly
+    # user-facing text is the explicit ``reply_owner``
     # tool call below; everything else is chain-of-thought.
     if t == "agent_response":
         d = event.get("delta")
@@ -343,7 +352,7 @@ def _classify_event(
         # the per-WorkingSource declaration (MessageSourceRegistry), the
         # same chain chat_module uses to split user-visible replies. For
         # owner chat the default handler resolves to
-        # send_message_to_user_directly + arguments["content"], exactly
+        # ``reply_owner`` + arguments["content"], exactly
         # the retired hardcoded list.
         reply_text = source_handler.extract_reply_text(tool_name, args)
         if reply_text:
@@ -381,7 +390,7 @@ _RUN_JOB_HEARTBEAT_S = 15.0
 
 
 async def _run_job_completion(
-    *, agent_id: str, job_id: str, stream: bool
+    *, agent_id: str, job_id: str, stream: bool, run_tasks: RunTasks
 ):
     """Answer a `[[nx:run_job ...]]` turn with the job's execution outcome
     in both OpenAI shapes. No BackgroundRun is started — execute_job_once
@@ -390,7 +399,7 @@ async def _run_job_completion(
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created_ts = int(time.time())
 
-    task = asyncio.create_task(execute_job_once(agent_id, job_id))
+    task = run_tasks.start(execute_job_once(agent_id, job_id))
     # A disconnected client must never cancel the job run (铁律 #14) — the
     # task keeps going; the callback just retrieves a potential exception.
     task.add_done_callback(_log_orphaned_run_job)
@@ -527,10 +536,19 @@ def _receipt_completion(
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-def _schedule_managed_after_run(managed_ingress, **kwargs) -> None:
+def _managed_audit_details(managed_t0: float) -> dict:
+    """Turn facts for the managed_ingress_processed audit row — one
+    derivation for both the stream and non-stream finally blocks."""
+    return {
+        "route": "normal",
+        "duration_ms": int((time.monotonic() - managed_t0) * 1000),
+    }
+
+
+def _schedule_managed_after_run(run_tasks: RunTasks, managed_ingress, **kwargs) -> None:
     """Fire-and-forget the post-run bookkeeping with a done-callback
     (engineering lesson #2: no unobserved task exceptions)."""
-    task = asyncio.create_task(managed_ingress.after_run(**kwargs))
+    task = run_tasks.start(managed_ingress.after_run(**kwargs))
     task.add_done_callback(_log_managed_after_run)
 
 
@@ -588,6 +606,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
             agent_id=agent_id,
             job_id=run_job_id,
             stream=body.stream,
+            run_tasks=request.app.state.run_tasks,
         )
 
     db = await get_db_client()
@@ -617,11 +636,15 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
     # answers with a receipt completion and never starts the agent.
     managed_ingress = None
     if working_source is not WorkingSource.MANYFOLD:
-        from xyz_agent_context.module.managed_channel_ingress import (
+        from narranexus.platform.module_system.managed_channel_ingress import (
             get_managed_channel_ingress,
         )
 
         managed_ingress = get_managed_channel_ingress()
+        # Wall-clock anchor for the managed_ingress_processed audit row —
+        # covers gate + conversion + the full run, i.e. the platform-side
+        # view of "how long did this inbound take end to end".
+        managed_t0 = time.monotonic()
         allowed, receipt = await managed_ingress.before_run(
             working_source=working_source,
             agent_id=agent_id,
@@ -637,6 +660,11 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 created_ts=created_ts,
                 stream=body.stream,
             )
+        # The hooks above are what puts ``is_agent_peer`` on the tag, and
+        # ``run_input`` was rendered before they ran — so rebuild it now
+        # that the tag dict is final. Deliberately after the deny
+        # early-return: a rejected turn never reaches a model.
+        run_input = retag_managed_input(trigger_extra_data, user_input)
         # Platform-ingested attachments → native Attachment protocol
         # (store + index + STT) so the marker pipeline works unchanged.
         # Never raises; a broken ref degrades that file to text-only.
@@ -669,28 +697,64 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 stream=body.stream,
             )
 
-    active_runs = request.app.state.active_runs
-    cancellation = CancellationToken()
-    bg = BackgroundRun(
-        agent_id=agent_id,
-        user_id=creator,
-        input_preview=user_input or "",
-        db=db,
-        active_runs=active_runs,
-        cancellation=cancellation,
+    # Circuit-breaker gate — the same two steps every turn-starting entry
+    # point takes (should_skip, then try_begin_probe at the last moment before
+    # the run exists). Placed AFTER every branch that answers without a turn
+    # (run-job control, managed-ingress deny, silent group ingest) so none of
+    # them can burn the single half-open probe grant. Without it this entry
+    # ran turns against a paused agent, and — because BackgroundRun feeds the
+    # breaker — an unclaimed turn here could decide another turn's probe.
+    cb_gate = await should_skip(agent_id, db=db)
+    cb_admission = (
+        await try_begin_probe(agent_id, db=db, prior=cb_gate)
+        if not cb_gate.skip
+        else None
     )
+    if cb_admission is None or not cb_admission.allowed:
+        cb_reason = cb_gate.reason if cb_admission is None else cb_admission.reason
+        return JSONResponse(
+            status_code=503,
+            content=_openai_error(
+                describe_skip_reason(cb_reason),
+                etype="agent_circuit_open",
+                code=cb_reason,
+                model_echo=agent_id,
+            ),
+        )
 
-    # Kick off the background agent run.
-    bg.task = asyncio.create_task(
-        bg.drive(
+    try:
+        active_runs = request.app.state.active_runs
+        cancellation = CancellationToken()
+        bg = BackgroundRun(
             agent_id=agent_id,
             user_id=creator,
-            input_content=run_input,
-            working_source=working_source,
-            pass_mcp_servers={},
-            trigger_extra_data=trigger_extra_data,
+            input_preview=user_input or "",
+            db=db,
+            active_runs=active_runs,
+            cancellation=cancellation,
+            # A won probe claim rides the run to its settlement.
+            probe_token=cb_admission.probe_token,
         )
-    )
+
+        # Kick off the background agent run.
+        bg.task = request.app.state.run_tasks.start(
+            bg.drive(
+                agent_id=agent_id,
+                user_id=creator,
+                input_content=run_input,
+                working_source=working_source,
+                pass_mcp_servers={},
+                trigger_extra_data=trigger_extra_data,
+            )
+        )
+    except BaseException:
+        # Claimed, but the run never started (setup threw before its task
+        # existed): hand the probe back by its token, the same belt the WS
+        # handler carries — else every entry is refused until the grant
+        # expires. Once the task exists the run owns the token and settles
+        # it itself, so nothing after this point may release it.
+        await release_probe(agent_id, cb_admission.probe_token, db=db)
+        raise
 
     # Wait until BackgroundRun publishes its run_id (Step 0 emitted),
     # otherwise the broadcaster subscribe race might miss early events.
@@ -901,6 +965,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 bg.broadcaster.unsubscribe(session_id)
                 if managed_ingress is not None:
                     _schedule_managed_after_run(
+                        request.app.state.run_tasks,
                         managed_ingress,
                         working_source=working_source,
                         agent_id=agent_id,
@@ -909,6 +974,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         db=db,
                         reply_text="\n".join(reply_parts),
                         error_text=last_error_msg or "",
+                        audit_details=_managed_audit_details(managed_t0),
                     )
 
         return StreamingResponse(
@@ -975,6 +1041,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         bg.broadcaster.unsubscribe(session_id)
         if managed_ingress is not None:
             _schedule_managed_after_run(
+                request.app.state.run_tasks,
                 managed_ingress,
                 working_source=working_source,
                 agent_id=agent_id,
@@ -983,6 +1050,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 db=db,
                 reply_text="\n".join(parts),
                 error_text=error_msg or "",
+                audit_details=_managed_audit_details(managed_t0),
             )
 
     if error_msg:

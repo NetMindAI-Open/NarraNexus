@@ -65,6 +65,6 @@ export function HealthStatusBar({ health, isLoading }: HealthStatusBarProps) {
 }
 
 const BAR_BASE =
-  'flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium';
+  'flex items-center gap-2 px-4 py-2.5 rounded-[var(--radius-xl)] text-sm font-medium';
 
 export type { HealthStatusBarProps };

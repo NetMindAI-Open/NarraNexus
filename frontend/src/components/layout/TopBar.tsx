@@ -1,65 +1,55 @@
 /**
- * TopBar — the narrow (36px) global status strip above the whole app.
+ * TopBar — the narrow (36px) MOBILE-ONLY status strip (Chat UI v4).
  *
- * Holds only glanceable, GLOBAL state + one global action, so it never fights
- * the sidebar / bookmark strip / chat header for attention:
- *   - left:  binding-dot + a location breadcrumb (which agent / which page)
- *   - right: "Find Us" community entry (external link to the marketing hub)
- *   - right: runtime + connection status (LOCAL/CLOUD + online dot)
- *   - right: ⌘K command palette trigger (jump to any agent or page)
+ * On < md the sidebar is an off-canvas drawer, so mobile still needs a
+ * hamburger + a glanceable location line; this strip carries them plus the
+ * Find Us entry and the command-palette trigger. On desktop (md+) it does
+ * not render at all — the sidebar owns full height, Find Us lives in the
+ * sidebar footer, and ⌘K is a global shortcut hosted by MainLayout.
  *
- * Deliberately NOT here (would duplicate the sidebar or carry per-agent, not
- * global, state): user menu / theme / logout (sidebar footer), the per-agent
- * token cost chip (chat header). A global unread bell is a planned addition
- * once a cross-agent unread rollup exists.
+ * Deliberately NOT here (would duplicate the sidebar or carry per-agent,
+ * not global, state): user menu / theme / logout (account popover), the
+ * per-agent token cost chip (chat header).
  */
-import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { Menu, Users } from 'lucide-react';
 import { BindingDot } from '@/components/nm';
 import { useConfigStore, useUIStore } from '@/stores';
 import { useRuntimeStore } from '@/stores/runtimeStore';
-import { CommandPalette } from './CommandPalette';
+import { TOP_BAR_ITEMS } from '@/platform/registries';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { useWhenContext } from '@/platform/whenContext';
 
 /**
  * Community hub on the marketing site (Discord / WeChat / socials). The
- * TopBar entry exists to shorten the "sign up → join the community" path,
- * so it must stay a plain external link — no in-app routing.
+ * entry exists to shorten the "sign up → join the community" path, so it
+ * must stay a plain external link — no in-app routing. Shared with the
+ * sidebar footer's desktop entry.
  */
-const FIND_US_URL = 'https://www.narra.nexus/connect';
+export const FIND_US_URL = 'https://www.narra.nexus/connect';
 
 /** Map a route to a breadcrumb i18n key (agent name handled separately). */
 function pageLabelKey(pathname: string): string | null {
   if (pathname.startsWith('/app/dashboard')) return 'layout.topBar.crumbDashboard';
   if (pathname.startsWith('/app/settings')) return 'layout.topBar.crumbSettings';
   if (pathname.startsWith('/app/system')) return 'layout.topBar.crumbSystem';
-  if (pathname.startsWith('/app/manage-agents')) return 'layout.topBar.crumbManageAgents';
   if (pathname.startsWith('/app/teams')) return 'layout.topBar.crumbTeam';
   if (pathname.startsWith('/app/bundle')) return 'layout.topBar.crumbBundle';
   return null; // chat
 }
 
 export function TopBar() {
+  const whenCtx = useWhenContext({});
   const { t } = useTranslation();
   const location = useLocation();
   const agents = useConfigStore((s) => s.agents);
   const agentId = useConfigStore((s) => s.agentId);
   const mode = useRuntimeStore((s) => s.mode);
   const toggleMobileNav = useUIStore((s) => s.toggleMobileNav);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-
-  // Global ⌘K / Ctrl+K to open the palette.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        setPaletteOpen((o) => !o);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // The palette element + the global ⌘K listener are hosted by MainLayout
+  // (they must survive on desktop, where this strip doesn't render).
+  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
 
   const pageKey = pageLabelKey(location.pathname);
   const page = pageKey ? t(pageKey) : null;
@@ -73,7 +63,7 @@ export function TopBar() {
   return (
     <>
       <div
-        className="flex h-9 shrink-0 items-center justify-between px-3 bg-[var(--nm-card)] border-b border-[var(--nm-hairline)]"
+        className="flex md:hidden h-9 shrink-0 items-center justify-between px-3 bg-[var(--nm-card)] border-b border-[var(--nm-hairline)]"
         data-help-id="topbar"
       >
         {/* left — hamburger (mobile only) + binding-dot + breadcrumb */}
@@ -82,7 +72,7 @@ export function TopBar() {
             type="button"
             onClick={toggleMobileNav}
             aria-label={t('layout.topBar.openMenu')}
-            className="-ml-1 flex h-7 w-7 items-center justify-center rounded-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--color-carbon)] md:hidden"
+            className="-ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:text-[var(--color-carbon)] md:hidden"
           >
             <Menu className="h-4 w-4" />
           </button>
@@ -120,6 +110,8 @@ export function TopBar() {
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
             {connLabel}
           </span>
+          {/* Plugin items (ui.topBarItems), gated by `when`. */}
+          <SlotOutlet registry={TOP_BAR_ITEMS} ctx={whenCtx} agentId={null} as="span" className="inline-flex items-center gap-2" />
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
@@ -131,8 +123,6 @@ export function TopBar() {
           </button>
         </div>
       </div>
-
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </>
   );
 }

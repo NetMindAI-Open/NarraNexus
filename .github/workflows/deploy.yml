@@ -1,17 +1,30 @@
 name: Deploy NarraNexus
 
 # Auto-deploy on push:
-#   main -> production EC2  (ubuntu@35.179.137.129)
-#   dev  -> development EC2 (ec2-user@35.176.34.185)
+#   main -> production EC2  (PROD_EC2_USER@PROD_EC2_HOST)
+#   dev  -> development EC2 (DEV_EC2_USER@DEV_EC2_HOST)
 #
 # Each run SSHes into the matching host and:
 #   fetch the pushed branch tip -> make app-build -> make app-up
 # It deliberately does NOT commit/push the deploy-repo submodule pointer
 # and does NOT touch the website stack (those are manual, per ops policy).
 #
-# NOTE: the dev host IP below is the auto-assigned EC2 public IP. If the
-# dev instance is stop/started (no Elastic IP yet), this IP changes —
-# update the dev value here (or attach an EIP to make it permanent).
+# WHERE a deploy goes is repo configuration, not code. Settings -> Secrets and
+# variables -> Actions -> Variables:
+#   PROD_EC2_HOST / DEV_EC2_HOST    required. No fallback in this file on purpose:
+#                                   a missing variable fails the run loudly instead
+#                                   of silently deploying to a stale address.
+#   PROD_EC2_USER / DEV_EC2_USER    optional (default ubuntu / ec2-user)
+#   PROD_EC2_HOME / DEV_EC2_HOME    optional (default /home/ubuntu / /home/ec2-user)
+#   PROD_EC2_FINGERPRINT / DEV_EC2_FINGERPRINT
+#                                   optional SHA256 host-key fingerprint; when set
+#                                   the SSH step refuses any other host. Each branch
+#                                   only ever reads its OWN environment's value.
+# Neither instance has an Elastic IP: a stop/start changes its public IP (prod's
+# moved on 2026-09-21 and every push to main deployed to a dead address). When
+# that happens edit the VARIABLE — nothing in this file needs to change. Variables
+# are per-repository: NarraNexus and NarraNexus-deploy each hold their own copy,
+# keep the two in step.
 
 on:
   push:
@@ -29,22 +42,57 @@ jobs:
     # and never needs the EC2_SSH_KEY secret.
     if: github.repository == 'protagolabs/NarraNexus'
     runs-on: ubuntu-latest
+    # Which machine, account and home directory a branch deploys to is decided ONCE,
+    # in the first step. It is done in shell, not in an expression: `a && b || c`
+    # falls through to `c` when `b` is an empty (unset) variable, so on `main` a
+    # missing PROD_* value would silently become the DEV_* one.
+    env:
+      DEPLOY_IS_PROD: ${{ github.ref_name == 'main' }}
+      PROD_HOST: ${{ vars.PROD_EC2_HOST }}
+      DEV_HOST: ${{ vars.DEV_EC2_HOST }}
+      PROD_USER: ${{ vars.PROD_EC2_USER || 'ubuntu' }}
+      DEV_USER: ${{ vars.DEV_EC2_USER || 'ec2-user' }}
+      PROD_HOME: ${{ vars.PROD_EC2_HOME || '/home/ubuntu' }}
+      DEV_HOME: ${{ vars.DEV_EC2_HOME || '/home/ec2-user' }}
+      PROD_FINGERPRINT: ${{ vars.PROD_EC2_FINGERPRINT }}
+      DEV_FINGERPRINT: ${{ vars.DEV_EC2_FINGERPRINT }}
     steps:
+      - name: Resolve and validate the deploy target
+        run: |
+          if [ "$DEPLOY_IS_PROD" = "true" ]; then
+            HOST="$PROD_HOST"; WHO="$PROD_USER"; DIR="$PROD_HOME"; FP="$PROD_FINGERPRINT"; NAME=PROD_EC2_HOST
+          else
+            HOST="$DEV_HOST"; WHO="$DEV_USER"; DIR="$DEV_HOME"; FP="$DEV_FINGERPRINT"; NAME=DEV_EC2_HOST
+          fi
+          if [ -z "$HOST" ]; then
+            echo "::error::$NAME is not set for this repository (Settings -> Secrets and variables -> Actions -> Variables)"
+            exit 1
+          fi
+          # The home directory is pasted into the remote script as export NAME='VALUE'
+          case "$DIR" in *\'*) echo "::error::deploy home must not contain a single quote"; exit 1;; esac
+          {
+            echo "DEPLOY_HOST=$HOST"
+            echo "DEPLOY_USER=$WHO"
+            echo "DEPLOY_HOME=$DIR"
+            echo "DEPLOY_FINGERPRINT=$FP"
+          } >> "$GITHUB_ENV"
+          echo "deploy target: $WHO@$HOST ($DIR), host-key check: $([ -n "$FP" ] && echo on || echo off)"
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host: ${{ github.ref_name == 'main' && '35.179.137.129' || '35.176.34.185' }}
-          username: ${{ github.ref_name == 'main' && 'ubuntu' || 'ec2-user' }}
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          fingerprint: ${{ env.DEPLOY_FINGERPRINT }}
+          # Passed INTO the remote session as an environment variable — never interpolate
+          # ${{ }} values into the script text, that is string pasting before the shell runs.
+          envs: DEPLOY_HOME
+          envs_format: export {NAME}='{VALUE}'
           key: ${{ secrets.EC2_SSH_KEY }}
           command_timeout: 30m
           script: |
             set -eu
             BRANCH="${{ github.ref_name }}"
-            if [ "$BRANCH" = "main" ]; then
-              REPO="/home/ubuntu/NetMind_RS_XYZ/NarraNexus-deploy"
-            else
-              REPO="/home/ec2-user/NetMind_RS_XYZ/NarraNexus-deploy"
-            fi
+            REPO="$DEPLOY_HOME/NetMind_RS_XYZ/NarraNexus-deploy"
             echo "==> deploy branch=$BRANCH host=$(hostname)"
             cd "$REPO/NarraNexus"
             git fetch origin "$BRANCH"

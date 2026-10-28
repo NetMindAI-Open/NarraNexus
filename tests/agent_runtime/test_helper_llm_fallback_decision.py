@@ -8,7 +8,7 @@
 Returns ``(mode, skip_reason)``:
 
 - ``("no_reply", "")``: chat-triggered turn finished cleanly without
-  send_message_to_user_directly → run helper_llm in "no_reply" mode,
+  reply_owner → run helper_llm in "no_reply" mode,
   no error frame to surface.
 - ``("after_error", "")``: chat-triggered turn hit a fatal mid-stream
   AND the agent had not sent any user-facing reply yet → run helper_llm
@@ -16,7 +16,7 @@ Returns ``(mode, skip_reason)``:
   tool results + error info) and surface the original error as severity
   ``recovered`` after the recovery stream.
 - ``("partial_reply_then_error", "")``: chat-triggered turn hit a fatal
-  AFTER the agent already called send_message_to_user_directly → do
+  AFTER the agent already called reply_owner → do
   NOT invoke helper_llm (the user already heard from the agent) but
   surface the truncated execution via severity
   ``recovered_after_reply``.
@@ -30,10 +30,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _should_run_helper_llm_fallback,
 )
-from xyz_agent_context.schema import (
+from narranexus.platform.schema import (
     ErrorMessage,
     ProgressMessage,
     ProgressStatus,
@@ -47,10 +47,10 @@ def _send_message_progress(content: str = "hi") -> ProgressMessage:
     return ProgressMessage(
         step="3.4.1",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": content},
         },
     )
@@ -148,7 +148,7 @@ def test_recoverable_error_does_not_trigger_after_error_mode():
 
 
 def test_fatal_after_organic_reply_returns_partial_reply_then_error():
-    """Agent already spoke via send_message_to_user_directly, then a
+    """Agent already spoke via reply_owner, then a
     follow-up step crashed. Do NOT invoke helper_llm (we already
     replied), but surface the truncated execution via a recovered-
     after-reply badge."""
@@ -169,8 +169,15 @@ def test_fatal_after_organic_reply_returns_partial_reply_then_error():
 # ---------- skip: non-chat trigger ------------------------------------
 
 
-@pytest.mark.parametrize("ws", ["message_bus", "job", "lark", "callback", "a2a"])
+@pytest.mark.parametrize("ws", ["message_bus", "job", "callback", "a2a"])
 def test_non_chat_trigger_skips(ws):
+    """Sources with no human waiting in a room.
+
+    ``message_bus`` and ``job`` are excluded by policy (peer-agent loops /
+    no channel recipient); ``callback`` and ``a2a`` have no room at all.
+    ``lark`` left this list on 2026-08-06 — it IS an IM channel, so its
+    skip reason now depends on room type (see below).
+    """
     mode, reason = _should_run_helper_llm_fallback(
         working_source=ws,
         agent_loop_response=[_non_reply_progress()],
@@ -178,6 +185,21 @@ def test_non_chat_trigger_skips(ws):
     )
     assert mode is None
     assert reason == "non_chat_trigger"
+
+
+@pytest.mark.parametrize("ws", ["lark", "wechat", "telegram", "slack", "discord"])
+def test_im_group_room_skips_with_its_own_reason(ws):
+    """An IM group room still stays silent — but for the room-type reason,
+    not "out of scope". The 1:1 DM case of the same channels runs the
+    fallback (tests/agent_runtime/test_im_dm_no_reply_fallback.py)."""
+    mode, reason = _should_run_helper_llm_fallback(
+        working_source=ws,
+        agent_loop_response=[_non_reply_progress()],
+        cancellation=None,
+        is_direct_message=False,
+    )
+    assert mode is None
+    assert reason == "group_room_may_stay_silent"
 
 
 def test_non_chat_trigger_with_fatal_still_skips():
@@ -255,7 +277,7 @@ def test_send_message_present_skips():
 
 def test_mcp_prefixed_send_message_recognised():
     """Tool name from MCP arrives as `mcp__chat_module__send_message_...`
-    — substring match on `send_message_to_user_directly` must catch it."""
+    — substring match on `reply_owner` must catch it."""
     mode, reason = _should_run_helper_llm_fallback(
         working_source="chat",
         agent_loop_response=[_send_message_progress()],

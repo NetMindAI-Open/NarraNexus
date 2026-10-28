@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/stores/index.ts
-last_verified: 2026-04-10
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -9,6 +9,11 @@ stub: false
 ## Why it exists
 
 Provides a single import path `@/stores` for all store hooks and the `JOB_TEMPLATES` constant. Consumers write `import { useConfigStore, useChatStore } from '@/stores'` instead of knowing which file each store lives in.
+
+## 2026-09-03
+
+新增 `studioStore` 及其四个 selector / helper（`selectStudioOpen`、`selectStudioResumable`、
+`selectRecommendations`、`isStudioOpen`）的再导出，见 [[studioStore.ts]]。
 
 ## Notes
 

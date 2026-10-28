@@ -26,7 +26,7 @@ poison-message 的机制，但代价是消息从此彻底消失，没有任何 U
 - **被谁用**：`backend/routes/agents/core.py`（`router.include_router(bus_failures_router)`，挂载在 `/api/agents` 下）；前端目前**没有**对应 UI（本 PR 只交付后端路由，前端 follow-up）
 - **依赖谁**：
   - `backend.auth.resolve_current_user_id` — 拿 viewer 身份（同 `agents/cost.py` 模式）
-  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查 `bus_message_failures` / `bus_messages` / `agents` 表
+  - `narranexus.platform.utils.db.db_factory.get_db_client` — 直接查 `bus_message_failures` / `bus_messages` / `agents` 表
   - 不直接依赖 `LocalMessageBus`——重试端点只是删除 `bus_message_failures` 行，下一次 `MessageBusTrigger` 轮询会自然通过 `get_pending_messages` 把消息捞回来
 
 ## 设计决策

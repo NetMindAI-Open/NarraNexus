@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from xyz_agent_context.channel.channel_trigger_base import CHANNEL_SILENT_SENTINEL
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.channel.channel_trigger_base import CHANNEL_SILENT_SENTINEL
+from narranexus.platform.schema.parsed_message import ParsedMessage
 from tests.channel.test_mock_channel_trigger_integration import (
     _FakeCredential,
     _FakeTrigger,
@@ -70,8 +70,8 @@ def _msg() -> ParsedMessage:
 
 
 async def _drive(trigger, db_client, monkeypatch, *, result=None, raises=None):
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
 
     async def _fake_collect_run(*_a, **_k):
         if raises is not None:

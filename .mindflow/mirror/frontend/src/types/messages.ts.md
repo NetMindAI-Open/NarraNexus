@@ -1,8 +1,36 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-08-01
+last_verified: 2026-09-09
 stub: false
 ---
+
+## 2026-09-09 — `ErrorMessage.self_serviceable?: boolean`
+
+后端 `ErrorMessage.self_serviceable` 的镜像：用户能否自己清掉这个错（等/升级 rate limit、
+重登、充值）。claude driver 每条 `response.error` 都打；`auth_expired` / `config_actionable`
+按构造为 true（两条后端出口都打）；`undefined` = driver 没分类（codex / nexus_power）或
+`infra_transient`，绝不是伪造的 false——所以**第一步只交付 True 侧**，UI 能说「你能修」，
+还不能说「这不是你的问题」。本次只加类型，UI 还没消费。
+
+## 2026-08-30 — 两个 monologue 字段，类型不同，别当成一个
+
+- `AgentThinking.monologue?: **string**` —— WS 实时帧。它是
+  `thinking_content` 的**子集文本**，不是布尔：一帧可能同时装独白与
+  provider CoT（上游 batcher 合帧），并集在 `thinking_content`、子集在这里。
+  所以档位判定是**相等**而非真值，见 [[monologueTier]]。
+- `ThinkingEvent.monologue?: **boolean**` —— 前端事件模型。档位已经判完，
+  一个块一个档（换档开新块）。
+
+`EventLogTimelineEntry.monologue` 走的是 boolean 那一路（后端已收敛，见
+[[api]]）。把实时帧的 string 当 bool 用（`!!monologue`）会把混档帧里的
+provider 草稿纸一起提亮——不能犯的那一侧。
+
+`ThinkingEvent` 无论哪档**都还是 process 事件**：不进 `segment.reply`、不进
+答案气泡。A′ 改的是档位，不是语域。
+
+## 2026-08-24 — 运行中插话(steer)帧 + ChatMessage 三态
+
+RuntimeMessage 加 `steer_queued`/`steer_rejected{reason}`/`steer_consumed{ids}`;`run_started` 加 `steerable?`。ChatMessage 加 `steerStatus?:'queued'|'merged'|'rejected'` + `steerClientMsgId?` + `rejectReason?`(owner 运行中发的 follow-up 气泡三态)。协议由后端 [[websocket.py]](PR #355)定义,前端消费。`RunReconnectMessage` **不带** `steerable` 字段:reconnect 无 live channel、结构上就不可 steer(新 entry 的 `entry.steerable` 缺省 falsy、`steer()`/`isSteerable()` 直接 false),没有任何读取点,留个字段只会诱导后来人以为翻一下就能让 reconnect 可 steer(不接 live channel 是做不到的)。
 
 ## 2026-08-01 — 两个联合类型补 `free_tier_exhausted` / `invalid_credentials`
 
@@ -82,3 +110,10 @@ agent_response / agent_thinking / tool_call / error / complete …），WS 层�
 
 这类失败（上下文太小/余额/模型 ID）确定性、可自助修复，后端不再让 helper
 兜底掩盖，前端据此给可操作引导。
+
+## 2026-08-18 — 已退役工具名的跟随
+
+`bus_share_to_team` → `team_share_file`（用户可见的提示文案，此前指向一个不存在的工具名）、
+`send_message_to_user_directly` → `reply_owner` / `notify_owner`。后者在前端不只是措辞：
+按工具名挑气泡内容的三处只匹配旧名字时，回复是真的、内容在那儿、气泡就是不渲染 —— 同一条
+规则现在收在 `lib/ownerTools.ts`，镜像见 [[ownerTools.ts]]。

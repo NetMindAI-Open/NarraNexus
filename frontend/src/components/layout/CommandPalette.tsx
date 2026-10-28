@@ -13,9 +13,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { LayoutDashboard, SlidersHorizontal, Server, MessagesSquare, CornerDownLeft } from 'lucide-react';
-import { useConfigStore, useUIStore } from '@/stores';
+import { useConfigStore, useUIStore, useStudioStore, selectStudioOpen, selectStudioResumable } from '@/stores';
 import { RingAvatar } from '@/components/nm';
-import { ALL_TABS } from '@/components/bookmarks';
+import { visibleTabs } from '@/components/bookmarks';
+import { COMMANDS, useRegistryEntries } from '@/platform/registries';
+import { reportUiError } from '@/platform/errorSink';
 import { cn } from '@/lib/utils';
 
 interface CommandPaletteProps {
@@ -41,10 +43,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const setAgentId = useConfigStore((s) => s.setAgentId);
   const agentId = useConfigStore((s) => s.agentId);
   const requestPanel = useUIStore((s) => s.requestPanel);
+  const studioOpen = useStudioStore(selectStudioOpen(agentId));
+  const studioResumable = useStudioStore(selectStudioResumable(agentId));
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Plugin-contributed commands (ui.commands registry); re-renders when a plugin registers late.
+  const registryCommands = useRegistryEntries(COMMANDS);
   const commands = useMemo<Cmd[]>(() => {
     const agentCmds: Cmd[] = agents.map((a) => ({
       id: `agent:${a.agent_id}`,
@@ -66,8 +72,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     ];
     // Context panels (awareness/jobs/…) — only meaningful with an agent
     // selected. This is the mobile entry point now that the right strip hides.
+    // Same visibility rule as the drawer switcher: a conditional tab (the
+    // creation studio's panel) is offered only while its context holds.
     const panelCmds: Cmd[] = agentId
-      ? ALL_TABS.map((tab) => ({
+      ? visibleTabs({ studioOpen, studioResumable }).map((tab) => ({
           id: `panel:${tab.id}`,
           label: t(tab.labelKey),
           hint: t('layout.commandPalette.hintPanel'),
@@ -79,8 +87,31 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           },
         }))
       : [];
-    return [...agentCmds, ...pageCmds, ...panelCmds];
-  }, [agents, navigate, setAgentId, agentId, requestPanel, t]);
+    const pluginCmds: Cmd[] = registryCommands
+      .filter((e) => {
+        if (!e.value.visible) return true;
+        // `CommandDef.visible` is an arbitrary function called directly at render (unlike
+        // `WhenClause` strings, which are validated at registration) — a plugin's predicate
+        // throwing must not crash the whole palette (M-3): report it and hide that one command.
+        try {
+          return e.value.visible();
+        } catch (error) {
+          reportUiError(error instanceof Error ? error : new Error(String(error)), { kind: 'render', source: e.owner, context: 'CommandPalette visible()' });
+          return false;
+        }
+      })
+      .map((e) => ({
+        id: `cmd:${e.id}`,
+        label: e.value.labelIsKey ? t(e.value.label) : e.value.label,
+        hint: e.value.hint ?? t('layout.commandPalette.hintPage'),
+        kind: 'page',
+        icon: e.value.icon ?? SlidersHorizontal,
+        run: () => {
+          void e.value.run();
+        },
+      }));
+    return [...agentCmds, ...pageCmds, ...panelCmds, ...pluginCmds];
+  }, [agents, navigate, setAgentId, agentId, studioOpen, studioResumable, requestPanel, t, registryCommands]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -62,9 +62,15 @@ fi
 echo -e "${G}  System dependencies ready${R}"
 
 # --- Install Python dependencies ---
+# --extra plugins: this is a CLOUD deploy path — it must run every agent
+# framework, so it pulls in the optional coding-agent SDKs (claude-agent-sdk /
+# openai-codex) that the lightweight local build keeps out of base. Omitting it
+# ships claude_code / codex_cli dead here. Lockstep with ci.yml /
+# Dockerfile.manyfold (and the deploy repo's Dockerfiles) — tests/backend/
+# test_plugins_extra_lockstep.py guards this line.
 echo -e "${Y}[2/6] Installing Python dependencies...${R}"
 cd "$PROJECT_ROOT"
-uv sync 2>&1 | tail -1
+uv sync --extra plugins 2>&1 | tail -1
 echo -e "${G}  Python dependencies installed${R}"
 
 # --- Build frontend ---
@@ -176,7 +182,7 @@ create_service "backend" "Backend API" \
     "${UV_BIN} run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60"
 
 create_service "mcp" "MCP Server" \
-    "${UV_BIN} run python -m xyz_agent_context.module.module_runner mcp"
+    "${UV_BIN} run python -m narranexus.platform.module_system.module_runner mcp"
 
 # Consolidated worker supervisor — ONE process runs the module poller, the job
 # and message-bus triggers, and every IM channel trigger in a single event loop,
@@ -189,7 +195,7 @@ create_service "mcp" "MCP Server" \
 #   ... run_worker_supervisor --only channels --channels lark
 #   ... run_worker_supervisor --only poller,jobs,bus
 create_service "workers" "Workers" \
-    "${UV_BIN} run python -m xyz_agent_context.module.run_worker_supervisor"
+    "${UV_BIN} run python -m narranexus.platform.module_system.run_worker_supervisor"
 
 # Remove units from previous layouts BEFORE daemon-reload. Any machine deployed
 # by an earlier version of this script has enabled `narranexus-{poller,jobs,bus,

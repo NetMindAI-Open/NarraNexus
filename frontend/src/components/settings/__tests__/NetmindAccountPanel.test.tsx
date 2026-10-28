@@ -10,7 +10,7 @@
  * the read-only module-F status, recharge flows, and the activity ledger.
  * api + i18n + runtimeStore are mocked — no network.
  */
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { NetmindAccountPanel } from '../NetmindAccountPanel';
 
@@ -48,10 +48,13 @@ const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
 const mockRecharge = vi.fn();
 const mockRechargeStatus = vi.fn();
+const mockFxRate = vi.fn();
 const mockGetProviders = vi.fn();
 const mockUseSubscription = vi.fn();
+const mockGetCosts = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
+    getCosts: (...a: unknown[]) => mockGetCosts(...a),
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
     getFeeInfo: (...a: unknown[]) => mockGetFeeInfo(...a),
     getRecords: (...a: unknown[]) => mockGetRecords(...a),
@@ -62,6 +65,7 @@ vi.mock('@/lib/api', () => ({
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
     recharge: (...a: unknown[]) => mockRecharge(...a),
     rechargeStatus: (...a: unknown[]) => mockRechargeStatus(...a),
+    fxRate: (...a: unknown[]) => mockFxRate(...a),
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
     useSubscription: (...a: unknown[]) => mockUseSubscription(...a),
   },
@@ -180,9 +184,14 @@ beforeEach(() => {
   mockReactivate.mockReset();
   mockRecharge.mockReset();
   mockRechargeStatus.mockReset();
+  mockFxRate.mockReset();
   mockGetProviders.mockReset();
   mockUseSubscription.mockReset();
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED); // default: already connected
+  mockGetCosts.mockReset();
+  // Default: no platform ledger, so the NarraNexus-usage section stays hidden
+  // and the pre-existing cases assert on exactly what they did before.
+  mockGetCosts.mockRejectedValue(new Error('no costs'));
   mockOpenExternal.mockReset();
   mockOpenExternal.mockResolvedValue(undefined); // re-prime after restoreAllMocks
 });
@@ -331,13 +340,61 @@ test('free × low: the one-time top-up link toggles — click again collapses', 
   expect(screen.queryByRole('button', { name: /^Recharge$/ })).toBeNull();
 });
 
-test('free × low: upsell button → api.subscribe + openExternal(checkout_url)', async () => {
+test('free × low: upsell → card is preselected → api.subscribe()', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://pay/x' } });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
-  await waitFor(() => expect(mockSubscribe).toHaveBeenCalled());
+  await openBuyPro();
+  fireEvent.click(await screen.findByRole('button', { name: /^Subscribe$/ }));
+  // No arguments = the card subscription, unchanged from before the rails
+  // existed: months do not apply to it and must not be sent.
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith());
   await waitFor(() => expect(mockOpenExternal).toHaveBeenCalledWith('https://pay/x'));
+});
+
+test('free: a user with only Alipay can actually buy Pro', async () => {
+  // The point of the whole branch. Before this, the upsell went straight to a
+  // card checkout, so Alipay/WeChat users could top up credits but never
+  // subscribe — and a one-time subscriber whose period lapsed fell back to
+  // free and could never buy it back either.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockSubscribe.mockResolvedValue({
+    success: true,
+    data: { session_id: 'cs_new', checkout_url: 'https://checkout.stripe.com/c/pay/cs_new' },
+  });
+  render(<NetmindAccountPanel />);
+  await openBuyPro();
+  await pickMethod(/Alipay/);
+  fireEvent.click(await screen.findByRole('radio', { name: /^3$/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith('alipay', 3));
+  await waitFor(() =>
+    expect(mockOpenExternal).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_new'),
+  );
+});
+
+test('free: the card rail is offered; a live one-time subscription withdraws it', async () => {
+  // Not a preference — upstream refuses a card subscribe while a one-time
+  // subscription is live, so offering it there would be offering a failure.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  const { unmount } = render(<NetmindAccountPanel />);
+  await openBuyPro();
+  const freeGroup = await screen.findByRole('radiogroup', { name: /How to pay for Pro/ });
+  expect(within(freeGroup).getByRole('radio', { name: /Card/ })).toBeTruthy();
+  unmount();
+
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  // Scoped to the Pro group: the TOP-UP chooser shares this dialog and does
+  // legitimately offer card — which is exactly why the two groups needed
+  // distinct accessible names.
+  const proGroup = await screen.findByRole('radiogroup', { name: /How to pay for Pro/ });
+  expect(within(proGroup).queryByRole('radio', { name: /Card/ })).toBeNull();
+  // ...and the form must be the ONE-TIME one, not the card form with no card
+  // option in sight: the default rail is 'stripe', so this only holds because
+  // the panel normalises it before anything renders or is sent.
+  expect(screen.getByRole('button', { name: /^Pay/ })).toBeTruthy();
 });
 
 test('free × low: plans fetch fails → upsell card still renders, price line hidden', async () => {
@@ -749,7 +806,8 @@ test('subscribe payment lands → auto-link fires (no sign-out required)', async
   mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://stripe/x' } });
   mockUseSubscription.mockResolvedValue({ success: true });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
+  await openBuyPro();
+  fireEvent.click(await screen.findByRole('button', { name: /^Subscribe$/ }));
   // First poll tick returns ACTIVE.
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   await waitFor(() => expect(mockUseSubscription).toHaveBeenCalledTimes(1), { timeout: 5000 });
@@ -794,7 +852,7 @@ test('activity: collapsed by default, expands on click', async () => {
     ],
   });
   render(<NetmindAccountPanel />);
-  const toggle = await screen.findByRole('button', { name: /Recent activity/ });
+  const toggle = await screen.findByRole('button', { name: /NetMind account activity/ });
   expect(screen.queryByText(/\+\$10\.00 USD/)).toBeNull();
   fireEvent.click(toggle);
   expect(await screen.findByText(/\+\$10\.00 USD/)).toBeTruthy();
@@ -810,7 +868,7 @@ test('activity: pending records are hidden (abandoned checkouts)', async () => {
     ],
   });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Recent activity/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /NetMind account activity/ }));
   expect(await screen.findByText(/\+\$5\.00 USD/)).toBeTruthy();
   expect(screen.queryByText(/\+\$10\.00 USD/)).toBeNull();
 });
@@ -825,7 +883,7 @@ test('activity: hidden entirely when every record is pending', async () => {
   });
   render(<NetmindAccountPanel />);
   await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ });
-  expect(screen.queryByText(/Recent activity/)).toBeNull();
+  expect(screen.queryByText(/NetMind account activity/)).toBeNull();
 });
 
 test('activity: hidden when records fetch fails', async () => {
@@ -833,7 +891,72 @@ test('activity: hidden when records fetch fails', async () => {
   mockGetRecords.mockRejectedValue(new Error('502'));
   render(<NetmindAccountPanel />);
   await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ });
-  expect(screen.queryByText(/Recent activity/)).toBeNull();
+  expect(screen.queryByText(/NetMind account activity/)).toBeNull();
+});
+
+// ── usage attribution (2026-08-19: "usage shows model usage, not narra usage")
+// The balance and the ledger are NetMind-account-wide; spending that account
+// elsewhere moves the number in this card. Three places now say so, and the
+// platform's own ledger renders beside them. ──────────────────────────────────
+
+test('attribution: the card states that the balance is account-wide, not NarraNexus-only', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  render(<NetmindAccountPanel />);
+  // On the hero itself — this is the number users watch move.
+  expect(
+    await screen.findByText(/anything you run on this NetMind account draws it down/i),
+  ).toBeInTheDocument();
+  // And in the header, where the old copy said "used for your LLM API usage".
+  expect(
+    screen.getByText(/shared by every NetMind product, not only NarraNexus/i),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/Power plan & credits · used for your LLM API usage/)).toBeNull();
+});
+
+test('attribution: the ledger is labelled as the NetMind account, all products', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetRecords.mockResolvedValue({
+    success: true,
+    data: [
+      { record_id: 'r1', kind: 'Payment', type: 'Payment', direction: 'expense', amount: '2.00', currency: 'USD', status: 'succeeded', created_at: '2026-08-18T00:00:00+00:00' },
+    ],
+  });
+  render(<NetmindAccountPanel />);
+  expect(
+    await screen.findByRole('button', { name: /NetMind account activity \(all products\)/ }),
+  ).toBeInTheDocument();
+});
+
+test('attribution: the platform-scoped usage section renders with the account ledger', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetCosts.mockResolvedValue({
+    success: true,
+    summary: {
+      total_cost_usd: 0.5,
+      total_input_tokens: 200_000,
+      total_output_tokens: 50_000,
+      // Real contract: buckets by call_type, never a model id (backend cost.py).
+      by_model: { __main_model__: { cost: 0.5, input_tokens: 200_000, output_tokens: 50_000, call_count: 3 } },
+      daily: [],
+    },
+    records: [],
+    total_count: 3,
+  });
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/Used by NarraNexus · last 30 days/)).toBeInTheDocument();
+  // Twice: the section total and the single model row that makes it up.
+  expect(screen.getAllByText('250.0k')).toHaveLength(2);
+});
+
+test('attribution: a broken cost ledger cannot blank the billing card', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  mockGetCosts.mockRejectedValue(new Error('500'));
+  render(<NetmindAccountPanel />);
+  // Balance still renders; the usage section simply isn't there.
+  expect(await screen.findByText('$12.50')).toBeInTheDocument();
+  expect(screen.queryByText(/Used by NarraNexus/)).toBeNull();
 });
 
 // ── recharge / top-up (free × low: expand via the demoted link first) ──────
@@ -848,7 +971,7 @@ test('recharge: default tier → api.recharge(10) + openExternal(checkout_url)',
   render(<NetmindAccountPanel />);
   await openTopUp();
   fireEvent.click(screen.getByRole('button', { name: /^Recharge$/ }));
-  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10, 'default'));
   await waitFor(() =>
     expect(mockOpenExternal).toHaveBeenCalledWith('https://checkout.stripe.com/x'),
   );
@@ -865,7 +988,7 @@ test('recharge: custom amount overrides the preset tier', async () => {
   await openTopUp();
   fireEvent.change(screen.getByPlaceholderText('Custom'), { target: { value: '25' } });
   fireEvent.click(screen.getByRole('button', { name: /^Recharge$/ }));
-  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(25));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(25, 'default'));
 });
 
 test('recharge: non-positive amount → validation error, no api call', async () => {
@@ -1028,3 +1151,370 @@ test('an unrecognised status value is ignored, not rendered blank', async () => 
   expect(screen.queryByText(/not been charged/i)).toBeNull();
 });
 
+
+
+// ── Alipay / WeChat top-up (nexus Stripe account) ──────────────────────────
+// WeChat settles in CNY while the credit being bought is denominated in USD,
+// so the panel has to quote the real charge before the payer commits. Card and
+// Alipay are both USD and share the plain flow.
+
+const FX_QUOTE = {
+  success: true,
+  data: {
+    from: 'USD', to: 'CNY', rate: '6.753148',
+    amount_usd: '10', charge_amount: '67.531480',
+    min_amount_usd: '0.740396', min_charge: '5.0',
+  },
+};
+
+
+/** free → "Upgrade to Nexus Pro" → the rail dialog. Card is preselected. */
+async function openBuyPro() {
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
+  await screen.findByRole('radiogroup', { name: /How to pay for Pro/ });
+}
+
+async function pickMethod(name: RegExp) {
+  fireEvent.click(await screen.findByRole('radio', { name }));
+}
+
+test('top-up: WeChat quotes the CNY charge next to the USD amount', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  // The payer must see BOTH numbers IN ONE SENTENCE: they are buying $10 of
+  // credit but their bank statement will say CNY. Asserting them separately
+  // would pass even if the two ended up in unrelated places.
+  expect(await screen.findByText(/\$10\.00 ≈ ¥67\.53/)).toBeTruthy();
+  // ...and again on the button, so the last thing read before committing is
+  // the amount that actually leaves their account.
+  expect(screen.getByRole('button', { name: /Recharge ¥67\.53/ })).toBeTruthy();
+});
+
+test('top-up: the chosen payment method reaches the API', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockRecharge.mockResolvedValue({
+    success: true,
+    data: { checkout_url: 'https://checkout.stripe.com/x', session_id: 'cs_1' },
+  });
+  mockRechargeStatus.mockReturnValue(new Promise(() => {}));
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/Alipay/);
+  fireEvent.click(screen.getByRole('button', { name: /^Recharge/ }));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10, 'alipay'));
+});
+
+test('top-up: under the WeChat minimum is stopped here, not by a 400', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  await screen.findByText(/\$10\.00 ≈ ¥67\.53/);
+  fireEvent.change(screen.getByPlaceholderText('Custom'), { target: { value: '0.5' } });
+  fireEvent.click(screen.getByRole('button', { name: /^Recharge/ }));
+  expect(await screen.findByText(/minimum/i)).toBeTruthy();
+  expect(mockRecharge).not.toHaveBeenCalled();
+});
+
+test('top-up: a failed quote must not block the payment', async () => {
+  // The quote is informational. Refusing to let someone pay because a display
+  // helper 502'd would turn a cosmetic outage into a revenue outage; upstream
+  // does its own conversion and enforces its own minimum.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockRejectedValue(new Error('fx unavailable'));
+  mockRecharge.mockResolvedValue({
+    success: true,
+    data: { checkout_url: 'https://checkout.stripe.com/x', session_id: 'cs_1' },
+  });
+  mockRechargeStatus.mockReturnValue(new Promise(() => {}));
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  fireEvent.click(screen.getByRole('button', { name: /^Recharge/ }));
+  await waitFor(() => expect(mockRecharge).toHaveBeenCalledWith(10, 'wechat'));
+});
+
+test('top-up: switching back to card drops the CNY line', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  await screen.findByText(/\$10\.00 ≈ ¥67\.53/);
+  await pickMethod(/Card/);
+  await waitFor(() => expect(screen.queryByText(/≈ ¥67\.53/)).toBeNull());
+});
+
+test('top-up: card is the default method and asks for no quote', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  const card = await screen.findByRole('radio', { name: /Card/ });
+  expect(card.getAttribute('aria-checked')).toBe('true');
+  expect(mockFxRate).not.toHaveBeenCalled();
+});
+
+
+// ── one-time (Alipay / WeChat) subscriptions ────────────────────────────────
+// A one-time purchase never renews, so auto_renew is false for its ENTIRE life
+// — the same tuple a cancelled card sits in. `payment_method` (verified present
+// on dev 2026-08-19) is the only thing separating them, and getting it wrong is
+// not cosmetic: offering "Resume auto-renew" to a one-time holder calls an
+// endpoint that does not apply to them, and offering "Renew" to a card holder
+// is rejected upstream with "Already subscribed to Pro."
+
+const ONETIME_SUB = (method: 'alipay' | 'wechat' = 'alipay') => ({
+  success: true,
+  data: {
+    subscription: {
+      status: 'ACTIVE',
+      auto_renew: false,
+      current_period_end: 1790000000,
+      payment_method: method,
+    },
+  },
+});
+
+const CARD_CANCELLED_SUB = {
+  success: true,
+  data: {
+    subscription: {
+      status: 'ACTIVE',
+      auto_renew: false,
+      current_period_end: 1790000000,
+      payment_method: 'stripe',
+    },
+  },
+};
+
+test('one-time: never offers "Resume auto-renew" — it does not apply', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.queryByRole('button', { name: /Resume auto-renew/ })).toBeNull();
+});
+
+test('one-time: offers Renew instead', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByRole('button', { name: /Renew/ })).toBeTruthy();
+});
+
+test('one-time: never offers Cancel — upstream no-ops it and reports success', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB('wechat'));
+  render(<NetmindAccountPanel />);
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.queryByRole('button', { name: /Cancel subscription/ })).toBeNull();
+});
+
+test('cancelled CARD keeps Resume auto-renew (payment_method = stripe)', async () => {
+  mockGetSubscription.mockResolvedValue(CARD_CANCELLED_SUB);
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByRole('button', { name: /Resume auto-renew/ })).toBeTruthy();
+});
+
+test('subscription with NO payment_method is treated as a cancelled card', async () => {
+  // Every subscription that predates the nexus account is a card one, so the
+  // absent field must fall back to the old reading, not to the new state.
+  mockGetSubscription.mockResolvedValue(PRO_SUB(false));
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByRole('button', { name: /Resume auto-renew/ })).toBeTruthy();
+});
+
+test('one-time renew: months reach api.subscribe and the checkout opens', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  mockSubscribe.mockResolvedValue({
+    success: true,
+    data: { session_id: 'cs_sub1', checkout_url: 'https://checkout.stripe.com/c/pay/cs_sub1' },
+  });
+  mockRechargeStatus.mockResolvedValue({ success: true, data: { status: 'succeeded' } });
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  fireEvent.click(await screen.findByRole('radio', { name: /^3$/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalledWith('alipay', 3));
+  await waitFor(() =>
+    expect(mockOpenExternal).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_sub1'),
+  );
+});
+
+test('one-time purchase polls the SESSION, not "am I Pro yet"', async () => {
+  // The subscription is already ACTIVE when someone extends it, so a poll that
+  // waits for ACTIVE would report success before the payment even happened.
+  // Upstream models a one-time purchase as a recharge, so its session is
+  // pollable by id — which is what actually settles.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+    mockSubscribe.mockResolvedValue({
+      success: true,
+      data: { session_id: 'cs_sub2', checkout_url: 'https://checkout.stripe.com/c/pay/cs_sub2' },
+    });
+    mockRechargeStatus.mockResolvedValue({ success: true, data: { status: 'succeeded' } });
+    render(<NetmindAccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+    await vi.advanceTimersByTimeAsync(4500); // one poll interval
+    expect(mockRechargeStatus).toHaveBeenCalledWith('cs_sub2');
+    // and never the "am I Pro yet" poll, which is already true here
+    expect(mockGetSubscription.mock.calls.length).toBeLessThan(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a finished renewal does not announce a top-up', async () => {
+  // Both controls sit in the same dialog and share the submit guard on purpose
+  // (two checkouts at once is not a state we want). Their FEEDBACK must not be
+  // shared: without the flow marker a settled renewal announced "Top-up
+  // complete — balance updated" right next to it.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+    mockSubscribe.mockResolvedValue({
+      success: true,
+      data: { session_id: 'cs_sub3', checkout_url: 'https://checkout.stripe.com/c/pay/cs_sub3' },
+    });
+    mockRechargeStatus.mockResolvedValue({ success: true, data: { status: 'succeeded' } });
+    render(<NetmindAccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+    await vi.advanceTimersByTimeAsync(4500);
+    // the settle path awaits a full reload before flipping to success
+    await waitFor(() => expect(screen.getByText(/Pro extended/i)).toBeTruthy());
+    expect(screen.queryByText(/Top-up complete/i)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('CNY figures are rounded for display, not echoed at upstream precision', async () => {
+  // Upstream returns money as high-precision decimal strings ("67.531480",
+  // "5.0" — measured on dev 2026-08-19). Every earlier fixture here was
+  // 2-decimal because I wrote it that way, so the suite was green while the
+  // real panel would have read "¥67.531480". The exchange RATE keeps its
+  // precision on purpose: that is information, not noise.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockFxRate.mockResolvedValue(FX_QUOTE);
+  render(<NetmindAccountPanel />);
+  await openTopUp();
+  await pickMethod(/WeChat/);
+  // Two places on purpose — the conversion line and the button.
+  expect((await screen.findAllByText(/¥67\.53(?!\d)/)).length).toBe(2);
+  expect(document.body.textContent).not.toMatch(/67\.531480/);
+  // These two sit as sibling text nodes inside one <p>, so match on the page
+  // text rather than on an element.
+  expect(document.body.textContent).toMatch(/Minimum ¥5\.00 per payment/);
+  expect(document.body.textContent).toMatch(/1 USD = 6\.753148 CNY/);
+});
+
+test('one-time: the plan ROW says Pro, not Free', async () => {
+  // The state machine drives three independent surfaces — badge, plan
+  // explanation, action zone — and the first version of pro_onetime only
+  // taught the third. Both of the others fell through to their Free branch, so
+  // a paying subscriber read "Free — usage billed from your balance" directly
+  // above "Pro is active". Assert the row, not just the button.
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.getByText(/Nexus Pro/)).toBeTruthy();
+  expect(screen.queryByText(/Free — usage billed from your balance/)).toBeNull();
+  expect(screen.getByText(/one-time purchase, does not renew/i)).toBeTruthy();
+});
+
+test('one-time: the action zone does not restate the plan row', async () => {
+  // The plan row already carries "Nexus Pro" + the end date + "does not
+  // renew". The action zone's most prominent line went to repeating it, so it
+  // now states the benefit instead — the same thing pro_active says in that
+  // exact position.
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  await screen.findByRole('button', { name: /Renew/ });
+  expect(screen.getByText(/Member pricing active/)).toBeTruthy();
+  expect(screen.queryByText(/Pro is active/)).toBeNull();
+  // ...and the fact itself is still on screen exactly once, in the plan row.
+  expect(screen.getAllByText(/does not renew/i).length).toBe(1);
+});
+
+test('renew dialog never invents a future end date', async () => {
+  // It used to render currentPeriodEnd + months*30d, which disagreed with the
+  // plan row directly above (2026-09-23 vs 2026-08-24) because a month is not
+  // 30 days — dev bills one as `2day`, a calendar month is 28-31, and upstream
+  // owns the arithmetic either way. The dialog now anchors on the date the
+  // server actually reports, in the same format the plan row uses.
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB()); // period_end 1790000000
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  fireEvent.click(await screen.findByRole('radio', { name: /^3$/ }));
+  expect(await screen.findByText(/current end date, 2026-09-21/)).toBeTruthy();
+  // 3 months of invented 30-day arithmetic would have landed here:
+  expect(document.body.textContent).not.toMatch(/2026-12-20|2026\/12\/20/);
+});
+
+test('a payment in flight disables the OTHER money button, not just its own', async () => {
+  // The submit guard (rechargeRef) is shared between renew and top-up on
+  // purpose, but a ref cannot reach the render. Routing `disabled` through
+  // payFlow left the non-narrating button enabled: clicking it hit the guard's
+  // early return and produced no loading, no error, no DOM change at all —
+  // in a payment dialog, where "nothing happened" reads as "click it again".
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+    mockSubscribe.mockResolvedValue({
+      success: true,
+      data: { session_id: 'cs_x', checkout_url: 'https://checkout.stripe.com/c/pay/cs_x' },
+    });
+    mockRechargeStatus.mockReturnValue(new Promise(() => {})); // stays processing
+    render(<NetmindAccountPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Pay/ }));
+    await vi.advanceTimersByTimeAsync(100);
+    // The top-up button shares the dialog and the guard, so it must be disabled…
+    const recharge = screen.getByRole('button', { name: /Recharge/ });
+    expect(recharge).toHaveProperty('disabled', true);
+    // …while only the flow that started it narrates.
+    expect(screen.queryByText(/balance updates automatically/)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a /plans failure does not take the purchase down with it', async () => {
+  // Creating the checkout needs the rail and the month count, never the price
+  // — upstream prices it. Gating the button on the catalog turned a read-only
+  // 502 into "nobody can buy Pro", with a dead button and no reason given.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetPlans.mockRejectedValue(new Error('plans 502'));
+  mockSubscribe.mockResolvedValue({
+    success: true,
+    data: { session_id: 'cs_np', checkout_url: 'https://checkout.stripe.com/c/pay/cs_np' },
+  });
+  render(<NetmindAccountPanel />);
+  await openBuyPro();
+  const buy = screen.getByRole('button', { name: /^Subscribe$/ });
+  expect(buy).toHaveProperty('disabled', false);
+  fireEvent.click(buy);
+  await waitFor(() => expect(mockSubscribe).toHaveBeenCalled());
+});
+
+test('month choice is a radiogroup: one tab stop, arrow keys move it', async () => {
+  mockGetSubscription.mockResolvedValue(ONETIME_SUB());
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Renew/ }));
+  const group = await screen.findByRole('radiogroup', { name: /How many months/ });
+  const one = within(group).getByRole('radio', { name: /^1$/ });
+  expect(one.getAttribute('aria-checked')).toBe('true');
+  expect(one.getAttribute('tabindex')).toBe('0');
+  // ...and the unselected ones are OUT of the tab order, which is the half
+  // that makes it one stop instead of six.
+  expect(within(group).getByRole('radio', { name: /^6$/ }).getAttribute('tabindex')).toBe('-1');
+
+  fireEvent.keyDown(group, { key: 'ArrowRight' });
+  const two = within(group).getByRole('radio', { name: /^2$/ });
+  expect(two.getAttribute('aria-checked')).toBe('true');
+  expect(document.activeElement).toBe(two);
+});

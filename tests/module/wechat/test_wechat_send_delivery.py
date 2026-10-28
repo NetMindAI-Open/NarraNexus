@@ -23,16 +23,16 @@ Contract under test here:
 import httpx
 import pytest
 
-from xyz_agent_context.module.wechat_module.wechat_context_builder import (
+from narranexus_plugins.wechat_module.wechat_context_builder import (
     WeChatContextBuilder,
 )
-from xyz_agent_context.module.wechat_module._wechat_credential_manager import (
+from narranexus_plugins.wechat_module._wechat_credential_manager import (
     WeChatCredential,
 )
-from xyz_agent_context.module.wechat_module.wechat_sdk_client import (
+from narranexus_plugins.wechat_module.wechat_sdk_client import (
     WeChatSDKClient,
 )
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,
@@ -95,7 +95,7 @@ async def test_send_message_chunks_get_distinct_client_ids():
     client_id or chunks 2+ vanish the same way."""
     bodies: list = []
     c = _client_capturing(bodies)
-    from xyz_agent_context.module.wechat_module import wechat_sdk_client as sdk
+    from narranexus_plugins.wechat_module import wechat_sdk_client as sdk
 
     long_text = "x" * (sdk.MSG_CHUNK + 10)
     assert await c.send_message("u@im.wechat", "tok", long_text) is True

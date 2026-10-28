@@ -14,8 +14,8 @@ close the #71 gap where the write path bypassed the read-model's ceiling.
 import pytest
 from pydantic import ValidationError
 
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
-from xyz_agent_context.schema.api_schema import CreateAgentRequest, UpdateAgentRequest
+from narranexus.platform.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from narranexus.platform.schema.api_schema import CreateAgentRequest, UpdateAgentRequest
 
 OVER = "x" * (AGENT_TEXT_MAX_LENGTH + 1)
 AT_LIMIT = "y" * AGENT_TEXT_MAX_LENGTH
@@ -70,3 +70,68 @@ def test_manyfold_update_overlong_rejected(field):
 def test_manyfold_update_at_limit_accepted(field):
     obj = ManyfoldUpdateAgentRequest(**{field: AT_LIMIT})
     assert getattr(obj, field) == AT_LIMIT
+
+
+# --- The cap measures the STORED form (2026-08-17) ----------------------------
+# `AgentRepository` strips on the way in, so a value whose only overflow is
+# trailing whitespace is not overflow at all. Measuring the raw string made
+# `"x"*255 + " "` a 422 on the HTTP path while the agent-facing
+# `update_agent_profile` — which measures after stripping — accepted the same
+# input: one more "same input, two answers" split between the two writers of
+# the agents row.
+
+AT_LIMIT_PADDED = AT_LIMIT + "   "
+
+
+# Every request model that writes the `agents` row, not just the auth pair:
+# they write the same columns, so "same input, same answer" has to hold across
+# all of them. No count is written here — a number goes stale the moment
+# someone adds a model, and this file has already carried one ("All four") that
+# a grep disproved. Re-derive the list instead:
+#
+#     git grep -nE "agent_name\s*:.*Field\(|agent_description\s*:.*Field\(" \
+#         -- backend src | grep -v test
+#
+# then drop the hits that do not write `agents` (narrative.py, artifact_schema,
+# and entity_schema's own read model). Field names differ: the manyfold create
+# body calls the description `description`.
+_MF_CREATE = {"agent_id": "a", "manyfold_user_id": "u"}
+
+STRIP_CASES = [
+    (CreateAgentRequest, "agent_name", {}),
+    (CreateAgentRequest, "agent_description", {}),
+    (UpdateAgentRequest, "agent_name", {}),
+    (UpdateAgentRequest, "agent_description", {}),
+    (ManyfoldCreateAgentRequest, "agent_name", _MF_CREATE),
+    (ManyfoldCreateAgentRequest, "description", _MF_CREATE),
+    (ManyfoldUpdateAgentRequest, "agent_name", {}),
+    (ManyfoldUpdateAgentRequest, "agent_description", {}),
+]
+
+# CreateAgentBody is deliberately ABSENT from the cases above. Its two fields
+# are StrippedText, but their ceiling is enforced by the route and its
+# DirectStore twin through a shared message — not by `max_length` — because a
+# model-level cap answers 422 before the handler runs and hands the calling
+# model a transport string while the other leg names the limit. The overflow
+# cases for it therefore live with the other both-legs-answer-the-same tests,
+# in tests/backend/test_create_agent_empty_name_parity.py.
+
+
+@pytest.mark.parametrize("model,field,extra", STRIP_CASES)
+def test_trailing_whitespace_does_not_push_a_legal_value_over_the_cap(model, field, extra):
+    obj = model(**{**extra, field: AT_LIMIT_PADDED})
+    assert getattr(obj, field) == AT_LIMIT
+
+
+@pytest.mark.parametrize("model,field,extra", STRIP_CASES)
+def test_genuine_overflow_is_still_rejected_after_stripping(model, field, extra):
+    with pytest.raises(ValidationError):
+        model(**{**extra, field: OVER + "   "})
+
+
+@pytest.mark.parametrize("field", ["agent_name", "agent_description"])
+def test_none_is_not_turned_into_empty_text(field):
+    """On the update path None means "not supplied" and "" means "clear it" —
+    the strip validator must not collapse that distinction."""
+    assert getattr(UpdateAgentRequest(**{field: None}), field) is None
+    assert getattr(UpdateAgentRequest(**{field: "   "}), field) == ""

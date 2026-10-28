@@ -24,9 +24,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema import Artifact
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 # Layout-aware workspace relpath for the test agent (tracks flat vs nested).
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
@@ -53,7 +53,7 @@ async def setup(db_client, monkeypatch, tmp_path):
     root_entry = workspace / "bisection_method.html"
     root_entry.write_text("<p>single file</p>", encoding="utf-8")
 
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
     # Local mode for these tests (no JWT enforcement).
     monkeypatch.setattr(sa_settings, "transcription_hmac_secret", "test-secret", raising=False)
@@ -370,14 +370,14 @@ def test_non_owner_jwt_returns_403(monkeypatch, tmp_path):
 
     base = tmp_path / "ws"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     from backend.routes.agents.artifacts import router as agents_router
     import backend.routes.agents.artifacts as agents_mod
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     async def _make_db():
         backend = SQLiteBackend(":memory:")
@@ -435,3 +435,34 @@ def test_unpin_agent_scoped_artifact_returns_400(setup):
     )
     assert r.status_code == 400
     assert "agent-scoped" in r.text or "DELETE" in r.text
+
+
+# ---------------------------------------------------------------------------
+# scope=context (2026-08-18, spec artifact-events §3.3): the frontend's
+# full-pull surface — own pinned ∪ every team the agent belongs to, i.e. the
+# same union the agent's state block draws from. Session scope stays for the
+# session panel; pinned stays for callers that want the private working set.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.usefixtures("setup")
+def test_list_context_includes_team_artifacts(setup, db_client_sync=None):
+    client = setup["client"]
+    import asyncio
+
+    async def _seed():
+        db = setup["db"]
+        await db.insert("team_members", {"team_id": "team_ctx", "agent_id": "agent_x"})
+        await db.insert("instance_artifacts", {
+            "artifact_id": "art_teamctx1", "agent_id": "agent_teammate",
+            "user_id": "user_y", "title": "teammate work", "kind": "text/markdown",
+            "pinned": 0, "team_id": "team_ctx",
+            "file_path": "user_y/_shared/teams/team_ctx/notes.md", "size_bytes": 1,
+            "created_at": "2026-08-18T00:00:00+00:00",
+            "updated_at": "2026-08-18T00:00:00+00:00",
+        })
+    asyncio.get_event_loop().run_until_complete(_seed())
+
+    r = client.get("/api/agents/agent_x/artifacts", params={"scope": "context"})
+    assert r.status_code == 200
+    ids = {a["artifact_id"] for a in r.json()}
+    assert "art_teamctx1" in ids

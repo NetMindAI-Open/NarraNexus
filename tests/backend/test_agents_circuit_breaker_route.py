@@ -18,13 +18,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import backend.routes.agents.circuit_breaker as cb_mod
-from xyz_agent_context.repository.agent_circuit_breaker_repository import (
+from narranexus.platform.repository.agent_circuit_breaker_repository import (
     AgentCircuitBreakerRepository,
 )
-from xyz_agent_context.schema import CbStatus, PausedReason
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.schema import CbStatus, PausedReason
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 
 @pytest_asyncio.fixture
@@ -49,7 +49,7 @@ def _build_client(db_client, viewer_id: str = "user_x"):
     async def _get_db_override():
         return db_client
 
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
     db_factory_mod.get_db_client = _get_db_override
     cb_mod.get_db_client = _get_db_override
     return TestClient(app)
@@ -63,7 +63,7 @@ async def _seed_agent(db_client, agent_id="agent_a", owner="user_x"):
 
 @pytest.fixture(autouse=True)
 def _restore_get_db():
-    import xyz_agent_context.utils.db.db_factory as db_factory_mod
+    import narranexus.platform.utils.db.db_factory as db_factory_mod
     original = db_factory_mod.get_db_client
     yield
     db_factory_mod.get_db_client = original

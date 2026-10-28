@@ -1,0 +1,20 @@
+{
+  "id": "builtin.memory_kinds",
+  "version": "1.0.0",
+  "displayName": "Memory kinds",
+  "description": "event / bus / narrative / entity / job / observation memory kinds.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "memory": 0
+  },
+  "provides": {
+    "agent.capabilities.memory_kinds": [
+      "narranexus_plugins.memory_kinds.specs:CONTRIBUTIONS"
+    ]
+  },
+  "quality": "gold"
+}

@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
-from xyz_agent_context.integrations.free_tier.wallet_client import (
+from narranexus.platform.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletClient,
     WalletError,
     WalletMissing,

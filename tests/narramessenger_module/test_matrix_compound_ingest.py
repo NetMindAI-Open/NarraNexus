@@ -41,13 +41,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from xyz_agent_context.module.narramessenger_module._narramessenger_credential_manager import (
+from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
-from xyz_agent_context.schema.parsed_message import MessageContentType
+from narranexus.platform.schema.parsed_message import MessageContentType
 
 HOMESERVER = "matrix.netmind.chat"
 AGENT_MXID = f"@agent-88956f5b:{HOMESERVER}"

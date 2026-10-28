@@ -17,11 +17,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.module.discord_module._discord_credential_manager import (
+from narranexus_plugins.discord_module._discord_credential_manager import (
     DiscordCredential,
 )
-from xyz_agent_context.module.discord_module.discord_trigger import DiscordTrigger
-from xyz_agent_context.schema.parsed_message import ChatType, MessageContentType
+from narranexus_plugins.discord_module.discord_trigger import DiscordTrigger
+from narranexus.platform.schema.parsed_message import ChatType, MessageContentType
 
 
 def _cred(bot_user_id: str = "BOT1") -> DiscordCredential:

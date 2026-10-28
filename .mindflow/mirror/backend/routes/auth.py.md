@@ -1,8 +1,372 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-08-05
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28（PR #419 review I-8）— funnel 三个限额改走 `env_limit`
+
+`FUNNEL_REPORT_PER_EMAIL_LIMIT` / `_PER_IP_LIMIT` / `_GLOBAL_LIMIT` 从写死常量改为
+`env_limit("NARRANEXUS_FUNNEL_REPORT_*", DEFAULT_…)`，与同文件 signup / netmind-login
+五个桶同一写法：线下活动或实时滥用时运维可只改 env 调限额，不动代码；env 里的空值 /
+非整数 / <1 回落默认，不会让 backend 启动期崩。默认值不变（10 / 30 / 2000），`.env.example`
+加了三行注释示例。`WINDOW_SECONDS`(60) 不是限额，仍写死。
+
+## 2026-10-28（PR #419 review M-4）— funnel 限流数字改为具名常量
+
+`FUNNEL_REPORT_PER_EMAIL_LIMIT`(10) / `FUNNEL_REPORT_PER_IP_LIMIT`(30) /
+`FUNNEL_REPORT_GLOBAL_LIMIT`(2000) / `FUNNEL_REPORT_WINDOW_SECONDS`(60)。值不变；
+`test_auth_funnel_observability.py` 的 fixture 改用这些常量重建桶（原来手抄了过时的
+global=120），测试跑的就是线上尺寸。丢弃汇总日志的 60s 节拍是另一回事，未并入。
+
+## 2026-10-28 — `/agents` 预览只给自己的 agent；funnel 全局桶改为兜底
+
+- 侧栏"最近一条回复"预览原来对列表里的**公开 agent**也查：任何人能看到别人公开 agent
+  最近回复的前 200 字。现在只对 `created_by == 调用者` 的 agent 查预览。
+- funnel-report 的全局桶 120/min 四个 IP 就能把正常用户的上报挤掉；按 IP 的 30/min
+  才是真正的限制，全局改成 2000/min 的兜底。
+## 2026-10-28 — signup / send-code 加 per-IP 桶 + 一次性邮箱拒收
+
+事件：同一 IP 自助注册两个号后对 API fuzz 4 小时。审计发现 send-code 只有
+「每 email 每 60s 一次」——每次换一个新地址就无上限，等于把我们的 NetMind 发信
+通道借给任何人去轰炸任意邮箱；signup 也只有 per-email 10/10min。
+
+- **per-IP 桶**（`client_ip`，与 funnel-report 同一个 edge-appended XFF 取值；同一个
+  `SlidingWindowRateLimiter`）：send-code 10/min + 60/h，signup 尝试 60/h + 建成 20/h，netmind-login 120/h
+  （按办公室 / 线下活动共用出口的 NAT 定的默认值）。默认值是模块常量 `DEFAULT_SIGNUP_*`，
+  生效值 `SIGNUP_CODE_PER_IP_PER_MINUTE` / `SIGNUP_CODE_PER_IP_PER_HOUR` /
+  `SIGNUP_ATTEMPTS_PER_IP_PER_HOUR` / `SIGNUP_PER_IP_PER_HOUR` /
+  `NETMIND_LOGIN_PER_IP_PER_HOUR` 经 `env_limit` 从 `NARRANEXUS_SIGNUP_*` /
+  `NARRANEXUS_NETMIND_LOGIN_PER_IP_PER_HOUR` 读（已进 .env.example，并提示线下活动前调高）。
+  **import 期读取**：改 env 后必须重建 backend 容器才生效。429 一律带 `Retry-After`
+  （per-email 的 429 也补上了）。per-email 限额保留。
+- **signup 有两个 per-IP 桶**：
+  - **建成桶** `_signup_ip_limiter`（20/h）只记「真建成账号」的请求：先 `allow` 预占
+    （并发请求不能同时溜过一次检查），任何没建成账号的出口——per-email 429、验证码错/
+    已注册（`RegistrationError` 400）、上游 502、客户端断开取消——在 `finally` 里
+    `refund`。目的：失败不烧共享办公室的创建额度；验证码爆破由 per-email 10/10min 兜。
+  - **尝试桶** `_signup_attempt_ip_limiter`（60/h，`NARRANEXUS_SIGNUP_ATTEMPTS_PER_IP_PER_HOUR`；与 send-code 的 per-IP 小时桶同额——
+    每次真实注册都要先拿一次验证码，60/h 仍是建成桶的 3 倍，够错码重试）
+    对每个请求全额计费、**永不退还**。PR #420 review I-1：只有建成桶时，轮换 email + 错码
+    的请求全部走失败路径、名额全部退回，单 IP 可以无限打上游 register（我们的出口 IP 成了
+    放大器），per-email key 也无封顶地堆积。尝试桶就是这条路由真正的 per-IP 上限。
+    建成桶的语义（失败不烧共享 NAT 的创建额度）保持不变。
+  - **陷阱**：`finally` 里只能退建成桶；把尝试桶也放进退还分支等于没加（测试
+    `test_failed_signups_are_capped_by_the_attempt_bucket` 会红）。
+- **求值顺序即不变量**：send-code = 拒收域 → per-IP 分钟 → per-IP 小时 → per-email →
+  上游；signup = 拒收域 → 密码策略 → per-IP 尝试桶 → per-IP 建成桶（预占）→ per-email →
+  上游（失败只退建成桶）。per-IP 在 per-email 前：可信有界的 key 给 caller-chosen email
+  key 的分配封顶（同 funnel-report R4；signup 上由永不退还的尝试桶保证）。
+  `_enforce_ip_buckets` 短路：分钟桶拒绝不花小时桶；反之不成立——小时桶拒绝时分钟桶
+  已经扣过。signup 的尝试桶**必须排在建成桶前面**：尝试桶拒绝时建成桶还没预占；反过来
+  放，建成桶先预占、尝试桶在 `try` 之前抛出，`finally` 的退还永远到不了，这个名额就被
+  永久吃掉（测试 `test_attempt_bucket_rejection_spends_no_creation_hit_and_no_email_key`）。
+  密码策略在 per-IP 前：弱密码拒绝不花上游，不该把共享 NAT 的一小时额度烧掉。
+- **netmind-login 的 per-IP 桶**（PR #420 review M-4）：这条路由同样未认证，且每个请求
+  （无效 token 也一样）都向 NetMind auth API 发一次 `verify_token`——与 signup 同类的
+  「未认证路由 → 上游放大」。`_netmind_login_ip_limiter` 120/h，全额计费、不退还，
+  排在 `is_power_login_enabled()` 的 404 之后（本地未开 Power login 不计桶，与 signup
+  路由一致）、`verify_token` 之前（被拒请求不花上游）。宽松：真实用户一天只登录几次，
+  一屋子人共用 NAT 也装得下。429 日志走 `[login-funnel]` 标签（`_enforce_ip_buckets`
+  的 `funnel` 参数），和该路由其余 funnel 行在同一个 grep 里。测试仓根
+  `tests/conftest.py` 的 autouse fixture 每个用例重置这个单例（多个测试模块经此路由登录，
+  且 TestClient 的 peer 都是 `testclient`）。
+- **一次性邮箱**：`_email_policy.is_blocked_email`（见其 mirror），400 + 中性文案
+  `_BLOCKED_EMAIL_DETAIL`，排在所有桶之前：拒收域请求不花任何 per-IP 桶、不分配
+  email key、不调上游。因此黑名单可被免费无限枚举——这是有意的（PR #420 review M-1）：
+  条目都是公开的知名一次性邮箱域，枚举出来不是情报；挪到 per-IP 桶之后反而让打错域名
+  的真实用户白花一次额度。中性文案只是不主动提示，不是防护。
+- **登录期免费额度门（绕过路径的兜底）**：`NETMIND_AUTH_API_URL` 经 `/config.js`
+  公开，用户可以直接在 NetMind 注册、完全绕开上面两条路由；而 $10 钱包与引导
+  Agent 是在 **netmind_login** 里发的。`_free_credit_withheld(user_id, email)` 对
+  NetMind 校验过的 email 做同一个 `is_blocked_email`，命中则 warning 日志（只记域名——
+  比 signup funnel 记完整 email 更严，因为它对每一次登录生效，不只是被拒的注册尝试）、
+  `_provision_providers(..., free_tier=False)` 跳过钱包（连钱包服务都不调）、不调度
+  引导 Agent、响应 `guide_agent_provisioning=False`（coachmark 同门）。用户照常登录，
+  自己的 NetMind 卡照常注册。本地 `login` / `create_user` 无 email、无钱包，不受影响。
+- **per-IP 限额是纵深防御，不是闭环**：NetMind 直连注册存在，真正的「不给薅」靠的是
+  登录期免费额度门；per-IP 桶只是抬高经我们路由批量注册 / 轰炸发信的成本。
+- 测试：`tests/backend/test_signup_abuse_limits.py`（含失败不扣建成桶、失败照扣尝试桶并在
+  上限处 429、尝试桶拒绝不预占建成桶也不分配 email key、拒收域不扣 IP 桶、
+  netmind-login 第 N+1 次 429 且另一 IP 照常、Power login 关闭时 404 不计桶、
+  登录期真跑 free-tier provisioner + mock 钱包客户端验证不调钱包）；
+  `test_signup_routes.py` 的 fixture 同步重置 signup / send-code 的四个 per-IP limiter（模块单例会跨用例泄漏）。
+
+## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
+
+`run_is_live` 改为从 `narranexus.platform.utils.run_liveness` 导入（原来经 `background_run`
+转手）；`_run_is_live` 别名与 agents 列表 active_run 过滤行为不变。下方 2026-06-10 一节里「搬到
+background_run.py」是历史。
+
+## 2026-09-08 — 空白建 agent 的占位名用 `PLACEHOLDER_AGENT_NAME`
+
+与 bootstrap 模板共用同一个常量，问候渲染据此判断「还没起名」。
+
+## 2026-09-07 — 删除 agent：多一遍与发行版无关的 legacy 凭据清扫（14a）
+
+原有的 14 号步骤是「按 module_registry 遍历每个 `ChannelModuleBase` 子类，各自
+`cleanup_for_agent`」。这条路径只覆盖**本发行版装了**的渠道；被排除的渠道（两个示例发行
+版排除了全部六个）没有模块可走，它退役前的 `lark_credentials` /
+`channel_*_credentials` 行——base64 bot token 和 app secret——就永远留在库里，包括用户删掉
+agent 之后。
+
+14a 补的就是这一遍：`credential_legacy.purge_legacy_for_agent(db, agent_id)`，按
+`agent_id` 扫 `LEGACY_TABLES`（曾经存过渠道密钥的表的唯一真值表），不需要描述符、不需要
+插件。与 14 里的每渠道清理重叠无害（第二条 DELETE 匹配不到行）；按表尽力而为，从来没有
+这张表的安装不会让删除失败。
+
+## 2026-08-20 — 前端用的 bootstrap_active 是宽松版(只 isfile,无阈值)
+
+`/api/auth/agents`(list)与 `PUT /agents/{id}` 响应里填的 `AgentInfo.bootstrap_active` 都是
+`os.path.isfile(Bootstrap.md)` 一句、**不含 event_count 阈值**——因为 list 接口担不起每 agent 一次
+COUNT。它 gate 前端那颗静态问候气泡(ChatPanel `showBootstrapGreeting`),list 里还据它决定是否下发
+`bootstrap_greeting`。这与后端两个问候写入方共用的 [[../../../src/narranexus/platform/bootstrap/lifecycle]]
+`.is_bootstrap_active`(含阈值)是**两条规则**,只在「越阈值但 Bootstrap.md 未被 auto-delete」的窄
+窗口分叉(前端显示气泡、写入方拒绝落库,刷新后消失)。改「什么算引导期」时两处一起看;源码已加注释
+指回 lifecycle,可 grep。统一需先解 list 接口 N+1(记 `reference/self_notebook/todo/`)。
+
+## 2026-08-19 (九改·更正) — 不再有 `extra_updates` 这个参数
+
+四改那条只更正了 import 路径，把签名留在了旧样子。现在传的是**具名参数**：
+
+```python
+result = await apply_agent_profile_change(
+    db_client, agent_id,
+    new_name=..., new_description=...,
+    is_public=... ,          # None 表示"没传"；False 是值
+)
+```
+
+`extra_updates` 已经不是参数，只是事务**内部**拼出来的局部 dict。改成具名的理由
+见 [[profile_write]] 八改：开放 dict 让下一个人一句 `model_dump()` 就能顺带改 agent
+归属人，而这个函数的名字不会提示审查者去查鉴权。
+
+`identity_record_updated` 也不再在本路由推导——那是 `AgentProfileWrite` 上的
+property，两个路由各推一份就是同一条规则的两处漂移点（本次已经因此出过一次不对称）。
+
+## 2026-08-18 (四改) — import 改指领域包
+
+`apply_agent_profile_change` 不再从 `module.awareness_module` 拿，改从
+`narranexus.platform.agent_profile`（见 [[_overview]]）。本路由不再 import 任何
+Module——它 import 的是一个核心领域包。行为不变。
+
+## 2026-08-18 (二改) — 错误文案改读 `unapplied_fields`
+
+`not_applied` 分支原来读 `result.updated_fields`，而那个字段在成功分支的含义是
+「写了哪些」。共享结果已拆出 `unapplied_fields`（见 [[_awareness_writes]] 二改），
+这里跟着改。这条分支**当时零测试覆盖**——读错字段只会让文案退化成没有字段名的
+`"The update did not persist: "`，不会红。已补
+`test_a_transaction_level_failure_names_the_fields_that_did_not_land`。
+
+## 2026-08-18 — `PUT /agents/{id}` 改走共享改名事务，不再自己拼
+
+深圳线下第二轮 P1 的**另一半**。#320（下一条）修的是"改成了却报失败"，本条修的是
+"改成了但 agent 不认"：本路由写列、刷名录，却**从不追加身份更正**，而
+[[_awareness_writes]] 的改名事务从 2026-08-04 起就把那条更正当作改名的必要组成。
+结果 profile 里停着上一次改名留下的、**方向相反**的平台记录（详见那份 md 的取证）。
+
+改法：整段内联写入换成一次
+`apply_agent_profile_change(db, agent_id, new_name=…, new_description=…,
+extra_updates={"is_public": …})`。原来那段做的每件事（归一、等值短路、回读而非
+rowcount、无条件刷名录）都在事务里，**行为不变**；多出来的是身份更正。
+
+- 失败按 `result.error_kind` 结构化映射成本路由的话术（`not_found` / `not_applied`
+  各自保留原文案），**不匹配英文散文**——那串是给模型读的，措辞会变。
+- `is_public` 作为 `extra_updates` 同行写入，保持单次行写。
+- **回读核对留在本路由**，且核对的是 `requested` **全部**字段，不是事务写过的那些。
+  两者问的不是同一件事：事务问「我写的落了没」，路由问「调用方要的状态成立没」。
+  一个在读时就相等的字段不会进事务的清单，但并发写入方（另一个标签页、或 agent
+  自己的 `update_agent_profile`）仍可能在读—写—回读的窗口里把它挪走。委托的第一版
+  把这条悄悄收窄成"只查写过的"，全量测试没红——因为它**当时没有测试钉住**。现已
+  补 `test_a_field_that_needed_no_write_is_still_verified_against_the_row`。
+- `sync_agent_discovery` 与 `agent_field_matches` 的 import：前者移除（本文件不再
+  直接持有），后者**保留**（上一条那个核对要用）。**测试打桩点也跟着搬**——
+  `test_a_no_op_re_save_still_refreshes_the_peer_directory` 原来 patch
+  `auth_mod.sync_agent_discovery`，路由不再 import 该名字后，那个 patch 会
+  **静默地什么都没监视到**并对任何行为放行。已改为 patch 定义模块
+  `message_bus.agent_discovery_sync`。凡是"路由不再直接 import 的符号"，
+  打桩点都必须跟着走，否则测试从守卫退化成装饰。
+
+## 2026-08-17 — `update_agent` 判「改没改成」靠回读，不靠 rowcount
+
+`PUT /agents/{agent_id}` 原来是 `affected_rows > 0` 才算成功，否则回
+`success=False, error="No changes made"`。而 `AgentRepository.update_agent`
+返回的是 `cursor.rowcount`——**SQLite 数 MATCHED 行，MySQL 数 CHANGED 行**。
+于是「把值改成它已经是的那个值」在 SQLite 上返 1（成功），在 MySQL 上返 0
+（被判失败）：**只在 cloud 上错**。用户看到「保存失败」，重试，每次都失败，
+而库里一直就是他要的新名字。深圳线下第二轮 P1 就是这个形态（取证：
+`agents.agent_name` 已是「小绿」，前端却说没保存成，测试者反复重试）。
+
+同一个陷阱 [[_awareness_writes]] 在 2026-08-05 已经为 agent 侧的
+`update_agent_profile` 拆过（写前做值相等短路）；本次是**用户侧 HTTP 那一半**，
+当时漏了。两边现在在这个 trap 上同语义——但这是**本次同时改了 agent 侧**才
+成立的：那边当时只拆了 no-op 一支，「真有改动而驱动报 0」仍会答失败，本次一并
+换成回读判定（见 [[_awareness_writes]] 2026-08-17 条）。
+
+修法（不是给 rowcount 打补丁，是把它从判据里拿掉）：
+
+1. `requested` = 调用方要的字段，**并且已经是入库形态**（`normalize_agent_text`）。
+   `update_data` = 其中与当前行真的不同的那些（谓词见下）。全都相同 →
+   **一次写都不发**。
+   > 更正（2026-08-18）：原文这里还写着「`sync_agent_discovery` 也不发（没有
+   > 变化要广播）」。已改成**每个被接受的请求都发一次**。理由是这个调用存在的
+   > 初衷：2026-08-04 那条写着「此前注册是『跑过一轮』的副作用，所以刚创建、
+   > 或改完名字/描述后**闲着**的 agent 对同伴不存在」——「下一轮会自己重写」
+   > 当初就被判定为不够。而 sync 自己吞失败只返回 False（所以本轮给它加了
+   > warning），一旦某次失败让同伴目录停在旧名，**原值重存是用户最自然的重试
+   > 方式**，它不该恰好是唯一跳过修复的那条路。代价是 no-op 重存多一次
+   > discovery 写——而 no-op 重存本身很罕见。测试：
+   > `test_a_no_op_re_save_still_refreshes_the_peer_directory`。
+2. 发过写之后**回读**，再用同一个谓词核对 `requested` 是否都落到行上。
+   rowcount 只进 debug 日志，注明 dialect-dependent、仅供参考。
+3. 回读后仍不符 → `success=False`（错误串点名哪些字段没落）。日志级别是
+   **WARNING 不是 ERROR**：读—写—回读之间没有 CAS，另一个标签页或 agent 自己的
+   `update_agent_profile` 在窗口内写入，就会在这里表现为「不是我要的值」——
+   良性的 last-write-wins 不该长得像持久化故障。
+
+谓词 `agent_field_matches` **不在本文件**，在 [[entity_schema]]：它编码的是
+Agent 实体的字段等价规则，而 `agents` 行有两个写入方（本路由 +
+[[_awareness_writes]]），各写一份比较迟早分歧——事实上分歧当时已经存在
+（那边比较 strip 过的值，这边比较原样值）。**决定要不要写**和**核对写没写成**
+共用同一个函数，两者不可能各说各话。
+
+归一化连带的一条：入库前 strip，所以「比较说相等」和「行里是什么」永远同形。
+另外空名（`""` 或纯空格）现在**被拒**，与 agent 侧 `update_agent_profile` 的
+拒绝语义对齐——没有名字的 agent 在所有界面上退回显示裸 `agent_id`，而同一个
+输入原来在一条路径被拒、在另一条被存。不放在 schema 的 `min_length`：`"  "`
+过得去，得在归一之后判。
+
+`sync_agent_discovery` 的返回值现在接住了：它内部吞掉自己的失败并返回 False，
+不接的话「同伴目录还是旧名」与「接口答成功」这两件事事后对不上。
+
+测试：`tests/backend/test_agent_rename_outcome_not_rowcount.py`(路由级) +
+`tests/schema/test_agent_field_matches.py`(谓词本身)。前者**强制** MySQL 那种
+rowcount 读法（monkeypatch 成返回 0），因为 SQLite fixture 对 no-op 写返回 1，
+照原样测会在「本来就不会出这个 bug 的方言」上空过。覆盖：no-op 重存=成功且
+**不发写**、真改动但驱动报 0=成功（回读为准）、真的没落库=仍然失败（防止修成
+「永远成功」）、可见性开关在同样条件下**必须真的发写**（断言写调用本身而不是
+`success`——见下）、空名被拒、首尾空格入库前被 strip、改名后 list 端点能看到新名。
+
+⚠ 回读校验对**谓词自身**的错误是结构性失明的：谓词若错判「已经相等」，则既不
+发写、又由同一套逻辑判定「已落库」→ 返回成功、日志无异常。所以谓词必须有自己的
+单测，且路由级用例要断言**写调用**（`calls == [...]`）而不是返回的 `success`。
+
+**创建路径同日补齐(review 第二轮)**:`create_agent` 的默认值改成在归一**之后**
+判 —— `agent_name = normalize_agent_text(request.agent_name) or "New Agent"`。
+`"   "` 是 truthy,先 `or` 会漏过默认串把纯空格存成名字,侧栏行标题直接空白
+(比空名退回显示 `agent_id` 还难认)。描述同理走 `normalize_agent_text`。
+
+长度上限**不在本文件判**:它在 [[api_schema]] 的 `_StrippedText` 上,归一之后量,
+所以本路由与 agent 侧对同一输入的验收集合一致,且 422 契约不变。中途试过把 cap
+搬进路由,打破了「四个写边模型统一 422」那条既有契约,被
+`tests/backend/test_agent_request_length.py` 当场抓住 —— 别再往这个方向走。
+
+## 2026-08-13 — netmind_login 在建 token 前先过账户状态闸门
+
+`netmind_login` 在 `create_token` 之前，多一道账户状态判定：状态从 `user`
+实体（`upsert_netmind_user` 返回值，本身就是经 `UserRepository.get_user` 的
+`WHERE BINARY user_id` 读到的行，故大小写敏感、与停用**写**侧同 collation）取
+`user.status.value`，若落在共享的 `NON_TRANSACTING_USER_STATUSES`（从
+`narranexus.platform.schema` import，[[entity_schema.py]] 的单一真相源，取代原来
+内联的 `{banned, blocked, deleted}` 字面量），记一行 WARNING 后
+`raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)`
+（见 [[auth_errors]]），**不签 token**。
+
+**大小写敏感 + fail-open**：不再用 `db_client.get_one`（MySQL 默认大小写不敏感
+collation，会让 look-alike user_id 绕过闸门）。`role` 不在 `User` 实体上，故单独
+用一条 `WHERE BINARY user_id` 的 raw SELECT 读，同样大小写敏感。两处读都裹
+try/except **fail-open**（分别退回 `"active"` / `"user"`）：登录绝不能因为状态读
+抖动就挂——闸门是拦某个被停用账户，不是变成登录可用性依赖。
+
+同等重要的是：early return **短路掉后续所有 fire-and-forget 登录副作用**
+（session 重整、provider/quota 供给等）——这些正是一个被停用账户应当停止消耗的
+后台工作。状态值是一个不透明集合，本路由不持有「账户如何走到停用」的任何策略。
+这与 [[auth]] middleware 的账户状态闸门是两道互补的关卡：middleware 拦住已有
+token 的后续请求，这里拦住停用账户**重新拿 token**。
+
+## 2026-08-12 — reply_language 路由
+
+GET/PUT `/settings/reply-language`(同 analytics 模式);PUT 由 i18n languageChanged 写透 + boot 回填,读方是 [[context_runtime.py]] system prompt 注入。
+
+## 2026-08-12 — funnel 白名单加两个 send-code stage（配前端 #289）
+
+`/api/auth/funnel-report` 的 `_FUNNEL_STAGES` 是**枚举白名单**（caller-controlled 输入的第二道闸，不是自由 tag：未知 stage 直接 400，且 400 在写 `[login-funnel]` 日志之前 return，所以不落痕）。前端 #289 新增三条上报路径（`SignUpDialog.sendCode` / `useNetmindAuth.sendResetCode` / `resetPassword`），对应加入 `signup_send_code_failed` / `netmind_reset_code_failed` / `netmind_reset_password_failed`——**必须与前端同 PR 合**，否则前端上报被 400 静默吞掉（`api.reportAuthFunnel` fire-and-forget），诊断空转。前端 `api.ts` 的 `AuthFunnelStage` 联合类型把这条跨端契约提前到 `tsc`（前端加白名单外的 stage 就编译不过）；`test_auth_funnel_observability.py` 的 `test_all_known_funnel_stages_are_accepted` 兜反向（后端误删/改名已用 stage）——两个守卫互补。
+
+## 2026-08-11 — telemetry consent 端点(与 analytics 并排但语义相反的持久化)
+
+`GET/PUT /api/auth/settings/telemetry`。与 analytics(per-USER,
+user_settings 行)刻意不同:遥测同意是 **per-MACHINE 标记文件**
+(`~/.narranexus/telemetry_optout`,utils/logging 每次外发都读)——
+logging 先于 DB 启动,DB 装不下这个状态。per-machine 带来两条端点
+必须执行的边界:多租户云一个用户不得静音整机 → PUT 403、GET
+`controllable=false`(那个面由部署 env 治理);`NEXUS_DIAG_SHIP`
+显式覆盖时标记写入静默无效 → PUT 409、GET `source=env`。GET 另带
+`managed_by: env|cloud|null`——不可控状态要说清**是谁在管**:自托管
+多租户装机(source=default 但 cloud mode)若复用 env 措辞,等于把
+内置默认归因给一个没人设过的环境变量(预审抓的"归因谎言")。身份
+仍走 `_require_request_user`(与邻居 analytics 一致)。
+Tests: `tests/backend/test_telemetry_consent_routes.py`。
+
+## 2026-08-10 — cloud signup capture repaired
+
+The new-NetMind-user branch now awaits and keyword-calls analytics. Positional
+calls to keyword-only async functions previously raised and were swallowed, so
+cloud signup facts never existed. Setup actions are tagged frontend-originated.
+
+## 2026-08-10 — identity telemetry removed
+
+Signup paths persist only the `signed_up` first-party fact. The former
+`identify_user` calls and vendor-oriented privacy comments are gone; no user
+identity or trait leaves the configured NarraNexus database.
+
+## 2026-08-10 — setup events use the unified analytics route
+
+The legacy `POST /api/auth/funnel` endpoint and its duplicate allowlist were
+removed. Setup browser facts now use `POST /api/analytics/events`, gaining the
+same session ID, idempotency namespace, rate limit, and payload contract as all
+other frontend product events. Auth routes retain only the privacy setting and
+backend-owned signup fact.
+
+## 2026-08-10 — create_agent provisioning 提炼到 provision_new_agent seam
+
+原来 create_agent 路由内联的「建 agent 行 + 默认实例 + 发现注册 + bootstrap +
+默认技能安装」序列,提炼进 [[provision]] `provision_new_agent`,本路由改为调它。
+本路由仍是该序列的**语义来源**,只把非共享部分留在外面:user-existence 校验、
+team assignment(#43)、CreateAgentResponse shape。同一 seam 被 MCP 工具与
+social-network 路由共用,消除三份漂移复制(PR-2 pre-open review #3)。
+
+## 2026-08-06 — 新增 `GET /api/auth/session`（会话探针）
+
+两个消费方，都在前端：
+1. **强制登出前的第二意见**——单个 401 不构成"会话已死"的证据，
+   [[sessionGuard.ts]] 先探这里，探针也说死了才拆会话（2026-08-02 线下
+   活动上，一个 401 就拆了整个 SPA）。
+2. **到期预警**——返回 `expires_at`，让 UI 在 JWT 死之前就能提示
+   （[[tokenExpiry.ts]]）。
+
+刻意**不查库**：它跑在每一次可疑 401 上，一批 401 不能变成一批查询。
+能走到这个 handler 本身就是答案（JWT 校验发生在 middleware）。
+**不进** `AUTH_EXEMPT_PATHS`——豁免了就回答不了它存在的那个问题。
+
+同时把本文件两处 `HTTPException(401)` 换成 `AuthError`：netmind-login 的
+"Invalid NetMind token" → `netmind_token_invalid`（登录失败，本来就还没有
+会话可言），analytics 的 `_require_request_user` → `identity_unresolved`。
+
+## 2026-08-04 — 创建不再写占位符描述；创建/更新即时进同伴名录
+
+两处（P1 段02）：
+
+1. `agent_description` 的默认值从 `"A new agent ready for configuration"` 改成
+   **空串**。那句填充被 bus 名录快照、被当事实报给同伴，也被当作 agent 自己的
+   自述注入提示（见 [[entity_schema]] / [[basic_info_module]]）。
+2. 创建成功（默认 instance 建好之后）和更新成功之后，都调
+   [[agent_discovery_sync]] 的 `sync_agent_discovery`。此前注册是"跑过一轮"的
+   副作用，所以刚创建、或改完名字/描述后闲着的 agent 对同伴不存在——票上目标 2。
+   两处都是 best-effort：agent 该建的建了、该改的改了，发现元数据刷新失败不影响
+   请求成功。
+
+创建那次刻意放在 `InstanceFactory.create_agent_level_instances` **之后**，
+capabilities 快照才不是空的。
 
 ## 2026-07-31 — active_run 富集只认 chat/manyfold 来源
 
@@ -188,48 +552,6 @@ active_run filter is unchanged.
 
 Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
 
-## 2026-06-10 — analytics endpoints: identity from middleware only (review fix)
-
-PR #24 review hardening. All three analytics endpoints (`GET/PUT
-/settings/analytics`, `POST /funnel`) now derive the user exclusively from
-`request.state.user_id` via the shared `_require_request_user()` helper
-(401 when absent). `SetAnalyticsOptOutRequest` lost its `user_id` field and
-`FunnelEventRequest` lost `properties`:
-
-- Opt-out previously trusted a client-supplied `user_id` (query/body), so
-  any authenticated user could read or flip another user's privacy
-  preference. Now impossible by shape — the request can't name a target.
-- The funnel endpoint previously forwarded an arbitrary client `properties`
-  dict to PostHog, letting a client override the server-derived `surface`
-  (dict.setdefault doesn't protect present keys) or inject junk. The
-  setup_* events carry no payload by design, so client properties are no
-  longer accepted at all.
-
-Frontend `api.ts` methods changed in the same commit (no user_id param, no
-properties param). Tests: `test_user_settings_routes.py` (per-user
-isolation + 401), `test_funnel_capture.py` (client properties ignored).
-
-## 2026-06-09 — funnel redesign: /api/auth/funnel endpoint (setup_* events)
-
-Added `POST /api/auth/funnel` for the three pure-UI setup events
-(`setup_entered`, `setup_skipped`, `setup_completed`). These events have no
-backend signal, so the frontend reports them through this endpoint.
-
-Key design decisions:
-- **Identity from middleware only** (`request.state.user_id`, set by
-  `auth_middleware`). The body never carries identity — prevents a user from
-  spoofing events onto another user's funnel.
-- **Whitelist only** — `_ALLOWED_FUNNEL_EVENTS` (a `frozenset`) accepts only
-  the three `setup_*` constants. Any other event name returns 400. This
-  prevents the endpoint from becoming a generic event firehose.
-- **Delegates to `track()`** — inherits opt-out, distinct_id hashing, and the
-  surface label exactly like every other funnel event. Never raises.
-- `FunnelEventRequest` is a small inline `BaseModel` with `event: str` and
-  `properties: dict | None`.
-
-`create_agent` no longer emits any analytics (`EVENT_AGENT_CREATED` is
-removed). The funnel no longer tracks agent creation.
-
 ## 2026-06-08 — analytics opt-out endpoints
 
 Added `GET /api/auth/settings/analytics` and `PUT /api/auth/settings/analytics`
@@ -247,13 +569,9 @@ Tests: `tests/backend/test_user_settings_routes.py`.
 
 ## 2026-06-08 — funnel: signed_up event
 
-`create_user` calls `identify_user` + `track(EVENT_SIGNED_UP)` on the
-success path. Additive instrumentation — best-effort, never raises.
-
-The `identify_user` traits deliberately carry only `role` — NOT
-`display_name`. The analytics layer hashes the distinct_id, so shipping the
-raw display name as a person trait would re-leak exactly the identity the
-hash is meant to hide. Keep identity-bearing fields out of traits.
+`create_user` records `track(EVENT_SIGNED_UP)` on the success path. The fact is
+best-effort, stays in the configured NarraNexus database, and never interrupts
+account creation.
 
 `create_agent` carries no analytics instrumentation. `EVENT_AGENT_CREATED`
 was removed in the 2026-06-09 funnel redesign; create_agent is not a
@@ -349,8 +667,8 @@ to render a one-shot welcome toast on successful cloud-mode registration
   - `UserRepository` — 用户的增删查、last_login 更新、timezone 更新
   - `InviteCodeRepository` — 注册时校验 + 原子消费邀请码
   - `backend.auth` — `hash_password`、`verify_password`、`create_token`、`_is_cloud_mode`
-  - `xyz_agent_context.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — 创建 Agent 时写入工作区的初始化文件
-  - `xyz_agent_context.settings.settings.base_working_path` — Agent 工作区根目录
+  - `narranexus.platform.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — 创建 Agent 时写入工作区的初始化文件
+  - `narranexus.platform.settings.settings.base_working_path` — Agent 工作区根目录
 
 ## 设计决策
 
@@ -463,3 +781,63 @@ _TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
   就是①的 order guard——重排会红,红的是重排不是测试。
 - 运维反向指针：deploy 仓 nginx.conf/Caddyfile 侧加注释指回本常量（deploy
   仓单独 commit,本仓注释已互指并标明该文件不在本仓）。
+
+## 2026-08-19 — 登录路径挂载 onboarding 引导 Agent 供给
+
+`_schedule_guide_agent_provisioning(user_id, *, is_new)`：三个登录入口
+（`netmind_login`、本地 `login`、本地 `create_user`）在成功路径尾部
+fire-and-forget 调 `backend.onboarding.provisioning.ensure_guide_agent`
+（create_task + done_callback，incident lesson #2 模式；铁律 #21：消费方
+只有登录路由，子包住 backend 侧）。要点：
+
+- **每次登录都调、不只 `is_new`**（与免费额度 provisioner 同理由）：
+  ensure 内部有用户级 write-once 幂等标记——**顶层键**
+  `users.metadata.guide_agent_provisioned`，不嵌在 `onboarding_progress`
+  里，因为本文件的 `POST /api/auth/onboarding` 会整块替换那个子 dict，
+  嵌套标记会被第一次 UI 建 Agent 清掉（→ 永久重复供给 + 用户删掉引导
+  Agent 后复活）。回归测试：
+  test_onboarding.py::test_post_never_clobbers_the_guide_agent_marker。
+  热路径只是一次用户读；"每次都调"是存量零 Agent 用户补领的通道。
+- **is_new 贯穿**：netmind_login 传 upsert 的 is_new，本地 login 恒
+  False，create_user 恒 True——`backend/onboarding` 的 BACKFILL 刹车
+  （`NARRANEXUS_ONBOARDING_GUIDE_BACKFILL`，**默认关**）用它把"存量零
+  Agent 回访补领"做成 ops 显式开启的动作，新注册不受该刹车影响。
+- **调度前先查 kill-switch**（`NARRANEXUS_ONBOARDING_GUIDE_AGENT`，默认
+  开）：关掉时连 task 都不建。测试套件在 tests/conftest.py 全局置 0，
+  避免无关登录测试背后真跑 provisioning；guide 测试自行 setenv 开启。
+- **前端同门**：netmind_login / create_user 响应带
+  `guide_agent_provisioning=_guide_agent_feature_on()`——前端的"你的第一
+  个 Agent 已就位"coachmark 以它为门，拉下服务端 kill-switch 时 UI 不会
+  承诺一个永远不出现的 Agent。
+- **必须排在 suspended 门禁之后**（netmind_login 里在
+  `_schedule_provider_provisioning` 之后）：被停号的登录 403 早退，
+  永远到不了这个钩子（test_suspended_account_never_reaches_the_hook）。
+- 测试：tests/backend/test_guide_agent_login_hook.py（三入口调度含 is_new
+  取值、kill-switch 零调度、provisioning 崩溃不影响登录响应）。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`_schedule_login_rearm` is async and fires `onDidChangeUserRunnability`; builtin.job's hook schedules the re-arm (login still responds immediately).
+
+## 2026-09-04 · `module_registry` replaces `MODULE_MAP` (batch 5d)
+
+The registry view is the only module table; usages renamed.
+
+Merged origin/dev (#382 creation studio, #383 onboarding/profile/import) on 2026-09-06; dev's changes ported onto the new `narranexus.platform` paths.
+
+Fix 2026-09-07 (fresh-install journey): `_mark_first_agent_created()` flips the onboarding step when an agent is created through the API (best-effort, idempotent), so the welcome flow does not depend on the frontend posting it.
+
+## 2026-09-07 — agents directory channel UNION is fully parameterised
+
+The bound_channels enrichment builds its UNION through channel.binding_tables.bound_channels_query: channel names and agent ids are parameters, derived tables use index aliases. Behaviour (one query, owned agents only, degrade to [] on failure) unchanged.
+
+
+## 2026-09-07 — `_funnel_client_ip` 提升成共享模块 `backend/routes/_client_ip.py`
+
+跳数常量和取值函数搬去 `backend/routes/_client_ip.py`（导出 `client_ip` /
+`TRUSTED_PROXY_HOPS`），本文件 import 它。动机不是整洁：渠道 webhook 的匿名限流
+（`backend/routes/channels/generic.py`）新写了一份 `request.client.host`，于是
+仓里同时存在两个「客户端 IP 是什么」的答案，而其中一个在云端恒为 nginx 容器地址。
+跳数是**部署拓扑属性**，两份跳数就是这个修复要防的漂移，所以它只能有一个家。
+上文 R2/R4/R5+R6 记的所有决策（从右数、≥1 钳制、空/垃圾值回默认）原样搬过去，
+测试也改成打 `_client_ip`。

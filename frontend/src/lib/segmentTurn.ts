@@ -20,6 +20,7 @@ import type {
   SegmentReply,
   TurnEvent,
 } from '@/types';
+import { isOwnerReplyTool } from '@/lib/ownerTools';
 
 const isProcess = (e: TurnEvent): e is ProcessEvent =>
   e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output';
@@ -39,7 +40,7 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
       continue;
     }
     // A plan belongs to no segment: it answers "where are we now" and
-    // renders separately at the bottom of the ProcessPanel.
+    // renders separately in the pinned PlanStrip above the composer.
     if (event.type === 'plan') continue;
 
     if (event.type === 'reply') {
@@ -80,24 +81,50 @@ export function segmentTurn(events: TurnEvent[]): Segment[] {
  * it is kept here — the double-render is now prevented by the bubble
  * rendering segment.reply only.
  */
-export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[] {
+export function timelineToEvents(
+  timeline: EventLogTimelineEntry[],
+  { convertOwnerReplyTool = true }: { convertOwnerReplyTool?: boolean } = {},
+): TurnEvent[] {
   const events: TurnEvent[] = [];
+  // Stored tool_output entries often carry no tool_name; in a time-ordered
+  // log an output belongs to the nearest preceding call, so carry that name
+  // forward — a literal placeholder next to every output row reads as a bug.
+  // Older backends stamped the placeholder "unknown" at the API layer;
+  // treat it as missing so it, too, inherits the real name.
+  const realName = (name: string | undefined): string =>
+    name && name !== 'unknown' ? name : '';
+  let lastToolName = '';
   timeline.forEach((entry, idx) => {
     const id = `tl-${idx}`;
     const ts = idx;
     switch (entry.type) {
       case 'thinking':
-        if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
+        if (entry.content) {
+          // The tier was resolved backend-side (chat_history splits blocks on
+          // a tier switch, so an entry is one tier), and carrying it here is
+          // what keeps a reloaded turn looking like the live one.
+          events.push({
+            id, ts, type: 'thinking',
+            content: entry.content,
+            monologue: !!entry.monologue,
+          });
+        }
         break;
       case 'tool_call': {
-        const toolName = entry.tool_name || 'unknown';
+        const toolName = realName(entry.tool_name);
+        lastToolName = toolName;
         // The persisted timeline has no type='reply': a reply is stored
         // as the send_message tool call itself (tool_input.content is the
         // reply text). The live path (chatStore) performs this same
         // tool_call→reply conversion; matching it here is what makes a
         // reloaded turn segmentable at all. The acknowledgement
         // tool_output stays a process event — same as the live path.
-        if (toolName.includes('send_message_to_user_directly')) {
+        // convertOwnerReplyTool=false keeps reply-tool calls as process
+        // rows — the collapsed bubble's disclosure shows send_message like
+        // any other tool. This divergence between the two consumers is a
+        // design choice, expressed as an option so there is exactly one
+        // implementation of this conversion.
+        if (convertOwnerReplyTool && isOwnerReplyTool(toolName)) {
           const content = (entry.tool_input as Record<string, unknown> | undefined)?.content;
           if (typeof content === 'string' && content) {
             events.push({ id, ts, type: 'reply', content, reply_via: entry.reply_via });
@@ -115,7 +142,7 @@ export function timelineToEvents(timeline: EventLogTimelineEntry[]): TurnEvent[]
       case 'tool_output':
         events.push({
           id, ts, type: 'tool_output',
-          tool_name: entry.tool_name || 'unknown',
+          tool_name: realName(entry.tool_name) || lastToolName,
           output: entry.tool_output || '',
         });
         break;

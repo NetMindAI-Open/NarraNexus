@@ -1,0 +1,14 @@
+{
+  "order": [
+    "poller",
+    "jobs",
+    "bus",
+    "channels"
+  ],
+  "specs": [
+    "bus",
+    "channels",
+    "jobs",
+    "poller"
+  ]
+}

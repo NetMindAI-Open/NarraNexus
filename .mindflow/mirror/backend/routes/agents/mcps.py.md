@@ -1,10 +1,23 @@
 ---
 code_file: backend/routes/agents/mcps.py
-last_verified: 2026-07-16
+last_verified: 2026-08-12
 stub: false
 ---
 
 # agents/mcps.py — MCP URL 管理与连接验证路由
+
+## 2026-08-12 — create_mcp 补 ownership（SEC-06，Mark IDOR 批）
+
+`create_mcp` 是本文件里唯一信任 URL 上 `agent_id`、不校验归属的路由——任何登录用户可给他人 agent 写一条 MCP 配置（任意 URL），受害者看不到也删不掉。update/delete/validate 早有 owner 校验，本次给 create 在 `try` 之前补 `assert_owned(request, agent_id)`（放 try 外让 HTTPException 透出、不被 `except` 压成 MCPResponse）。SSRF 存前屏蔽（下条）是另一半防护，二者正交。
+
+## 2026-08-11 — 存前 SSRF 屏蔽 + 内部错脱敏（安全审计 P0-3/P2-2）
+
+create/update MCP 现在在入库前用 `_blocks_internal_url(url)`（**cloud only**，铁律 #7：local/桌面单可信用户跑 localhost MCP 合法故不挡；DNS-free 便宜筛，
+基于 `narranexus/platform/utils/url_safety.is_obviously_non_public_url`，**parse-safe**——畸形/非串 URL 判为不安全而非抛异常）挡掉明显内网
+目标——字面私网/环回/link-local IP、localhost、`.local`、以及像 `narranexus-litellm`
+这种单标签 docker 服务名——让它们**根本存不进库**（运行时读取方也就读不到）。这是便宜
+的存前筛，不是边界；真正的解析后边界在 `validate_mcp_sse_connection`（连接时，route 传 `enforce_public_url=is_cloud_mode()`）。各
+`except` 的 `error=str(e)` 收敛为通用文案，内部异常只进日志（原始 URL/内网 IP 不回客户端）。
 
 ## 2026-07-16 — 掩码只保留空格分隔的 auth scheme 前缀(review #111 🟢)
 
@@ -31,7 +44,7 @@ Agent 可以通过 MCP（Model Context Protocol）协议连接外部工具服务
 - **被谁用**：`backend/routes/agents/core.py` 聚合；前端 MCP 配置面板
 - **依赖谁**：
   - `MCPRepository` — MCP 记录的增删改查
-  - `xyz_agent_context.repository.mcp_repository.validate_mcp_sse_connection` — 实际的网络连通性测试
+  - `narranexus.platform.repository.mcp_repository.validate_mcp_sse_connection` — 实际的网络连通性测试
 - **被间接用到**：`backend/routes/websocket.py` 在每次 agent run 前通过 `MCPRepository` 加载已启用的 MCP URL
 
 ## 设计决策

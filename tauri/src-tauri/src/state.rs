@@ -120,20 +120,25 @@ pub fn is_bundled() -> bool {
         || resources.join("python/bin/python3").exists()
 }
 
-/// Directories containing bundled Node.js + CLI shims that Python child
-/// processes need on PATH.
+/// Directories containing bundled Node.js + CLI shims (and the on-demand
+/// plugin CLI dir) that Python child processes and the OAuth flow need on PATH.
 ///
 /// Why PATH-prepending matters:
-///   The Python `claude_agent_sdk` package spawns the `claude` CLI as a
-///   subprocess — it looks for `claude` on PATH. A Mac .app launched from
-///   Finder inherits the launchd minimal PATH
-///   (`/usr/bin:/bin:/usr/sbin:/sbin`), which never contains `claude`. Without
-///   this prefix, every chat turn ends with "claude: command not found".
+///   The bundled `lark-cli` / `narra-cli` are Node scripts, and the desktop
+///   OAuth flow shells `claude auth login` (commands/auth.rs). A Mac .app
+///   launched from Finder inherits the launchd minimal PATH
+///   (`/usr/bin:/bin:/usr/sbin:/sbin`), which contains none of them. Without
+///   this prefix, `lark-cli` / `claude` spawns end with "command not found".
+///   (The agent loop itself does NOT rely on PATH for `claude`: cli_binary.py
+///   resolves the managed plugin binary by explicit path.)
 ///
 /// Return order matters: entries earlier in the Vec are earlier on PATH. We
-/// put `bin/` (real `node`) BEFORE `node_modules/.bin/` (shim scripts) so
-/// that when `claude`'s shebang does `#!/usr/bin/env node`, `env` finds our
-/// bundled node, not some other node the user happens to have.
+/// put bundled `bin/` (real `node`) FIRST so that when the plugin-installed
+/// `claude`'s shebang does `#!/usr/bin/env node`, `env` finds our bundled node,
+/// not some other node the user happens to have. The on-demand plugin CLI dir
+/// (`~/.narranexus/plugins/nodejs/node_modules/.bin`, where Settings → Plugins
+/// installs Claude Code) is appended so `claude auth login` finds it once the
+/// user has installed the plugin.
 pub fn resolve_bundled_node_bins() -> Vec<PathBuf> {
     let resources = resolve_resource_dir();
     let mut out = Vec::new();
@@ -146,6 +151,32 @@ pub fn resolve_bundled_node_bins() -> Vec<PathBuf> {
         out.push(root.join("node_modules/.bin"));
         break;
     }
+    // On-demand plugin CLI dir (Claude Code is no longer bundled). Honour the
+    // NARRANEXUS_PLUGIN_HOME override the SAME way plugin_paths.py does
+    // (铁律 #7): trim whitespace, treat empty as unset, and expand a leading
+    // `~`. Diverging would give the two run modes different plugin locations.
+    let default_home = || {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".narranexus")
+            .join("plugins")
+    };
+    let plugin_home = match std::env::var("NARRANEXUS_PLUGIN_HOME") {
+        Ok(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                default_home()
+            } else if trimmed == "~" {
+                dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+            } else if let Some(rest) = trimmed.strip_prefix("~/") {
+                dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(rest)
+            } else {
+                PathBuf::from(trimmed)
+            }
+        }
+        Err(_) => default_home(),
+    };
+    out.push(plugin_home.join("nodejs").join("node_modules").join(".bin"));
     out
 }
 
@@ -190,7 +221,7 @@ impl ServiceDef {
                 command: python_path.to_string(),
                 args: vec![
                     "-m".to_string(),
-                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
+                    "narranexus.platform.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),
@@ -236,7 +267,7 @@ impl ServiceDef {
                 label: "MCP Server".to_string(),
                 command: python_path.to_string(),
                 args: vec![
-                    "src/xyz_agent_context/module/module_runner.py".to_string(),
+                    "src/narranexus/platform/module_system/module_runner.py".to_string(),
                     "mcp".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
@@ -258,7 +289,7 @@ impl ServiceDef {
                 command: python_path.to_string(),
                 args: vec![
                     "-m".to_string(),
-                    "xyz_agent_context.module.run_worker_supervisor".to_string(),
+                    "narranexus.platform.module_system.run_worker_supervisor".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: None,
@@ -283,7 +314,7 @@ impl ServiceDef {
                     "run".to_string(),
                     "python".to_string(),
                     "-m".to_string(),
-                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
+                    "narranexus.platform.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),
@@ -322,7 +353,7 @@ impl ServiceDef {
                 args: vec![
                     "run".to_string(),
                     "python".to_string(),
-                    "src/xyz_agent_context/module/module_runner.py".to_string(),
+                    "src/narranexus/platform/module_system/module_runner.py".to_string(),
                     "mcp".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
@@ -342,7 +373,7 @@ impl ServiceDef {
                     "run".to_string(),
                     "python".to_string(),
                     "-m".to_string(),
-                    "xyz_agent_context.module.run_worker_supervisor".to_string(),
+                    "narranexus.platform.module_system.run_worker_supervisor".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: None,

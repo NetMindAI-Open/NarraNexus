@@ -3,7 +3,7 @@
  * @author: NetMind.AI
  * @date: 2026-07-21
  * @description: Frontend types mirroring the Agent Migration standardized JSON
- * contract (src/xyz_agent_context/schema/migration_schema.py) plus the
+ * contract (src/narranexus/platform/schema/migration_schema.py) plus the
  * ApplyResult returned by POST /api/migrate/apply.
  *
  * Kept in lock-step with the Python schema — the scanner's `/scan` output is
@@ -113,5 +113,8 @@ export interface MigrationApplyResult {
   mcp_stdio_skipped: string[];
   narratives_created: string[];
   memory_turns_retained: number;
+  /** Sessions summarized WITHOUT the LLM because the user asked this import to
+   *  hurry (pressed stop while it was running). Surfaced, never silent. */
+  summaries_degraded: number;
   warnings: string[];
 }

@@ -31,14 +31,19 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
+import { captureProductEvent } from '@/lib/productAnalytics';
 import { platform } from '@/lib/platform';
 import type {
   FeeInfo,
   FinanceRecord,
+  FxQuote,
+  SubscribePaymentMethod,
   QuotaMeResponse,
+  RechargePaymentMethod,
   SubscriptionMe,
   SubscriptionPlan,
 } from '@/types';
@@ -46,6 +51,7 @@ import { useConfigStore } from '@/stores/configStore';
 import { deriveRunway } from './netmindRunway';
 import {
   money,
+  moneyOrNull,
   creditMoney,
   freeTierPctLeft,
   freeTierCreditLeft,
@@ -55,13 +61,24 @@ import {
 import { NetmindRunwayView } from './NetmindRunwayView';
 import { NetmindActionZone } from './NetmindActionZone';
 import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
+import { NetmindProPurchase } from './NetmindProPurchase';
 import { NetmindReturnNotice } from './NetmindReturnNotice';
+import { NarraUsageSection } from './NarraUsageSection';
 import { useNetmindPaymentReturn } from './useNetmindPaymentReturn';
 
-type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
+type PanelState =
+  | 'loading'
+  | 'error'
+  | 'free'
+  | 'pro_active'
+  | 'pro_cancelled'
+  | 'pro_onetime';
 
 const POLL_INTERVAL_MS = 4000;
 const POLL_MAX_MS = 180000; // 3 min bound — never poll forever
+// A custom amount is typed a digit at a time; without this every keystroke is
+// its own exchange-rate request.
+const FX_DEBOUNCE_MS = 400;
 
 // Whether the user's NetMind account is wired in as a provider (module F).
 // Auto-registered by the backend on login, so this is a read-only status:
@@ -82,9 +99,18 @@ function resolveState(me: SubscriptionMe | null): PanelState {
   if (!me) return 'error';
   const sub = me.subscription;
   if (!sub) return 'free'; // S1
-  if (sub.status === 'ACTIVE' && sub.auto_renew) return 'pro_active'; // S2
-  if (sub.status === 'ACTIVE' && !sub.auto_renew) return 'pro_cancelled'; // S3
-  return 'free';
+  if (sub.status !== 'ACTIVE') return 'free';
+  // S4 must be tested BEFORE the auto_renew split. A one-time (Alipay/WeChat)
+  // purchase never renews, so it reports auto_renew=false for its entire life
+  // and would otherwise read as "cancelled card" — which would offer it
+  // "Resume auto-renew", an action that does not exist for it.
+  //
+  // An ABSENT payment_method means card: every subscription older than the
+  // nexus account is one, and that is exactly what the two lines below already
+  // assumed before this state existed.
+  if (sub.payment_method && sub.payment_method !== 'stripe') return 'pro_onetime';
+  if (sub.auto_renew) return 'pro_active'; // S2
+  return 'pro_cancelled'; // S3
 }
 
 function errMessage(e: unknown): string {
@@ -122,6 +148,36 @@ export function NetmindAccountPanel() {
   const [custom, setCustom] = useState<string>('');
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
+  // Card is the default rail because it is the one that needs no explanation
+  // and no currency conversion. All three stay offered regardless of locale.
+  const [payMethod, setPayMethod] = useState<RechargePaymentMethod>('default');
+  // The quote is kept WITH the amount it describes. Two different lifetimes
+  // live in one reply: the conversion ("$10 ≈ ¥73") expires the moment the
+  // amount changes, while the minimum is a property of the WeChat rail and
+  // does not. Clearing the whole thing on every keystroke dropped the floor
+  // too, and a fast typist could then submit an under-minimum amount straight
+  // into an upstream 400 — which is the exact thing the floor exists to avoid.
+  const [fx, setFx] = useState<{ quote: FxQuote; forAmount: number } | null>(null);
+  // One-time (Alipay/WeChat) renewal. Separate from the top-up amount state:
+  // they are different purchases with different rails and must not share a
+  // debounce, a poll generation or an error line.
+  const [payFlow, setPayFlow] = useState<'topup' | 'renew'>('topup');
+  // `/pay` — where the marketing pricing CTA lands — redirects here instead of
+  // minting a card checkout of its own, so the rail choice has exactly one
+  // implementation. Arriving with this intent has to OPEN that choice: landing
+  // on a settings page with the purchase one click away would move the dead
+  // end rather than remove it.
+  const [routeParams] = useSearchParams();
+  const buyIntent = routeParams.get('intent') === 'buy';
+  const [buyMonths, setBuyMonths] = useState(1);
+  // All three rails are legal here: a FREE user starts Pro from this same
+  // control and card is one of their options. What removes card while a
+  // one-time subscription is live is `allowCard` on the control, NOT the type —
+  // that restriction is a fact about upstream's state, not about the value.
+  const [buyMethod, setBuyMethod] = useState<SubscribePaymentMethod>('stripe');
+  const [renewFx, setRenewFx] = useState<{ quote: FxQuote; forAmount: number } | null>(null);
+
+  const [fxLoading, setFxLoading] = useState(false);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
   const [linkBusy, setLinkBusy] = useState(false); // use-subscription link in flight
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -223,24 +279,12 @@ export function NetmindAccountPanel() {
     }
   }, [t]);
 
-  const handleSubscribe = useCallback(async () => {
-    if (busyRef.current) return; // synchronous double-click guard
-    busyRef.current = true;
-    setBusy(true);
-    setActionError(null);
-    try {
-      const r = await api.subscribe();
-      const url = r.data?.checkout_url;
-      if (!url) throw new Error('No checkout URL returned');
-      await platform.openExternal(url);
-      void pollUntilActive(); // reflect the result when payment completes
-    } catch (e) {
-      if (mounted.current) setActionError(errMessage(e));
-    } finally {
-      busyRef.current = false;
-      if (mounted.current) setBusy(false);
-    }
-  }, [pollUntilActive]);
+  // (handleSubscribe lived here. It had become a line-for-line copy of
+  // handleBuyPro's card branch, and its only remaining consumer was
+  // NetmindUpsellCard in `subscribed` mode — which renders no CTA, so the
+  // callback could never fire. Two implementations of the same purchase means
+  // the next change to it lands in one of them, so it is deleted rather than
+  // kept "just in case".)
 
   const handleCancel = useCallback(async () => {
     if (busyRef.current) return;
@@ -377,6 +421,50 @@ export function NetmindAccountPanel() {
   // docstring for why. Declared after them so neither is read before init.
   const returnNotice = useNetmindPaymentReturn(isPowerUser, load, pollUntilActive);
 
+  // The amount the top-up controls currently describe. ONE derivation, read by
+  // both the quote effect and the submit handler, so the number we quote and
+  // the number we charge can never come from two different rules.
+  // Number() (not parseFloat) so "5abc" → NaN is rejected, not silently 5.
+  const selectedAmount = custom.trim() ? Number(custom.trim()) : tier;
+
+  // WeChat settles in CNY, so the payer needs to see what their bank will
+  // actually take before they commit. Two rules make this safe:
+  //   * the quote is stored WITH the amount it was fetched for, and only the
+  //     render path requires those to match (see the `fx` prop below). A stale
+  //     "$10 ≈ ¥73" therefore never sits under a $25 input, while the rail's
+  //     minimum — which does not depend on the amount — survives the change.
+  //   * a failed quote is swallowed. It is a display helper — refusing to let
+  //     someone pay because it 502'd would turn a cosmetic outage into a
+  //     revenue one, and upstream converts and enforces its own minimum anyway.
+  useEffect(() => {
+    if (payMethod !== 'wechat') {
+      setFx(null); // leaving the rail drops the floor with it, correctly
+      setFxLoading(false);
+      return;
+    }
+    if (!Number.isFinite(selectedAmount) || selectedAmount <= 0) {
+      setFxLoading(false);
+      return;
+    }
+    setFxLoading(true);
+    let cancelled = false;
+    // Debounced: a custom amount is typed a digit at a time and each keystroke
+    // would otherwise be its own request.
+    const timer = setTimeout(async () => {
+      try {
+        const r = await api.fxRate(selectedAmount);
+        if (!cancelled && mounted.current && r.data) {
+          setFx({ quote: r.data, forAmount: selectedAmount });
+        }
+      } catch {
+        /* quote unavailable — see above; the payment path stays open */
+      } finally {
+        if (!cancelled && mounted.current) setFxLoading(false);
+      }
+    }, FX_DEBOUNCE_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [payMethod, selectedAmount]);
+
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance + activity reflect the new credit. `gen`
   // tags this loop; if rechargeGenRef moves on (user stopped waiting or started
@@ -426,9 +514,7 @@ export function NetmindAccountPanel() {
 
   const handleRecharge = useCallback(async () => {
     if (rechargeRef.current) return; // synchronous double-submit guard
-    // Number() (not parseFloat) so "5abc" → NaN is rejected, not silently 5.
-    const raw = custom.trim();
-    const amount = raw ? Number(raw) : tier;
+    const amount = selectedAmount;
     if (!Number.isFinite(amount) || amount <= 0) {
       setRechargeState('failed');
       setRechargeError(
@@ -436,12 +522,26 @@ export function NetmindAccountPanel() {
       );
       return;
     }
+    // WeChat has a floor upstream rejects with a 400. When we have a quote,
+    // stop it here instead: a payer who clicked through to a QR code only to be
+    // bounced has already lost trust in the flow.
+    const minUsd = Number(fx?.quote.min_amount_usd);
+    if (payMethod === 'wechat' && Number.isFinite(minUsd) && amount < minUsd) {
+      setRechargeState('failed');
+      setRechargeError(
+        t('settings.netmind.rechargeBelowMinimum',
+          'WeChat has a minimum of about ${{min}} per payment.',
+          { min: minUsd.toFixed(2) }),
+      );
+      return;
+    }
     rechargeRef.current = true;
     const gen = ++rechargeGenRef.current; // this attempt owns the poll
+    setPayFlow('topup');
     setRechargeState('processing');
     setRechargeError(null);
     try {
-      const r = await api.recharge(amount);
+      const r = await api.recharge(amount, payMethod);
       const url = r.data?.checkout_url;
       const sid = r.data?.session_id;
       if (!url || !sid) throw new Error('No checkout URL returned');
@@ -454,7 +554,7 @@ export function NetmindAccountPanel() {
       }
       rechargeRef.current = false;
     }
-  }, [custom, tier, t, pollRechargeStatus]);
+  }, [selectedAmount, payMethod, fx, t, pollRechargeStatus]);
 
   // User closed the payment window / doesn't want to keep waiting: invalidate
   // the in-flight poll (bump the generation) and return to idle so they can
@@ -467,6 +567,126 @@ export function NetmindAccountPanel() {
     setRechargeError(null);
   }, []);
 
+  const proPlan = plans?.find((p) => p.plan_id === 'pro') ?? null;
+
+  // The control must never render a rail it does not offer. `buyMethod` starts
+  // at 'stripe' (the right default for a free user), but card is withdrawn once
+  // a one-time subscription is live — and without this the extend dialog drew
+  // the CARD form with no card option in sight: no month grid, and a button
+  // reading "Subscribe". Normalised in ONE place so the form, the total, the
+  // exchange-rate quote and the request cannot disagree about which rail this is.
+  const cardAllowed = state !== 'pro_onetime';
+  const buyMethodEffective: SubscribePaymentMethod =
+    !cardAllowed && buyMethod === 'stripe' ? 'alipay' : buyMethod;
+
+  // The one-time total is built from what a month COSTS, never from the grant:
+  // they are equal today, and a change to either would otherwise silently
+  // mis-price a 12-month checkout. Falls back to the grant only because the
+  // catalog did not always carry a price field.
+  const monthlyPriceUsd = (() => {
+    const p = proPlan?.usd_monthly_price ?? proPlan?.monthly_grant_usd;
+    return Number.isFinite(Number(p)) ? Number(p) : null;
+  })();
+  const renewTotalUsd =
+    monthlyPriceUsd != null
+      ? monthlyPriceUsd * (buyMethodEffective === 'stripe' ? 1 : buyMonths)
+      : null;
+
+  // A WeChat renewal is charged in CNY, so quote the total the way the top-up
+  // flow quotes its amount — debounce included.
+  //
+  // This used to say a debounce was unnecessary "because the month grid changes
+  // on discrete clicks, not keystrokes". That stopped being true in the same
+  // change that wrote it: the grid is a radiogroup now, so holding an arrow key
+  // walks 1→12 and fires six quotes at an endpoint deliberately left uncached.
+  // A justification its own file can falsify is worse than none — the next
+  // person builds on it. The keyboard path must not be the one that hammers
+  // upstream, least of all right after making it the accessible one.
+  useEffect(() => {
+    if (buyMethodEffective !== 'wechat' || renewTotalUsd == null) {
+      setRenewFx(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const r = await api.fxRate(renewTotalUsd);
+          if (!cancelled && mounted.current && r.data) {
+            setRenewFx({ quote: r.data, forAmount: renewTotalUsd });
+          }
+        } catch {
+          // Display helper only. Refusing to let someone pay because the quote
+          // 502'd would turn a cosmetic outage into a revenue one; upstream
+          // does its own conversion regardless.
+        }
+      })();
+    }, FX_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [buyMethodEffective, renewTotalUsd]);
+
+  // ONE entry for both "start Pro" and "extend a one-time Pro": they are the
+  // same question — how do you want to pay for Pro — asked in two states, and
+  // splitting them is exactly what left Alipay/WeChat users unable to subscribe
+  // at all while the branch was named after letting them.
+  //
+  // The rails then need different guards AND different polls, because upstream
+  // models them as different things:
+  //   card      a real subscription -> busyRef, poll /me until ACTIVE
+  //   one-time  a RECHARGE          -> rechargeRef, poll that session
+  // Polling /me for an EXTENSION would report success on the first tick (the
+  // subscription is already ACTIVE), so the session poll is not an optimisation
+  // here, it is the only reading that can be true.
+  const handleBuyPro = useCallback(async () => {
+    const oneTime = buyMethodEffective !== 'stripe';
+    if (oneTime ? rechargeRef.current : busyRef.current) return;
+    captureProductEvent('subscribe_clicked');
+
+    if (!oneTime) {
+      busyRef.current = true;
+      setBusy(true);
+      setActionError(null);
+      try {
+        const r = await api.subscribe();
+        const url = r.data?.checkout_url;
+        if (!url) throw new Error('No checkout URL returned');
+        captureProductEvent('checkout_opened');
+        await platform.openExternal(url);
+        void pollUntilActive();
+      } catch (e) {
+        if (mounted.current) setActionError(errMessage(e));
+      } finally {
+        busyRef.current = false;
+        if (mounted.current) setBusy(false);
+      }
+      return;
+    }
+
+    rechargeRef.current = true;
+    const gen = ++rechargeGenRef.current;
+    setPayFlow('renew');
+    setRechargeState('processing');
+    setRechargeError(null);
+    try {
+      const r = await api.subscribe(buyMethodEffective, buyMonths);
+      const url = r.data?.checkout_url;
+      const sid = r.data?.session_id;
+      if (!url || !sid) throw new Error('No checkout URL returned');
+      captureProductEvent('checkout_opened');
+      await platform.openExternal(url);
+      void pollRechargeStatus(sid, gen);
+    } catch (e) {
+      if (mounted.current && rechargeGenRef.current === gen) {
+        setRechargeState('failed');
+        setRechargeError(errMessage(e));
+      }
+      rechargeRef.current = false;
+    }
+  }, [buyMethodEffective, buyMonths, pollRechargeStatus, pollUntilActive]);
+
   if (!isPowerUser) return null; // S0
 
   // Activity shows settled entries only — drop `pending` (abandoned checkouts
@@ -476,9 +696,9 @@ export function NetmindAccountPanel() {
   );
 
   // ── Derived view model (null-safe against partial payloads) ───────────────
-  const isPro = state === 'pro_active' || state === 'pro_cancelled';
+  const isPro =
+    state === 'pro_active' || state === 'pro_cancelled' || state === 'pro_onetime';
   const runway = deriveRunway(quota, fee);
-  const proPlan = plans?.find((p) => p.plan_id === 'pro') ?? null;
   const period = formatPeriod(proPlan?.prices?.[0]?.period, t('settings.netmind.perMonth', 'mo'));
   // ── Pro subscription-credit split (the "overflow tank" model) ────────────
   // NetMind's free_credit merges recharge + accumulated subscription grants;
@@ -568,6 +788,19 @@ export function NetmindAccountPanel() {
         </span>
       );
     }
+    // Same badge as an auto-renewing Pro, deliberately NOT the warning one
+    // pro_cancelled gets. "Ending" is a state a card subscriber chose and can
+    // undo; for a one-time purchase it is simply what the product IS, for its
+    // whole life. A permanent warning chip on a normal, paid-up state is how
+    // you train someone to stop reading warnings. The end date and the
+    // does-not-renew fact live in planExpl, right next to it.
+    if (state === 'pro_onetime') {
+      return (
+        <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--accent-primary)]/12 text-[var(--accent-primary)]">
+          {t('settings.netmind.planPro', 'Nexus Pro')}
+        </span>
+      );
+    }
     if (state === 'free') {
       return (
         <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
@@ -578,6 +811,35 @@ export function NetmindAccountPanel() {
     return null;
   })();
 
+  // Every spend control disables while ANY of them is mid-flight: the guards
+  // are refs and cannot reach the render, so a control that is merely NOT the
+  // narrator would stay clickable and do nothing at all when clicked.
+  const anyMoneyBusy = busy || polling || rechargeState === 'processing';
+
+  const proPurchase = (
+    <NetmindProPurchase
+      allowCard={cardAllowed}
+      months={buyMonths}
+      onChangeMonths={setBuyMonths}
+      payMethod={buyMethodEffective}
+      onChangePayMethod={setBuyMethod}
+      monthlyPriceUsd={monthlyPriceUsd}
+      chargeAmountCny={
+        renewFx && renewFx.forAmount === renewTotalUsd
+          // moneyOrNull, not Number().toFixed(): charge_amount is optional on
+          // the quote, and an unguarded conversion puts "¥NaN" next to the
+          // total on the line read last before paying.
+          ? moneyOrNull(renewFx.quote.charge_amount)
+          : null
+      }
+      currentPeriodEnd={me?.subscription?.current_period_end}
+      state={payFlow === 'renew' ? rechargeState : 'idle'}
+      busy={anyMoneyBusy}
+      error={payFlow === 'renew' && rechargeState === 'failed' ? rechargeError : null}
+      onPay={handleBuyPro}
+    />
+  );
+
   // Top-up controls (module E) — reused inside the manage disclosure and shown
   // directly when a Pro user is low. Presentational piece lives in
   // NetmindTopUpControls; the guarded handlers stay here.
@@ -585,8 +847,13 @@ export function NetmindAccountPanel() {
     <NetmindTopUpControls
       tier={tier}
       custom={custom}
-      rechargeState={rechargeState}
-      rechargeError={rechargeError}
+      rechargeState={payFlow === 'topup' ? rechargeState : 'idle'}
+      busy={anyMoneyBusy}
+      rechargeError={payFlow === 'topup' ? rechargeError : null}
+      paymentMethod={payMethod}
+      fx={fx && fx.forAmount === selectedAmount ? fx.quote : null}
+      fxLoading={fxLoading}
+      onChangePaymentMethod={setPayMethod}
       onSelectTier={(v) => { setTier(v); setCustom(''); }}
       onChangeCustom={setCustom}
       onRecharge={handleRecharge}
@@ -603,6 +870,12 @@ export function NetmindAccountPanel() {
             date: formatDate(me.subscription.current_period_end),
           })
         : t('settings.netmind.planExplProActive', 'Member · valid until {{date}}', { date: '—' });
+    }
+    if (state === 'pro_onetime' && me?.subscription) {
+      return t('settings.netmind.planExplOnetime',
+        'Valid until {{date}} — one-time purchase, does not renew', {
+          date: formatDate(me.subscription.current_period_end),
+        });
     }
     if (state === 'pro_cancelled' && me?.subscription) {
       return t('settings.netmind.expiresDowngrade', 'Valid until {{date}}, then downgrades to Free', {
@@ -656,6 +929,14 @@ export function NetmindAccountPanel() {
             ? t('settings.netmind.balanceUsable', 'Current usable balance')
             : t('settings.netmind.currentBalance', 'Current balance')}
       </div>
+      {/* The hero is the number people watch move, so the "which wallet is
+          this" caveat belongs ON it, not in a footnote. Any NetMind product on
+          this account draws it down — that is the whole confusion this line
+          exists to pre-empt. */}
+      <div className="mt-1 text-[11px] text-[var(--text-tertiary)]">
+        {t('settings.netmind.balanceScope',
+          'NetMind account balance — anything you run on this NetMind account draws it down, including outside NarraNexus.')}
+      </div>
     </div>
   ) : null;
 
@@ -689,7 +970,7 @@ export function NetmindAccountPanel() {
       // no more "sign out and back in" busywork (that path still works and
       // stays as the login-time auto-heal, this is just the in-session exit).
       return (
-        <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)] space-y-2">
+        <div className="rounded-[var(--radius-md)] bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)] space-y-2">
           <div className="flex items-center justify-between gap-3">
             <p className="m-0">
               {t('settings.netmind.notConnected',
@@ -732,12 +1013,17 @@ export function NetmindAccountPanel() {
   };
 
   return (
-    <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
       {/* Header — product brand only (plan badge moved into the plan row) */}
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
         <h3 className="text-sm font-semibold text-[var(--text-primary)]">NetMind.AI Power</h3>
+        {/* Names the SCOPE, not just the product. Everything below comes from
+            NetMind's finance domain, which is per-ACCOUNT: the old subtitle
+            ("used for your LLM API usage") let a balance drop caused by another
+            NetMind product read as NarraNexus usage. */}
         <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-          {t('settings.netmind.subtitle', 'Power plan & credits · used for your LLM API usage')}
+          {t('settings.netmind.subtitle',
+            'Your NetMind.AI account · plan & credits shared by every NetMind product, not only NarraNexus')}
         </p>
       </div>
 
@@ -803,7 +1089,7 @@ export function NetmindAccountPanel() {
             </div>
           )}
 
-          {/* 3 · action zone (plan × runway) */}
+          {/* 4 · action zone (plan × runway) */}
           <NetmindActionZone
             state={state}
             runway={runway}
@@ -812,7 +1098,8 @@ export function NetmindAccountPanel() {
             polling={polling}
             proPlan={proPlan}
             topUp={topUp}
-            onSubscribe={handleSubscribe}
+            proPurchase={proPurchase}
+            openBuyOnMount={buyIntent}
             onCancel={handleCancel}
             onReactivate={handleReactivate}
           />
@@ -827,7 +1114,14 @@ export function NetmindAccountPanel() {
           )}
           {actionError && <p className="text-xs text-[var(--color-error)]">{actionError}</p>}
 
-          {/* 4 · recent activity — collapsed by default, settled ledger only.
+          {/* 5 · what NarraNexus itself consumed. Sits directly above the
+              NetMind account ledger because the two answer adjacent questions
+              and are constantly mistaken for each other: this one is scoped to
+              this platform and measured in tokens, the one below is the whole
+              account measured in money. Self-hiding when empty/unavailable. */}
+          <NarraUsageSection />
+
+          {/* 6 · recent activity — collapsed by default, settled ledger only.
               `pending` rows are hidden: an abandoned checkout leaves a pending
               record that only flips to failed ~24h later, so showing them piles
               up noise; in-progress payment is already surfaced by the live
@@ -841,7 +1135,7 @@ export function NetmindAccountPanel() {
                 aria-expanded={showActivity}
               >
                 <span className={`transition-transform ${showActivity ? 'rotate-90' : ''}`}>›</span>
-                {t('settings.netmind.activityTitle', 'Recent activity')}
+                {t('settings.netmind.activityTitle', 'NetMind account activity (all products)')}
               </button>
               {showActivity && (
               <ul className="mt-1.5 space-y-1">
@@ -875,7 +1169,7 @@ export function NetmindAccountPanel() {
       <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[11px] text-[var(--text-tertiary)] leading-relaxed space-y-1.5">
         <div>
           {t('settings.netmind.scopeNote',
-            'These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.')}
+            'These NetMind.AI Power credits cover LLM API usage across every NetMind product and API key on this account — the balance and activity above are account-wide, not NarraNexus-only. Compute (GPU) and other pricing are billed separately.')}
         </div>
         <div>
           {t('settings.netmind.sandboxNotice',

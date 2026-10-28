@@ -13,11 +13,11 @@ enum is the single source of truth; this test pins the prompt to it.
 """
 import re
 
-from xyz_agent_context.module.job_module.job_module import (
+from narranexus_plugins.job_module.job_module import (
     JOB_MODULE_INSTRUCTIONS,
     JOB_MODULE_INSTRUCTIONS_STABLE,
 )
-from xyz_agent_context.schema.job_schema import JobType
+from narranexus.platform.schema.job_schema import JobType
 
 VALID_VALUES = {t.value for t in JobType}
 

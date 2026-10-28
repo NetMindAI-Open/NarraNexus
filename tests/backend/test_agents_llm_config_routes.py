@@ -27,9 +27,9 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 import backend.routes.agents.llm_config as mod
 
@@ -318,7 +318,7 @@ async def test_put_cloud_nonstaff_rejects_framework_pin_change(db_client, monkey
     through the side door, so it 403s even with a netmind provider."""
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     await _seed_agent(db_client)
-    # Owner default framework: claude_code (no user_slots row → default).
+    # Owner default framework: nexus_power (no user_slots row → default).
     await _seed_provider(db_client, "p_nm", source="netmind", protocol="openai")
     client = _build_client(db_client, monkeypatch, viewer_id="u1", role="user")
 

@@ -16,7 +16,7 @@ This file also exports the two critical functions `getApiBaseUrl()` and `getWsBa
 
 Persisted to `localStorage` under `narranexus-runtime`. Only `mode`, `userType`, and `cloudApiUrl` are persisted (via `partialize`). `features` is always derived fresh on hydration via the `merge` function.
 
-Consumed by `App.tsx` (`ProtectedRoute`, `PublicRoute`, `RootRedirect` all read `mode`), `LoginPage.tsx` and `RegisterPage.tsx` (read `mode` to decide UI variant), `ModeSelectPage.tsx` (calls `setMode`, `setCloudApiUrl`), `api.ts` (imports `getApiBaseUrl`), `wsManager.ts` (imports `getWsBaseUrl`), and `SetupPage.tsx` (calls `getBaseUrl` via the re-exported alias).
+Consumed by `App.tsx` (`ProtectedRoute`, `PublicRoute`, `RootRedirect` all read `mode`), `LoginPage.tsx` and `RegisterPage.tsx` (read `mode` to decide UI variant), `ModeSelectPage.tsx` (calls `setMode`, `setCloudApiUrl`), `api.ts` (imports `getApiBaseUrl`), `wsManager.ts` (imports `getWsBaseUrl`), and `WelcomePage.tsx` (calls `getBaseUrl` via the re-exported alias).
 
 ## Design decisions
 

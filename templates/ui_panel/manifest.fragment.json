@@ -1,0 +1,17 @@
+{
+  "hosts": [
+    "backend",
+    "frontend"
+  ],
+  "frontend": {
+    "entry": "plugin.js",
+    "ui": {
+      "panels": [
+        {
+          "id": "__PLUGIN_ID__.panel",
+          "label": "__DISPLAY_NAME__"
+        }
+      ]
+    }
+  }
+}

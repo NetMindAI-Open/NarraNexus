@@ -15,8 +15,8 @@ from dotenv import load_dotenv
 # Load .env so OPENAI_API_KEY is available; mirrors backend behavior.
 load_dotenv()
 
-from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK  # noqa: E402
-from xyz_agent_context.agent_framework.api_config import (  # noqa: E402
+from narranexus.platform.agent_framework.adapters.openai_agents import OpenAIAgentsSDK  # noqa: E402
+from narranexus.platform.agent_framework.api_config import (  # noqa: E402
     set_user_config,
     OpenAIConfig,
     ClaudeConfig,

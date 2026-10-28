@@ -7,7 +7,7 @@
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.repository.executor_audit_repository import ExecutorAuditRepository
+from narranexus.platform.repository.executor_audit_repository import ExecutorAuditRepository
 
 
 @pytest_asyncio.fixture

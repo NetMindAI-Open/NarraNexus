@@ -28,7 +28,7 @@ import pytest
 # driving the whole sync loop, we exercise a minimal "walk the invites"
 # fragment against the same client interface. That keeps the test tight
 # and fast — a full connect() test lives in the smoke path.
-from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+from narranexus_plugins.narramessenger_module.matrix_trigger import (
     MatrixTrigger,
 )
 

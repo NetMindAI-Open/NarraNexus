@@ -16,8 +16,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema import Artifact
 
 
 async def _async_return(value):
@@ -28,7 +28,7 @@ async def _async_return(value):
 async def setup(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
     from backend.routes.artifacts.users import router as users_router

@@ -23,10 +23,11 @@ import asyncio
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
 from backend.routes.dashboard._helpers import (
+    _LIVE_JOB_STATES,
+    _QUEUED_JOB_STATES,
     bucket_count,
     build_action_line,
     build_recent_events_resp,
@@ -45,6 +46,11 @@ from backend.routes.dashboard._helpers import (
     to_response,
 )
 from backend.routes.dashboard._schema import DashboardResponse
+# Visibility (owned OR public) lives in the canonical ownership module; it is
+# re-exported under its historical name because plugin_sdk_host publishes it on
+# the contracts.web.WebHost seam as ``agent_visible`` and this module's detail
+# endpoints call it.
+from backend.routes._ownership import assert_visible as assert_agent_visible
 from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from backend.state.active_sessions import get_session_registry
 
@@ -78,7 +84,7 @@ async def agents_status(request: Request, response: Response):
         )
 
     # 4. Fetch visible agents (owned OR public)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     agent_rows = await db.execute(
         "SELECT agent_id, agent_name, agent_description, created_by, is_public "
@@ -132,20 +138,15 @@ async def agents_status(request: Request, response: Response):
         )
         action_line = build_action_line(run_state)
 
-        # v2.1.1: queue counts (all 6 live states, no overlap — see fetch_jobs)
-        queue_counts = {
-            s: len(per_state.get(s, []))
-            for s in ("running", "active", "pending", "blocked", "paused", "failed",
-                      "cooling", "paused_no_quota", "blocked_failed")
-        }
+        # v2.1.1: queue counts (every live state, no overlap — see fetch_jobs)
+        queue_counts = {s: len(per_state.get(s, [])) for s in _LIVE_JOB_STATES}
         queue_counts["total"] = sum(queue_counts.values())
 
-        # v2.1.1: pending_jobs surfaces all 5 non-running live states with
+        # v2.1.1: pending_jobs surfaces every non-running live state with
         # a queue_status tag. Each job appears EXACTLY ONCE (was a v2.1 bug).
         pending_jobs_items: list[dict] = []
         seen_job_ids: set[str] = set()
-        for qstate in ("pending", "active", "blocked", "paused", "failed",
-                       "cooling", "paused_no_quota", "blocked_failed"):
+        for qstate in _QUEUED_JOB_STATES:
             for j in per_state.get(qstate, []):
                 if j["job_id"] in seen_job_ids:
                     continue  # belt-and-suspenders dedup
@@ -250,7 +251,10 @@ def _derive_kind(sessions, running_jobs, instances) -> str:
         return "JOB"
     if sessions:
         ch = (sessions[0].channel or "").lower()
-        if ch.startswith(("lark", "slack", "message_bus", "bus")):
+        from narranexus.platform.schema.hook_schema import WorkingSource
+
+        # any IM channel session (builtin or plugin) or a bus session is non-web
+        if WorkingSource.is_channel(ch.split("_", 1)[0]) or WorkingSource.is_channel(ch) or ch.startswith(("message_bus", "bus")):
             return "MESSAGE_BUS"
         return "CHAT"
     if instances:
@@ -287,31 +291,19 @@ def _iso(value) -> str | None:
 # 3s/30s fan-out doesn't bloat with rarely-needed deep data.
 # ---------------------------------------------------------------------------
 
-async def _resolve_viewer(request: Request) -> str:
-    """Shared identity resolution mirroring the main endpoint."""
+async def resolve_viewer(request: Request) -> str:
+    """Shared identity resolution mirroring the main endpoint.
+
+    Public (not ``_``-prefixed) because ``backend/plugin_sdk_host.py``
+    publishes it on the plugin web seam: builtin.job's dashboard router lives
+    in a plugin package and must not reach into a private module of ours.
+    """
     if "user_id" in request.query_params:
         raise HTTPException(
             status_code=400,
             detail="user_id query param not accepted; viewer identified by session",
         )
     return await resolve_current_user_id(request)
-
-
-async def _assert_agent_visible(viewer_id: str, agent_id: str) -> dict:
-    """Ensure viewer can see this agent (owned OR public). Returns agent row."""
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    db = await get_db_client()
-    rows = await db.execute(
-        "SELECT agent_id, agent_name, created_by, is_public "
-        "FROM agents WHERE agent_id=%s LIMIT 1",
-        (agent_id,),
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="agent not found")
-    row = rows[0]
-    if row["created_by"] != viewer_id and not row.get("is_public"):
-        raise HTTPException(status_code=404, detail="agent not found")  # don't leak existence
-    return row
 
 
 @router.get("/jobs/{job_id}")
@@ -323,8 +315,8 @@ async def job_detail(job_id: str, request: Request):
     recent_history; blocked jobs include blocking_dependencies; failed jobs
     include the full error.
     """
-    viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    viewer_id = await resolve_viewer(request)
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT job_id, agent_id, title, description, job_type, status, "
@@ -340,7 +332,7 @@ async def job_detail(job_id: str, request: Request):
     job = rows[0]
 
     # Check caller can see the owning agent
-    agent = await _assert_agent_visible(viewer_id, job["agent_id"])
+    agent = await assert_agent_visible(viewer_id, job["agent_id"])
     owns_agent = agent["created_by"] == viewer_id
     if not owns_agent:
         raise HTTPException(status_code=403, detail="not owned")  # public can't peek internals
@@ -409,7 +401,7 @@ async def session_detail(session_id: str, request: Request):
     Returns enriched info: most recent bus message in the session's channel
     plus session metadata. Only owner of the agent can read details.
     """
-    viewer_id = await _resolve_viewer(request)
+    viewer_id = await resolve_viewer(request)
 
     # Scan registry to find this session_id
     registry = get_session_registry()
@@ -424,12 +416,12 @@ async def session_detail(session_id: str, request: Request):
     if not match:
         raise HTTPException(status_code=404, detail="session not found")
 
-    agent = await _assert_agent_visible(viewer_id, agent_id)
+    agent = await assert_agent_visible(viewer_id, agent_id)
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
 
     # Latest bus message for this channel (best-effort preview)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     preview = None
     try:
@@ -460,8 +452,8 @@ async def session_detail(session_id: str, request: Request):
 @router.get("/agents/{agent_id}/sparkline")
 async def agent_sparkline(agent_id: str, request: Request, hours: int = 24):
     """v2.1: 24h events-per-hour buckets for the sparkline micro-viz."""
-    viewer_id = await _resolve_viewer(request)
-    await _assert_agent_visible(viewer_id, agent_id)
+    viewer_id = await resolve_viewer(request)
+    await assert_agent_visible(viewer_id, agent_id)
     hours = max(1, min(168, int(hours)))  # clamp 1..168 (7 days)
     buckets = await fetch_sparkline_24h(agent_id, hours=hours)
     return {"success": True, "buckets": buckets, "hours": hours}
@@ -470,8 +462,8 @@ async def agent_sparkline(agent_id: str, request: Request, hours: int = 24):
 @router.post("/jobs/{job_id}/retry")
 async def retry_job(job_id: str, request: Request):
     """v2.1: reset a failed job back to 'pending' so the trigger can pick it up."""
-    viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    viewer_id = await resolve_viewer(request)
+    from narranexus.platform.utils.db.db_factory import get_db_client
     db = await get_db_client()
     rows = await db.execute(
         "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
@@ -479,7 +471,7 @@ async def retry_job(job_id: str, request: Request):
     )
     if not rows:
         raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
+    agent = await assert_agent_visible(viewer_id, rows[0]["agent_id"])
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
     if rows[0]["status"] not in ("failed", "blocked", "cancelled"):
@@ -496,97 +488,4 @@ async def retry_job(job_id: str, request: Request):
     return {"success": True, "job_id": job_id, "new_status": "pending"}
 
 
-@router.post("/jobs/{job_id}/pause")
-async def pause_job(job_id: str, request: Request):
-    """v2.1: pause an active/pending job."""
-    viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    db = await get_db_client()
-    rows = await db.execute(
-        "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
-        (job_id,),
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
-    if agent["created_by"] != viewer_id:
-        raise HTTPException(status_code=403, detail="not owned")
-    # Portable core (repository, not backend-specific SQL) — also keeps pause
-    # semantics consistent with the JobTrigger state machine.
-    from xyz_agent_context.module.job_module.job_recovery import pause_job as _pause
-    ok, detail = await _pause(job_id, db)
-    if not ok:
-        raise HTTPException(status_code=400, detail=detail)
-    return {"success": True, "job_id": job_id, "new_status": "paused"}
-
-
-@router.post("/jobs/{job_id}/resume")
-async def resume_job(job_id: str, request: Request):
-    """v2.1: resume a paused job (back to pending so trigger can take it)."""
-    viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    db = await get_db_client()
-    rows = await db.execute(
-        "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
-        (job_id,),
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
-    if agent["created_by"] != viewer_id:
-        raise HTTPException(status_code=403, detail="not owned")
-    # Portable core: handles paused / paused_no_quota / cooling / blocked_failed,
-    # recomputes next_run, clears backoff state, flips to ACTIVE.
-    from xyz_agent_context.module.job_module.job_recovery import resume_job as _resume
-    ok, detail = await _resume(job_id, db)
-    if not ok:
-        raise HTTPException(status_code=400, detail=detail)
-    return {"success": True, "job_id": job_id, "new_status": "active"}
-
-
-class RescheduleBody(BaseModel):
-    """Edit-execution-time payload. Only the fields the user changed are sent;
-    absent (None) fields leave the existing trigger_config untouched."""
-    run_at: Optional[str] = None          # naive ISO, e.g. "2026-08-01T09:00:00"
-    cron: Optional[str] = None
-    interval_seconds: Optional[int] = None
-    timezone: Optional[str] = None
-
-
-@router.put("/jobs/{job_id}/schedule")
-async def reschedule_job(job_id: str, body: RescheduleBody, request: Request):
-    """Edit a non-running, non-terminal job's execution time (trigger rule).
-
-    Delegates to the portable core (job_recovery.reschedule_job): merge the new
-    time fields into trigger_config, revalidate, recompute next_run. The job's
-    status is left unchanged. Auth/ownership stays here, mirroring pause/resume.
-    """
-    viewer_id = await _resolve_viewer(request)
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    db = await get_db_client()
-    rows = await db.execute(
-        "SELECT agent_id, status FROM instance_jobs WHERE job_id=%s LIMIT 1",
-        (job_id,),
-    )
-    if not rows:
-        raise HTTPException(status_code=404, detail="job not found")
-    agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
-    if agent["created_by"] != viewer_id:
-        raise HTTPException(status_code=403, detail="not owned")
-    # exclude_none: only overlay the fields the user actually changed, so e.g.
-    # editing just the cron keeps the existing timezone.
-    new_fields = body.model_dump(exclude_none=True)
-    from xyz_agent_context.module.job_module.job_recovery import reschedule_job as _reschedule
-    ok, detail = await _reschedule(job_id, new_fields, db)
-    if not ok:
-        raise HTTPException(status_code=400, detail=detail)
-    updated = await db.execute(
-        "SELECT next_run_at_local, next_run_tz FROM instance_jobs WHERE job_id=%s LIMIT 1",
-        (job_id,),
-    )
-    return {
-        "success": True,
-        "job_id": job_id,
-        "next_run_at": updated[0]["next_run_at_local"] if updated else None,
-        "next_run_timezone": updated[0]["next_run_tz"] if updated else None,
-    }
+# pause / resume / schedule live in dashboard/jobs.py (builtin.job's router, batch 3c.5).

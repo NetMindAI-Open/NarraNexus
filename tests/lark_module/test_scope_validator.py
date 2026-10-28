@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.module.lark_module._lark_scope_validator import (
+from narranexus_plugins.lark_module._lark_scope_validator import (
     ScopeCheckResult,
     REQUIRED_BOT_SCOPES,
     REQUIRED_USER_SCOPES,

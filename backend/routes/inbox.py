@@ -2,19 +2,31 @@
 @file_name: inbox.py
 @author: NexusAgent
 @date: 2026-04-09
-@description: Agent Inbox API — exposes MessageBus channels and messages to the frontend
+@description: Agent Inbox API — the record of conversations the user was not in
 
 Endpoints:
-  GET  /api/agent-inbox                          — list channels with messages for an agent
-  PUT  /api/agent-inbox/{message_id}/read        — mark a single message as read
-  POST /api/agent-inbox/rooms/{room_id}/read     — mark ALL messages in the room read
+  GET  /api/agent-inbox                          — list threads with messages
+  PUT  /api/agent-inbox/{message_id}/read        — mark a single message read
+  POST /api/agent-inbox/rooms/{room_id}/read     — mark a whole thread read
 
-The room-level endpoint exists because the inbox list caps each channel
-at 50 messages but `unread_count` is computed against ALL messages, so
-marking only the latest VISIBLE message leaves any older-unread tail
-behind. Click-the-channel UX (2026-05-28) calls the room-level endpoint
-so the badge always disappears regardless of how many messages were
-sitting unread.
+The room-level endpoint exists because the list caps each thread at 50
+messages while `unread_count` is computed against ALL of them, so marking only
+the latest VISIBLE message leaves any older-unread tail behind. Click-the-row
+UX (2026-05-28) calls the room-level endpoint so the badge always disappears.
+
+READS THE INBOX'S OWN TABLES (2026-08-17). It used to list every bus channel
+the agent belonged to, which mixed three unrelated things into one panel — IM
+conversations, agent-to-agent DMs, and team rooms that already have their own
+UI — and made the panel's "mark read" button advance the SAME cursor the agent's
+turn context is gated on. Clicking "read" in the panel changed what the agent
+was handed next turn.
+
+Now: `inbox_threads.last_read_at` is the USER's read state and touches nothing
+the agent sees. Team rooms and the owner's own chat are deliberately absent —
+the user is a live participant there and those surfaces carry their own unread
+signal (`TeamWithMembers.last_message_at/preview/author`, and the chat window
+itself). The rule is one sentence: the inbox is the conversations you were not
+in.
 """
 
 from __future__ import annotations
@@ -23,24 +35,30 @@ import json
 import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
+from backend.routes._ownership import assert_owned
+from narranexus.platform.channel.inbox_recorder import OUTBOUND
+
 router = APIRouter()
+
+#: How many messages per thread the list carries. `unread_count` is computed
+#: against ALL of them, which is why the room-level mark-read exists.
+MESSAGES_PER_THREAD = 50
 
 
 def _to_iso(value: Any) -> str:
     """Normalise timestamps (datetime / str / None) to an ISO 8601 string.
 
     aiomysql returns DATETIME(6) columns as `datetime.datetime` while the
-    SQLite backend returns them as strings, and the default cursor
-    fallback in this module is the literal ``"1970-01-01"``. Comparing
-    these mixed types raises `TypeError`. Normalising to ISO 8601
-    strings (which sort lexicographically in time order) gives us one
-    comparable type across all backends and code paths.
+    SQLite backend returns them as strings, and the default cursor fallback is
+    the literal ``"1970-01-01"``. Comparing these mixed types raises
+    `TypeError`. ISO 8601 strings sort lexicographically in time order, so
+    normalising gives one comparable type across every backend and code path.
     """
     if value is None:
         return ""
@@ -50,302 +68,235 @@ def _to_iso(value: Any) -> str:
 
 
 async def _get_db():
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.db_factory import get_db_client
     return await get_db_client()
-
-
-async def _resolve_agent_names(db, agent_ids: list[str]) -> dict[str, str]:
-    """Resolve agent_id -> agent_name. Checks agents table and bus_agent_registry."""
-    if not agent_ids:
-        return {}
-    result = {}
-    # 1. Check agents table (NarraNexus agents)
-    rows = await db.get_by_ids("agents", "agent_id", agent_ids)
-    for r in rows:
-        if r:
-            result[r["agent_id"]] = r.get("agent_name", r["agent_id"])
-    # 2. Check bus_agent_registry for external users (e.g. Lark users)
-    missing = [aid for aid in agent_ids if aid not in result]
-    if missing:
-        for aid in missing:
-            reg = await db.get_one("bus_agent_registry", {"agent_id": aid})
-            if reg:
-                # description stores the display name for Lark users
-                result[aid] = reg.get("description") or aid
-    return result
 
 
 @router.get("")
 async def get_agent_inbox(
-    agent_id: str = Query(..., description="Agent ID"),
-    is_read: Optional[bool] = Query(None, description="Filter by read status"),
-    limit: Optional[int] = Query(None, description="Max messages per channel (-1 for unlimited)"),
+    request: Request,
+    agent_id: str = Query(...),
+    is_read: bool | None = Query(None),
+    limit: int | None = Query(None),
 ):
-    """
-    Get all channels and messages for an agent.
+    """List this agent's inbox threads, newest activity first.
 
-    Returns data shaped for the frontend InboxRoom format:
-    {
-      rooms: [{ room_id, room_name, members, unread_count, messages, latest_at }],
-      total_unread: int
-    }
+    ``is_read`` filters the messages inside each thread (None = all).
+    ``limit`` overrides the per-thread message cap; negative means "no cap".
     """
+    await assert_owned(request, agent_id)
     try:
         db = await _get_db()
 
-        # 1. Get all channels this agent is a member of
-        member_rows = await db.get("bus_channel_members", {"agent_id": agent_id})
-        if not member_rows:
+        threads = await db.get("inbox_threads", {"agent_id": agent_id})
+        if not threads:
             return {"success": True, "rooms": [], "total_unread": 0}
 
-        channel_ids = [r["channel_id"] for r in member_rows]
-        # Build cursor map: channel_id -> last_processed_at (normalised
-        # to ISO string — see `_to_iso` for why).
-        cursor_map = {
-            r["channel_id"]: _to_iso(
-                r.get("last_processed_at") or r.get("last_read_at") or "1970-01-01"
-            )
-            for r in member_rows
-        }
+        # Resolve the agent's display name ONCE — every thread here belongs to
+        # this one agent_id, so members[0] is always the same agent. Without this
+        # the panel shows the raw `agent_<hex>` id in that slot (the counterpart
+        # slot uses the stored counterpart_name and was already fine).
+        _agent_row = await db.get_one("agents", {"agent_id": agent_id})
+        agent_display = (_agent_row or {}).get("agent_name") or agent_id
 
-        # 2. Get channel details
-        channel_rows = await db.get_by_ids("bus_channels", "channel_id", channel_ids)
-        channel_map = {r["channel_id"]: r for r in channel_rows if r}
-
-        # 3. Get all members for these channels
-        all_members = []
-        for cid in channel_ids:
-            rows = await db.get("bus_channel_members", {"channel_id": cid})
-            all_members.extend(rows)
-
-        # 4. Get messages per channel (collect sender IDs for name resolution)
-        effective_limit = 50
+        per_thread = MESSAGES_PER_THREAD
         if limit is not None:
-            effective_limit = 9999 if limit < 0 else limit
+            per_thread = 9999 if limit < 0 else limit
 
         total_unread = 0
         rooms = []
 
-        # First pass: fetch messages and collect all sender IDs
-        all_sender_ids = set([r["agent_id"] for r in all_members] + [agent_id])
-        channel_msg_rows: dict[str, list] = {}
+        for thread in threads:
+            thread_id = thread["thread_id"]
+            cursor = _to_iso(thread.get("last_read_at") or "1970-01-01")
 
-        for cid in channel_ids:
-            query = (
+            msg_rows = await db.get(
+                "inbox_thread_messages",
+                {"thread_id": thread_id},
+                limit=per_thread,
                 # The writer stamps a turn's inbound and reply one microsecond
-                # apart (channel_inbox_writer), so created_at orders a turn
-                # correctly; message_id is a determinism backstop for the rare
-                # case of two turns completing in the same microsecond, so the
-                # order never flickers between requests.
-                f"SELECT * FROM bus_messages WHERE channel_id = %s "
-                f"ORDER BY created_at DESC, message_id DESC LIMIT {int(effective_limit)}"
+                # apart, so created_at orders a turn correctly on its own.
+                order_by="created_at DESC",
             )
-            msg_rows = await db.execute(query, (cid,))
             msg_rows = list(reversed(msg_rows))
-            channel_msg_rows[cid] = msg_rows
-            for m in msg_rows:
-                all_sender_ids.add(m.get("from_agent", ""))
 
-        # Resolve all names (agents + Lark users from bus_agent_registry)
-        name_map = await _resolve_agent_names(db, list(all_sender_ids))
-
-        # Second pass: build rooms
-        for cid in channel_ids:
-            channel = channel_map.get(cid)
-            if not channel:
-                continue
-
-            cursor = cursor_map.get(cid, "1970-01-01")
-            msg_rows = channel_msg_rows.get(cid, [])
-
-            # Count unread (messages after cursor, not from self)
+            # Unread = arrived after the cursor and not written by the agent.
             unread = sum(
                 1 for m in msg_rows
-                if m.get("from_agent") != agent_id
-                and (_to_iso(m.get("created_at")) > cursor)
+                if m.get("direction") != OUTBOUND
+                and _to_iso(m.get("created_at")) > cursor
             )
             total_unread += unread
 
-            # Filter by is_read if specified
             if is_read is not None:
                 if is_read:
                     msg_rows = [
                         m for m in msg_rows
-                        if _to_iso(m.get("created_at")) <= cursor or m.get("from_agent") == agent_id
+                        if _to_iso(m.get("created_at")) <= cursor
+                        or m.get("direction") == OUTBOUND
                     ]
                 else:
                     msg_rows = [
                         m for m in msg_rows
-                        if m.get("from_agent") != agent_id and _to_iso(m.get("created_at")) > cursor
+                        if m.get("direction") != OUTBOUND
+                        and _to_iso(m.get("created_at")) > cursor
                     ]
 
-            # Build members list for this channel
-            channel_members = [r for r in all_members if r["channel_id"] == cid]
-            members = [
-                {
-                    "agent_id": m["agent_id"],
-                    "agent_name": name_map.get(m["agent_id"], m["agent_id"]),
-                }
-                for m in channel_members
-            ]
-
-            # Build messages
             messages = []
             for m in msg_rows:
-                sender = m.get("from_agent", "")
+                outbound = m.get("direction") == OUTBOUND
                 msg_time = _to_iso(m.get("created_at"))
-                is_msg_read = (
-                    sender == agent_id
-                    or msg_time <= cursor
-                )
                 attachments_raw = m.get("attachments")
                 messages.append({
                     "message_id": m.get("message_id", ""),
-                    "sender_id": sender,
-                    "sender_name": name_map.get(sender, sender),
+                    "sender_id": m.get("sender_id", ""),
+                    # Counterpart (inbound) names are stored at write time. The
+                    # agent's OWN (outbound) reply is written with an empty
+                    # sender_name, so reuse the display name already resolved
+                    # for the member strip — otherwise this falls through to
+                    # sender_id and the card shows the raw `agent_<hex>` id.
+                    "sender_name": (
+                        agent_display if outbound
+                        else (m.get("sender_name") or m.get("sender_id", ""))
+                    ),
                     "content": m.get("content", ""),
                     "attachments": json.loads(attachments_raw) if attachments_raw else None,
-                    "is_read": is_msg_read,
+                    "is_read": outbound or msg_time <= cursor,
                     "created_at": msg_time,
                 })
 
-            latest_at = _to_iso(msg_rows[-1].get("created_at")) if msg_rows else None
-
             rooms.append({
-                "room_id": cid,
-                "room_name": channel.get("name", cid),
-                "members": members,
+                "room_id": thread_id,
+                "room_name": thread.get("title") or thread_id,
+                "members": [
+                    {"agent_id": agent_id, "agent_name": agent_display},
+                    {
+                        "agent_id": thread.get("counterpart_id", ""),
+                        "agent_name": thread.get("counterpart_name")
+                        or thread.get("counterpart_id", ""),
+                    },
+                ],
                 "unread_count": unread,
                 "messages": messages,
-                "latest_at": latest_at,
+                "latest_at": _to_iso(thread.get("last_message_at")),
             })
 
-        # Sort rooms: unread first, then by latest message time desc
+        # Unread first, then most recent activity.
         rooms.sort(key=lambda r: (r["unread_count"] == 0, r.get("latest_at") or ""), reverse=True)
 
-        return {
-            "success": True,
-            "rooms": rooms,
-            "total_unread": total_unread,
-        }
+        return {"success": True, "rooms": rooms, "total_unread": total_unread}
 
     except Exception as e:
         logger.exception(f"[get_agent_inbox] Error: {e}", exc_info=True)
-        return {"success": False, "rooms": [], "total_unread": 0, "error": str(e)}
+        return {"success": False, "rooms": [], "total_unread": 0, "error": "Failed to load inbox."}
 
 
 @router.put("/{message_id}/read")
-async def mark_message_read(message_id: str, agent_id: str = Query(...)):
-    """
-    Mark a single message as read by advancing the read cursor to that
-    message's timestamp.
+async def mark_message_read(message_id: str, request: Request, agent_id: str = Query(...)):
+    """Advance the thread's read cursor to this message's timestamp. Owner-only.
 
-    NOTE: this only clears messages up to and including `message_id`.
-    For "clear the whole channel" semantics (e.g. the user clicked the
-    channel row and may not have scrolled through every unread tail),
-    use `POST /rooms/{room_id}/read` instead — it advances the cursor
-    to NOW without needing a message_id.
+    Clears messages up to and including ``message_id`` only. For "clear the
+    whole thread" use ``POST /rooms/{room_id}/read``, which advances to NOW
+    without needing a message id.
     """
+    await assert_owned(request, agent_id)
     try:
         db = await _get_db()
 
-        # Find the message to get its channel and timestamp
-        msg = await db.get_one("bus_messages", {"message_id": message_id})
+        msg = await db.get_one("inbox_thread_messages", {"message_id": message_id})
         if not msg:
             return {"success": False, "error": "Message not found", "marked_count": 0}
 
-        channel_id = msg["channel_id"]
-        msg_time = msg.get("created_at", "")
+        thread_id = msg["thread_id"]
+        msg_time = _to_iso(msg.get("created_at"))
 
-        # Update the cursor — use %s (MySQL style); auto-translated for SQLite
+        # Ownership is per thread, not per message: a message id alone would
+        # let a caller advance a cursor in somebody else's thread.
+        thread = await db.get_one(
+            "inbox_threads", {"thread_id": thread_id, "agent_id": agent_id}
+        )
+        if not thread:
+            return {
+                "success": False,
+                "error": f"agent {agent_id} has no thread {thread_id}",
+                "marked_count": 0,
+            }
+
         await db.execute(
-            "UPDATE bus_channel_members SET last_read_at = %s "
-            "WHERE channel_id = %s AND agent_id = %s AND (last_read_at IS NULL OR last_read_at < %s)",
-            (msg_time, channel_id, agent_id, msg_time),
+            "UPDATE inbox_threads SET last_read_at = %s "
+            "WHERE thread_id = %s AND (last_read_at IS NULL OR last_read_at < %s)",
+            (msg_time, thread_id, msg_time),
             fetch=False,
         )
-
         return {"success": True, "marked_count": 1}
 
     except Exception as e:
         logger.exception(f"[mark_message_read] Error: {e}", exc_info=True)
-        return {"success": False, "error": str(e), "marked_count": 0}
+        return {"success": False, "error": "Failed to mark message read.", "marked_count": 0}
 
 
 @router.post("/rooms/{room_id}/read")
-async def mark_room_read(room_id: str, agent_id: str = Query(...)):
+async def mark_room_read(room_id: str, request: Request, agent_id: str = Query(...)):
+    """Mark EVERY message in a thread read by advancing the cursor to NOW.
+
+    The list caps each thread's ``messages`` array while ``unread_count`` is
+    computed against all of them, so advancing to the latest VISIBLE message
+    would leave an older-unread tail behind. Advancing to NOW guarantees zero
+    residual unread.
+
+    Idempotent — the only-advances guard makes a re-click a no-op.
     """
-    Mark **every** message in a channel as read by advancing the agent's
-    `last_read_at` cursor to NOW. Click-the-channel UX (2026-05-28).
-
-    Why we don't reuse `PUT /{message_id}/read`: the inbox list caps each
-    channel's `messages` array at 50, but `unread_count` is computed
-    against ALL messages in `bus_messages`. If a channel has 100 unread,
-    advancing to the 50th VISIBLE message's timestamp still leaves the
-    50 older-unread messages behind (their `created_at` is OLDER than
-    the visible-latest, so the LIKE-comparison in `unread_count` calc
-    keeps them unread). Advancing to NOW guarantees zero residual unread.
-
-    Idempotent — re-clicking a fully-read channel is a no-op (the
-    UPDATE's last_read_at-only-advances guard handles the equal case).
-
-    Returns ``{"success": True, "channel_id": "...", "last_read_at": "..."}``.
-    The frontend just re-fetches the inbox afterwards; we don't bother
-    recomputing the unread_count delta here.
-    """
+    await assert_owned(request, agent_id)
     try:
         db = await _get_db()
 
-        # Make sure the channel exists AND the agent is actually a member —
-        # otherwise the UPDATE would silently match zero rows and the
-        # caller would think their click "succeeded". A clear 404/400 is
-        # a much better signal than silent acceptance.
-        member = await db.get_one(
-            "bus_channel_members",
-            {"channel_id": room_id, "agent_id": agent_id},
+        # Verify the thread is this agent's before updating: a silent
+        # zero-row UPDATE would let the caller believe the click worked.
+        thread = await db.get_one(
+            "inbox_threads", {"thread_id": room_id, "agent_id": agent_id}
         )
-        if not member:
+        if not thread:
             return {
                 "success": False,
-                "error": f"agent {agent_id} is not a member of channel {room_id}",
+                "error": f"agent {agent_id} has no thread {room_id}",
                 "marked_count": 0,
             }
 
-        # Server time, in the same ISO format the cursor compares against
-        # (lexicographic ordering works because we normalise everywhere
-        # via `_to_iso`). Microsecond precision matches the DB column.
-        now_iso = datetime.now(timezone.utc).isoformat()
-
+        # Offset-FREE naive UTC. `last_read_at` is a DATETIME(6) column on
+        # MySQL, where an offset-bearing literal (`…+00:00`) is shifted by the
+        # session `time_zone` while a naive one is not. `created_at` and
+        # `mark_message_read`'s cursor read back naive on MySQL, so an offset
+        # room cursor would land on a different wall clock under any non-UTC
+        # session — new messages then read as permanently unread, or the
+        # only-advances guard turns every click into a silent no-op. On SQLite
+        # the column is TEXT but every `*_at` read is re-normalised to UTC-aware
+        # (`_auto_parse_row`), so the two cursors compare consistently there
+        # regardless of what was written; this fix is for MySQL.
+        now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         await db.execute(
-            "UPDATE bus_channel_members SET last_read_at = %s "
-            "WHERE channel_id = %s AND agent_id = %s "
-            "AND (last_read_at IS NULL OR last_read_at < %s)",
-            (now_iso, room_id, agent_id, now_iso),
+            "UPDATE inbox_threads SET last_read_at = %s "
+            "WHERE thread_id = %s AND (last_read_at IS NULL OR last_read_at < %s)",
+            (now_iso, room_id, now_iso),
             fetch=False,
         )
-
-        return {
-            "success": True,
-            "channel_id": room_id,
-            "last_read_at": now_iso,
-        }
+        return {"success": True, "channel_id": room_id, "last_read_at": now_iso}
 
     except Exception as e:
         logger.exception(f"[mark_room_read] Error: {e}", exc_info=True)
-        return {"success": False, "error": str(e), "marked_count": 0}
+        return {"success": False, "error": "Failed to mark room read.", "marked_count": 0}
 
 
 @router.get("/attachments/raw")
 async def get_bus_attachment_raw(request: Request, path: str = Query(...)):
-    """Stream a bus-message attachment from the per-user shared area.
+    """Stream an inbox attachment from the per-user shared area.
 
-    ``path`` is the ``rel_path`` from a message's ``attachments`` entry
-    (as returned by the inbox / team-chat APIs). Access is gated to the
-    authenticated user's own root — see ``resolve_shared_file_for_user`` —
-    so a tampered path can only ever reach files the caller already owns.
+    ``path`` is the ``rel_path`` from a message's ``attachments`` entry (as
+    returned by the inbox / team-chat APIs). Access is gated to the
+    authenticated user's own root — see ``resolve_shared_file_for_user`` — so a
+    tampered path can only ever reach files the caller already owns.
     """
     from backend.auth import resolve_current_user_id
-    from xyz_agent_context.message_bus.attachments import (
+    from narranexus.platform.message_bus.attachments import (
         resolve_shared_file_for_user,
     )
 

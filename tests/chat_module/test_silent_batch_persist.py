@@ -2,7 +2,7 @@
 @file_name: test_silent_batch_persist.py
 @author: NetMind.AI
 @date: 2026-07-02
-@description: ChatModule.hook_persist_turn — silent batch write path.
+@description: ChatModule.persist_turn — silent batch write path.
 
 Contract: when `params.ctx_data.extra_data["batch_messages"]` is a non-empty
 list, ChatModule writes ONE user row per batch entry into
@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     HookAfterExecutionParams,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -96,7 +96,7 @@ async def test_silent_batch_writes_one_user_row_per_entry_no_assistant(chat_modu
             "content": "how's the deploy?",
         },
     ]
-    await chat_module.hook_persist_turn(_params_with_batch(batch))
+    await chat_module.persist_turn(_params_with_batch(batch))
 
     stored = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", INSTANCE_ID
@@ -129,7 +129,7 @@ async def test_silent_batch_skips_empty_content_without_attachments(chat_module)
         {"event_id": "$evt2", "sender_id": "@b:h", "content": "   "},  # whitespace only
         {"event_id": "$evt3", "sender_id": "@c:h", "content": ""},      # empty
     ]
-    await chat_module.hook_persist_turn(_params_with_batch(batch))
+    await chat_module.persist_turn(_params_with_batch(batch))
     stored = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", INSTANCE_ID
     )
@@ -151,7 +151,7 @@ async def test_silent_batch_preserves_attachments_per_row(chat_module):
             ],
         },
     ]
-    await chat_module.hook_persist_turn(_params_with_batch(batch))
+    await chat_module.persist_turn(_params_with_batch(batch))
     stored = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", INSTANCE_ID
     )
@@ -186,4 +186,4 @@ async def test_no_batch_field_leaves_existing_path_untouched(chat_module):
         ctx_data=ctx_data,
     )
     # Should not raise.
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)

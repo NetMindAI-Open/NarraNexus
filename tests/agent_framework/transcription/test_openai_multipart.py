@@ -10,14 +10,14 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from xyz_agent_context.agent_framework.llm.transcription.backends import (
+from narranexus.platform.agent_framework.llm.transcription.backends import (
     openai_multipart as M,
 )
-from xyz_agent_context.agent_framework.llm.transcription.backends.openai_multipart import (
+from narranexus.platform.agent_framework.llm.transcription.backends.openai_multipart import (
     OpenAIMultipartBackend,
     WHISPER_MAX_FILE_BYTES,
 )
-from xyz_agent_context.agent_framework.llm.transcription.credential import (
+from narranexus.platform.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
     TranscriptionCredential,
 )
@@ -259,3 +259,89 @@ async def test_file_handle_reopened_each_attempt(tmp_path, monkeypatch):
     )
     assert out == "ok"
     assert bodies == [4096, 4096]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SSRF egress gate (cloud): a custom card's base_url is user-controlled
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _patch_resolver(monkeypatch, table: dict[str, list[str]]):
+    from narranexus.platform.utils import url_safety
+
+    async def _resolver(host, port):
+        if host not in table:
+            raise OSError(f"unknown host {host}")
+        return table[host]
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _resolver)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://169.254.169.254/latest",
+        "http://litellm:4000/v1",
+        "http://172.20.0.18:9000/v1",
+        "http://no-such-host.invalid/v1",
+    ],
+)
+async def test_cloud_internal_base_url_is_unavailable_without_request(
+    tmp_path, monkeypatch, base_url
+):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    _patch_resolver(monkeypatch, {"litellm": ["172.20.0.5"]})
+    audio = _make_audio(tmp_path)
+    calls: list[str] = []
+
+    async def handler(url, data, files, headers):
+        calls.append(url)
+        return _resp(200, "leaked")
+
+    _patch_httpx(monkeypatch, handler)
+
+    out = await OpenAIMultipartBackend().transcribe(
+        str(audio), _make_cred(base_url), file_id="f", agent_id="a", user_id="u",
+    )
+
+    assert out is None
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_cloud_public_base_url_still_transcribes(tmp_path, monkeypatch):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    _patch_resolver(monkeypatch, {"whisper.example.com": ["93.184.216.34"]})
+    audio = _make_audio(tmp_path)
+
+    async def handler(url, data, files, headers):
+        assert url == "https://whisper.example.com/v1/audio/transcriptions"
+        return _resp(200, "hello")
+
+    _patch_httpx(monkeypatch, handler)
+
+    out = await OpenAIMultipartBackend().transcribe(
+        str(audio), _make_cred("https://whisper.example.com/v1"),
+        file_id="f", agent_id="a", user_id="u",
+    )
+
+    assert out == "hello"
+
+
+@pytest.mark.asyncio
+async def test_local_mode_keeps_localhost_whisper(tmp_path, monkeypatch):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+    audio = _make_audio(tmp_path)
+
+    async def handler(url, data, files, headers):
+        return _resp(200, "local text")
+
+    _patch_httpx(monkeypatch, handler)
+
+    out = await OpenAIMultipartBackend().transcribe(
+        str(audio), _make_cred("http://localhost:8080/v1"),
+        file_id="f", agent_id="a", user_id="u",
+    )
+
+    assert out == "local text"

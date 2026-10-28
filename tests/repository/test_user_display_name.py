@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.repository.user_repository import UserRepository
+from narranexus.platform.repository.user_repository import UserRepository
 
 
 @pytest.mark.asyncio

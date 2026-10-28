@@ -13,7 +13,7 @@ list), while the file strategy works on a copy.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.adapters.materializer import (
+from narranexus.platform.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
     flatten_for_argv,
     flatten_for_file,

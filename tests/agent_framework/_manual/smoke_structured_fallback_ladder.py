@@ -17,12 +17,12 @@ from pydantic import BaseModel, Field
 os.environ["OPENAI_API_KEY"] = os.getenv("NETMIND_API_KEY", "")
 os.environ["OPENAI_BASE_URL"] = "https://api.netmind.ai/inference-api/openai/v1"
 
-from xyz_agent_context.agent_framework import api_config  # noqa: E402
+from narranexus.platform.agent_framework import api_config  # noqa: E402
 api_config.openai_config.api_key = os.getenv("NETMIND_API_KEY")
 api_config.openai_config.base_url = "https://api.netmind.ai/inference-api/openai/v1"
 api_config.openai_config.model = "deepseek-ai/DeepSeek-V3.1"
 
-from xyz_agent_context.agent_framework.adapters.openai_agents import (  # noqa: E402
+from narranexus.platform.agent_framework.adapters.openai_agents import (  # noqa: E402
     OpenAIAgentsSDK,
     _structured_output_blocklist,
     _response_format_capability,

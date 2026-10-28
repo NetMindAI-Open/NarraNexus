@@ -1,0 +1,21 @@
+{
+  "id": "builtin.frameworks.claude_code",
+  "version": "1.0.0",
+  "displayName": "Claude Code agent loop",
+  "description": "Claude Agent SDK driver; SDK installed on demand on the local build.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "framework": 0
+  },
+  "provides": {
+    "turn.pipeline.act.framework": "narranexus_plugins.frameworks_claude_code.contribution:CONTRIBUTION"
+  },
+  "install": {
+    "deps": "on_demand"
+  },
+  "quality": "gold"
+}

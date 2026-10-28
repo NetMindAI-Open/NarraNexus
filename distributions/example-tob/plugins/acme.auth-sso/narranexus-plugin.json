@@ -1,0 +1,20 @@
+{
+  "id": "acme.auth-sso",
+  "version": "0.1.0",
+  "displayName": "Acme SSO",
+  "description": "Example SSO authentication stub: fills kernel.auth for the Acme distribution (distributionOnly).",
+  "minAppVersion": "1.15.0",
+  "hosts": [
+    "backend"
+  ],
+  "api": {
+    "auth": 0
+  },
+  "distributionOnly": true,
+  "backend": {
+    "activate": false
+  },
+  "provides": {
+    "kernel.auth": "nxplugins.acme_auth_sso:CONTRIBUTION"
+  }
+}

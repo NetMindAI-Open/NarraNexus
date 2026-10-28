@@ -16,15 +16,15 @@ from collections import defaultdict
 
 import pytest
 
-from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
-from xyz_agent_context.agent_framework.providers.driver import (
+from narranexus.platform.agent_framework.providers.slot_service import AgentSlotService
+from narranexus.platform.agent_framework.providers.driver import (
     resolve_user_runtime_llm_configs,
 )
-from xyz_agent_context.agent_framework.providers.driver.self_heal import (
+from narranexus.platform.agent_framework.providers.driver.self_heal import (
     self_heal_if_broken,
 )
-from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
-from xyz_agent_context.agent_framework.providers.user_service import (
+from narranexus.platform.agent_framework.providers.driver.base import ProviderCard
+from narranexus.platform.agent_framework.providers.user_service import (
     UserProviderService,
 )
 

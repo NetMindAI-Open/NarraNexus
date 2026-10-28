@@ -21,8 +21,8 @@ from fastapi import APIRouter, Query, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.utils import format_for_api
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils import format_for_api
 
 router = APIRouter()
 
@@ -121,11 +121,60 @@ async def get_my_narratives(
 def _entity_key(etype: str, attrs: Dict[str, Any]) -> str:
     """Merge key for the SAME real-world entity seen by several agents.
 
-    Keyed on entity_type + a normalised identity (entity_name, else entity_id),
-    so e.g. the user "kz" known by three agents collapses to one node.
+    Keyed on entity_type + a normalised identity (entity_name, else entity_id)
+    plus a cross-agent identity signal (email, else phone) from contact_info.
+    The name alone collided distinct people who share a common name (two
+    "王小明" — an engineer and a chef — merged, and the later silently
+    overwrote the earlier). email/phone are stable across the agents that know
+    the same person, so they separate distinct identities while still merging
+    one person seen by many agents. When no contact signal exists the key
+    degrades to name-only — the original "kz known by three agents collapses
+    to one node" behaviour.
     """
     ident = (attrs.get("entity_name") or attrs.get("entity_id") or "").strip().lower()
-    return f"{etype}:{ident}"
+    contact = attrs.get("contact_info")
+    contact = contact if isinstance(contact, dict) else {}
+    disambig = _contact_disambiguator(contact)
+    # Trade-off: when two agents record the same person but populate DIFFERENT
+    # contact fields (one email, one slack, one nothing), their keys differ and
+    # the person shows as two nodes instead of one — a visible duplicate. That
+    # is the accepted cost of never silently overwriting two DIFFERENT people
+    # who share a name (the reported data-loss bug). Proper cross-field identity
+    # resolution is out of scope for this fix.
+    return f"{etype}:{ident}:{disambig}"
+
+
+def _contact_scalar(value: Any) -> str:
+    """Coerce an LLM-authored contact value to a stable string, or "" if it
+    carries no usable identity. Never raises: contact_info values arrive as
+    strings, ints, lists, nulls — anything the model emitted."""
+    if value is None or isinstance(value, bool):
+        return ""  # a boolean contact flag is not an identity
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(v) for v in value)
+    return ""  # dict / other — not a stable single identity
+
+
+def _contact_disambiguator(contact: Dict[str, Any]) -> str:
+    """A stable identity signal from contact_info to separate same-named people.
+
+    Prefers the meaningful stable identifiers (email, then phone); failing those
+    — a contact known only by slack/wechat/telegram/etc. — falls back to the
+    first non-empty scalar value BY SORTED KEY. Sorting is load-bearing: dict
+    insertion order differs between agents, and an order-dependent key would
+    split one person into N nodes instead of merging them.
+    """
+    for preferred in ("email", "phone"):
+        scalar = _contact_scalar(contact.get(preferred)).strip()
+        if scalar:
+            return scalar.lower()
+    for key in sorted(contact):
+        scalar = _contact_scalar(contact.get(key)).strip()
+        if scalar:
+            return scalar.lower()
+    return ""
 
 
 @router.get("/network")

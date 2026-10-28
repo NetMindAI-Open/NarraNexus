@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.slack_module._slack_credential_manager import (
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredential,
 )
-from xyz_agent_context.module.slack_module.slack_context_builder import (
+from narranexus_plugins.slack_module.slack_context_builder import (
     SlackContextBuilder,
 )
-from xyz_agent_context.schema.parsed_message import (
+from narranexus.platform.schema.parsed_message import (
     ChatType,
     MessageContentType,
     ParsedMessage,

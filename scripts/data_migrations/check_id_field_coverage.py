@@ -27,8 +27,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from xyz_agent_context.utils.db.schema_registry import TABLES  # noqa: E402
-from xyz_agent_context.bundle.id_field_map import STRUCTURED_ID_FIELDS  # noqa: E402
+from narranexus.platform.utils.db.schema_registry import TABLES  # noqa: E402
+from narranexus.platform.bundle.id_field_map import STRUCTURED_ID_FIELDS  # noqa: E402
 
 
 # Columns we explicitly do NOT rewrite during bundle import.

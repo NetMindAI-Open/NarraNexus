@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/netmind_key_client.py
-last_verified: 2026-07-02
+last_verified: 2026-08-28
 stub: false
 ---
 
@@ -13,7 +13,8 @@ stub: false
 
 ## 和 [[netmind_billing_client]] 的区别（别混）
 
-- **不同 host**：`platform-api.netmind.ai`（prod）/ `mind-web.protago-dev.com`（dev），
+- **不同 host**：`inference.api.netmind.ai`（prod）/ `inference.api.protago-dev.com`（dev），
+  （2026-08-28 从旧 Java 网关迁到 Python 推理网关，仅换 host，路径/鉴权/参数/信封不变），
   由 `settings.netmind_key_api_base` 配置。
 - **不同鉴权头**：`token: Bearer <jwt>`（**不是** `loginToken`）——但**同一个 JWT**
   （dev 2026-07-02 实测：登录 JWT 两个域都认，只是头名不同）。

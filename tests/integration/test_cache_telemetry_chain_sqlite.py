@@ -13,19 +13,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from xyz_agent_context.agent_framework.loop.output_transfer import (
+from narranexus.platform.agent_framework.loop.output_transfer import (
     _convert_result_to_stream_event,
 )
-from xyz_agent_context.agent_runtime.execution_state import ExecutionState
-from xyz_agent_context.agent_runtime.response_processor import ResponseProcessor
-from xyz_agent_context.utils.cost_tracker import record_cost
+from narranexus.platform.agent_runtime.execution_state import ExecutionState
+from narranexus.platform.agent_runtime.response_processor import ResponseProcessor
+from narranexus.platform.utils.cost_tracker import record_cost
 
 
 @pytest.mark.asyncio
 async def test_result_message_lands_in_cost_records(tmp_path):
     # --- Real SQLite DB with the registry schema -------------------------
-    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
 
     backend = SQLiteBackend(str(tmp_path / "chain.db"))
     await backend.initialize()

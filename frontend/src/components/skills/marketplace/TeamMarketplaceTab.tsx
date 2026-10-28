@@ -79,7 +79,7 @@ export function TeamMarketplaceTab() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={t('teamMarketplace.searchPlaceholder')}
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
+            className="w-full pl-9 pr-4 py-2.5 rounded-[var(--radius-xl)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
           />
         </div>
         <div className="flex gap-1 flex-wrap">
@@ -88,10 +88,10 @@ export function TeamMarketplaceTab() {
               key={c}
               onClick={() => setCategory(c)}
               className={cn(
-                'px-2.5 py-1 rounded-lg text-xs transition-colors',
+                'px-2.5 py-1 rounded-[var(--radius-lg)] text-xs transition-colors',
                 category === c
                   ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
-                  : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)]'
+                  : 'text-[var(--text-tertiary)] hover:bg-[var(--nm-paper-warm)]'
               )}
             >
               {c === 'all' ? t('teamMarketplace.categoryAll') : c}
@@ -140,7 +140,7 @@ function TeamTemplateCard({
   const { t } = useTranslation();
   return (
     <div
-      className="p-4 rounded-xl border bg-[var(--bg-elevated)] border-[var(--border-subtle)] hover:border-[var(--border-strong)] transition-colors flex flex-col"
+      className="p-4 rounded-[var(--radius-xl)] border bg-[var(--bg-elevated)] border-[var(--border-subtle)] hover:border-[var(--border-strong)] transition-colors flex flex-col"
       data-testid={`team-card-${template.template_id}`}
     >
       <div className="flex items-start justify-between gap-2 mb-1">

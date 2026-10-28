@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from xyz_agent_context.bundle import skill_backup
-from xyz_agent_context.bundle import builder
+from narranexus.platform.bundle import skill_backup
+from narranexus.platform.bundle import builder
 
 
 def _write_skill(root: Path, name: str, *, builtin: bool) -> Path:

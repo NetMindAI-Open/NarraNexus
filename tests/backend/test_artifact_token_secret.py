@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 import backend.routes.artifacts._token as tok
-from xyz_agent_context.utils import deployment_mode
+from narranexus.platform.utils import deployment_mode
 
 
 @pytest.fixture

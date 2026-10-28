@@ -32,6 +32,12 @@ def client(monkeypatch):
                         SlidingWindowRateLimiter(limit=1, window_sec=60.0))
     monkeypatch.setattr(auth_mod, "_signup_attempt_limiter",
                         SlidingWindowRateLimiter(limit=10, window_sec=600.0))
+    for name, window in (("_signup_code_ip_minute_limiter", 60.0),
+                         ("_signup_code_ip_hour_limiter", 3600.0),
+                         ("_signup_ip_limiter", 3600.0),
+                         ("_signup_attempt_ip_limiter", 3600.0)):
+        monkeypatch.setattr(auth_mod, name,
+                            SlidingWindowRateLimiter(limit=1000, window_sec=window))
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
     return TestClient(app)

@@ -4,7 +4,7 @@
 @date: 2026-04-13
 @description: Process-local WebSocket session registry for dashboard concurrency view.
 
-Protocol + in-memory implementation. NOT a xyz_agent_context.services-layer
+Protocol + in-memory implementation. NOT a narranexus.platform.services-layer
 service — lives only inside the FastAPI process memory and is populated and
 cleaned by `backend/routes/websocket.py` lifecycle hooks.
 

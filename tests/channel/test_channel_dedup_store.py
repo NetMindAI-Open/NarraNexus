@@ -8,8 +8,8 @@ import threading
 
 import pytest
 
-from xyz_agent_context.channel.channel_dedup_store import ChannelDedupStore
-from xyz_agent_context.repository.channel_seen_message_repository import (
+from narranexus.platform.channel.channel_dedup_store import ChannelDedupStore
+from narranexus.platform.repository.channel_seen_message_repository import (
     ChannelSeenMessageRepository,
 )
 

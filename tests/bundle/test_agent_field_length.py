@@ -15,7 +15,7 @@ trimmed agent in the import summary.
 
 import pytest
 
-from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
+from narranexus.platform.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 
 # Fixtures mirror tests/bundle/test_roundtrip.py (per-file convention there).
 
@@ -31,7 +31,7 @@ def tmp_workspace_root(tmp_path, monkeypatch):
     ws.mkdir()
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "base_working_path", str(ws))
     monkeypatch.setenv("HOME", str(fake_home))
     return ws
@@ -39,12 +39,12 @@ def tmp_workspace_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 async def db_client(tmp_db_path, monkeypatch):
-    from xyz_agent_context.settings import settings as core_settings
+    from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
-    from xyz_agent_context.utils.db import db_factory
+    from narranexus.platform.utils.db import db_factory
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db.db_factory import get_db_client
-    from xyz_agent_context.utils.db.schema_registry import auto_migrate
+    from narranexus.platform.utils.db.db_factory import get_db_client
+    from narranexus.platform.utils.db.schema_registry import auto_migrate
     db = await get_db_client()
     await auto_migrate(db._backend)
     yield db
@@ -67,8 +67,8 @@ async def _seed_overlong_agent(db, agent_id, user_id, name, description):
 
 
 async def _export_then_import(db, tmp_workspace_root, agent_id, owner_id, importer_id):
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
 
     ws = tmp_workspace_root / f"{agent_id}_{owner_id}"
     ws.mkdir()
@@ -99,7 +99,7 @@ async def test_import_trims_overlong_description(db_client, tmp_workspace_root):
     assert len(imported["agent_description"]) == AGENT_TEXT_MAX_LENGTH
     assert imported["agent_description"] == "D" * AGENT_TEXT_MAX_LENGTH
 
-    from xyz_agent_context.repository.agent_repository import AgentRepository
+    from narranexus.platform.repository.agent_repository import AgentRepository
     agent = await AgentRepository(db_client).get_agent(imported["agent_id"])
     assert agent is not None  # no string_too_long — the whole point
 
@@ -133,9 +133,9 @@ async def test_dedupe_suffix_stays_within_limit_on_repeat_import(db_client, tmp_
     ' (1)' suffix. That suffix must NOT push the stored name back over the
     ceiling — otherwise the row is unreadable again (the #71 bug, re-opened by
     clamping before dedupe). Regression for review finding #1."""
-    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
-    from xyz_agent_context.bundle.importer import preflight, confirm
-    from xyz_agent_context.repository.agent_repository import AgentRepository
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+    from narranexus.platform.bundle.importer import preflight, confirm
+    from narranexus.platform.repository.agent_repository import AgentRepository
 
     await _seed_overlong_agent(db_client, "agent_dup0001x", "owner", "N" * 300, "desc")
     ws = tmp_workspace_root / "agent_dup0001x_owner"

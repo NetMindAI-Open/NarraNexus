@@ -1,0 +1,149 @@
+---
+code_file: plugins/builtin.llm_clients/src/narranexus_plugins/llm_clients/anthropic_helper.py
+last_verified: 2026-09-07
+stub: false
+---
+
+## 2026-09-07 — 删掉已无用的 `DEFAULT_MODEL_SENTINEL` import
+
+ruff 全仓忽略 F401，人工清掉。
+
+## 2026-09-07（批 1 三轮复审移植）— 日志条件不再重抄解析规则
+
+`_resolve_model` 里判「slot 是否胜出」曾把 `resolve_helper_model` 的规则又抄了一遍只为决定打不打 debug 日志；
+现在条件是「有调用点偏好且未被采纳」（本客户端从不采纳），规则只有契约层一份。差异只在 debug 日志，非行为。
+
+## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
+
+本文件曾 import `narranexus.platform` 的下划线私有模块。批 6c 在拥有它的包上开出了
+具名公开函数（`module_system` 的 caller-identity 解析器 / `marketplace` 的
+store·pipeline·secret-box / `agent_framework.llm.prompt_probe_emit` /
+`agent_framework.adapters.build_tool_policy_guard`），本文件改用它们。
+理由不是命名规范：这些 MCP 工具和 helper 自批 6b 起是**独立的 wheel**，
+「包内私有」对它们已经不成立了。`pyproject.toml` 的
+`plugins never import a private platform module` 契约（只查直接 import）守住这条线。
+
+## 2026-09-03（批 1）— 模型解析合一
+
+`_resolve_model` 改为调用契约层 `resolve_helper_model(honour_requested=False)`。「忽略调用点模型」的 debug 日志只在 slot 真配了具体模型且与调用点不同时才打（slot 为 `"default"`/空时回落 dataclass 默认不是「忽略用户选择」，不再刷日志）。解析结果不变。
+
+## 2026-07-30 — 记账改为分桶，不再压平成一个数
+
+`llm_function` 与 `llm_stream` 两条路径以前都把 `usage["input_tokens"]`
+（三桶之和）写进 `input_tokens` 列、cache 两列留空。现在写
+`uncached_input_tokens` 并把 cache_creation / cache_read 一并传给
+`record_cost`，与 `agent_loop`(step_4) 一直以来的形状对齐。
+
+两个后果都是要害：(1) 缓存命中的调用会按全价记账；(2) **未来在这条路上做缓存
+将无法验证** —— 命中与否账本上是同一个数。
+
+**这不是对历史行的重新解释**：helper 路径今天完全没有 prompt caching，全部
+2254 行的 cw/cr 都是 0，「uncached」与「总和」在每一行历史数据上数值相同，因此不
+触碰铁律 #6（不得静默改变既有列的语义）。
+
+记账触发条件同步放宽为「任一桶非零」：一次全缓存命中的调用可以合法地报
+`input_tokens == 0` 却仍然花钱，旧的 `in > 0 or out > 0` 会丢掉这一行、还会误报
+一条 "provider returned no usage" —— 丢掉的恰好是能证明缓存生效的那些行。
+
+Tests：`tests/agent_framework/test_helper_cache_accounting.py`。
+
+
+## 2026-07-28 — provider-neutral Anthropic input totals
+
+Both structured attempts and streaming completions normalize Messages API
+usage before recording cost. Anthropic exposes uncached input, cache creation,
+and cache reads as separate top-level counters, so the provider-neutral input
+total includes all three. Every JSON repair attempt remains independently
+recorded; only the per-attempt extraction changed.
+
+## 2026-07-21 — 结构化输出加 JSON 修复重试(Lark bug #2)
+
+`llm_function` 的结构化分支从"一次抠取/校验失败即抛"改为**有界修复重试**
+(`settings.helper_json_repair_attempts`,默认 3):失败时把上一轮回复回填成
+assistant turn + 一条 `json_repair_note` 再重发 Messages API,全部尝试失败才抛。
+起因:提示词工程式结构化输出(schema 塞 system prompt + 客户端抠 JSON,本 SDK 无
+原生 response_format)对深嵌套 schema(如 `InstanceDecisionOutput`,Haiku)常首轮
+裹 prose,单次即抛会让上游 Instance Decision 静默丢掉用户请求的 Job。
+
+**空回复边界**:回填的 assistant content 用 `raw_content[:4000].strip() or
+"(empty response)"` —— 因为 `raw_content` 是拼接的 text block,当某轮**没有任何
+text block**(纯 thinking/空/被截断)时它是 `""`,而"完全没文本"恰是抠取失败最常见
+的形态;空 content block 会被 Messages API 直接 400,占位符避免修复轮死在与 JSON
+无关的 API 错误上。每轮 `record_cost` 独立记账(失败路径 token 成本按尝试数放大,
+属该修法应付的代价)。`settings` 导入提到模块顶部。回归测试见
+`test_helper_json_repair.py`(恢复/耗尽/空回复占位)。
+
+## 2026-07-03 — de-silence missing usage (Phase 0 / module H)
+
+Both cost sites (structured `llm_function` + stream) now call
+`cost_tracker.warn_missing_usage(...)` when a live cost context exists but the
+provider returned no usage, instead of silently skipping the record.
+
+
+
+## 2026-06-17 — llm_function 必须内部 streaming(否则大输入必挂)
+
+`llm_function` 原来用非流式 `client.messages.create`。Anthropic SDK 有个守卫:
+当 `max_tokens` 大到可能让操作 >10 分钟时,非流式请求直接抛
+`ValueError: Streaming is required ...`。helper 的输入动辄几万 token(narrative
+continuity / consolidation / entity update),于是 anthropic-helper 槽的**每个
+结构化 helper 调用都挂**。改为内部 `messages.stream().get_final_message()` 收口,
+`resp` 形状(content+usage)不变、调用方零改动。这个 bug 是被单点 resolver 重构
+**暴露**的——以前 anthropic-helper 用户被错误路由到 OpenAI SDK,根本走不到这里
+(见 helper_sdk.py.md 2026-06-17)。线上实测:claude_code agent + anthropic helper
+一轮 3× `llm_function ok`(修前 5× failed),记忆正确落地。
+# llm/anthropic_helper.py — Anthropic-protocol helper_llm client
+
+## Why it exists
+
+The helper_llm slot was historically OpenAI-protocol-only, which made a
+single Claude key insufficient to run the platform (agent slot ✓, helper
+slot ✗). This SDK is the Messages-API counterpart of `OpenAIAgentsSDK`'s
+helper interface, enabling "one Claude key serves agent AND helper" —
+the core of the 2026-06-10 one-key onboarding feature.
+
+## Upstream / downstream
+
+- **Selected by**: `helper_sdk.get_helper_sdk()` — call sites never
+  import this class directly. Dispatch keys off the per-task
+  `_anthropic_helper_ctx` ContextVar (set by `set_user_config` when the
+  resolver produced an `AnthropicHelperConfig`).
+- **Reads**: `api_config.anthropic_helper_config` proxy (api_key /
+  base_url / model / auth_type).
+- **Reuses from adapters.openai_agents**: `_SimpleResult` / `_ParsedResult`
+  (so downstream consumers see identical result shapes),
+  `_extract_json_from_llm_output`, and the `_last_llm_call_info`
+  ContextVar — deliberate import of that module's internals to keep the
+  two helpers' observable behavior in lock-step.
+- **Cost**: same `record_cost` / `get_cost_context` hooks as the OpenAI
+  helper (`call_type` llm_function / llm_stream).
+
+## Design decisions
+
+- **Structured output is prompt-engineered only.** Anthropic's Messages
+  API has no `response_format` / json_schema parameter — the schema is
+  appended to the system prompt and the reply is extracted + validated
+  client-side, identical to the OpenAI helper's level-3 "prompt_only"
+  fallback. `_last_llm_call_info.structured` reports
+  `"anthropic_prompt"` on the parsed path.
+- **Per-call `model=` overrides are IGNORED** (`_resolve_model`): call
+  sites configure OpenAI-flavored names (narrative judge's
+  gpt-5.4-mini etc.) which don't exist on Anthropic endpoints. The slot
+  model always wins; "default" sentinel falls back to the dataclass
+  default (claude-haiku-4-5).
+- **`reasoning_effort` is accepted and clamped** (debug log, never an
+  error — iron rule #15); the Messages API has no per-call effort knob.
+- **`max_tokens` is mandatory** on the Messages API: resolved from
+  model_catalog's per-model cap, falling back to 4096 (helper outputs
+  are small).
+- **auth_type "bearer_token"** (NetMind anthropic row) maps to the SDK's
+  `auth_token` param (Authorization: Bearer); everything else uses
+  standard `api_key` (x-api-key header).
+
+## Gotchas
+
+- Tests stub `_build_client` (monkeypatch) rather than the anthropic
+  package — see tests/agent_framework/test_one_key_onboarding.py.
+- Keep the public surface (llm_function / llm_stream signatures, result
+  wrapper attributes) byte-compatible with OpenAIAgentsSDK; ~15 call
+  sites are dispatch-blind through the factory.

@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from xyz_agent_context.module.social_network_module._entity_updater import (
+from narranexus_plugins.social_network_module._entity_updater import (
     BatchExtractionOutput,
     ExtractedEntity,
     extract_mentioned_entities,
@@ -75,7 +75,7 @@ async def test_extract_applies_meaningfulness_filter():
     fake_sdk = type("S", (), {"llm_function": AsyncMock(return_value=fake_result)})()
 
     with patch(
-        "xyz_agent_context.module.social_network_module._entity_updater.get_helper_sdk",
+        "narranexus_plugins.social_network_module._entity_updater.get_helper_sdk",
         return_value=fake_sdk,
     ):
         out = await extract_mentioned_entities("hi", "hello", primary_entity_name="Carol")

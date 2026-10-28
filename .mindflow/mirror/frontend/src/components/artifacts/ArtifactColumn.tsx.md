@@ -1,8 +1,40 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-07-30
+last_verified: 2026-09-03
 stub: false
 ---
+
+## 2026-09-03 — 与创建工作室无关
+
+创建工作室（studio）最终采用结构化面板 + 实时落库，配置面板是抽屉里的
+[[BuilderConfigPanel.tsx]]。本文件曾在同日的一个已放弃的 markdown 草稿方案里
+被改过又还原，最终状态与改动前完全一致 —— artifact 列**没有**任何 studio 逻辑。
+
+## 2026-08-19 — sliver 分支删除(更正 08-13 条的「sliver 机制保留未动」)
+
+v4 后唯一挂载点是 BookmarkPanelHost 且带 `forceExpanded`,
+`effectiveCollapsed` 恒 false,且全仓再无 `setCollapsed(true)` 调用——sliver
+分支(~50 行)与 auto-expand effect 是不可达死代码,已删。store 侧
+`collapsed`/`setCollapsed`/`COLLAPSED_KEY` 与 `artifacts.collapse*`、
+`artifacts.sliver.*` i18n key(×10)一并清除,见 [[artifactStore]]。
+抽屉空态(`artifacts.length === 0`)是另一条**活**分支,保留。`forceExpanded`
+prop 一并删除——sliver 没了之后它只剩恒 true 的一个调用点(BookmarkPanelHost),
+是退化参数(铁律 #2);空态条件简化为长度判断。下方旧条目里 sliver/
+forceExpanded 的描述以本条为准。
+
+## 2026-08-18 — 摘除死掉的 '▶' 折叠钮
+
+v4 唯一挂载点是 BookmarkPanelHost 抽屉(forceExpanded),setCollapsed(true)
+写的状态无人读——按钮点了没反应,还是实心字符三角(§5 违例)。抽屉自有
+关闭,按钮整体移除;sliver 机制保留未动。
+
+## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
+
+effectiveActiveId 退化为纯展示层镜像:loader 已保证 store.activeArtifactId 恒可见且 promote 进 LRU,故 effectiveActiveId===activeId∈chartLruOrder,不再是第二真相源。
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+LRU 池可见性判定 raw `activeId` → `effectiveActiveId`:raw 指向隐藏行时 modal/active 回落到可见 chart,而池仍比 raw id → 全 pane display:none = 整列空白(bug ①)。
 
 ## 2026-07-30 (2) — the freeze is a floor, not a fixed width
 

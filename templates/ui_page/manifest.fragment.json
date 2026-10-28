@@ -1,0 +1,23 @@
+{
+  "hosts": [
+    "backend",
+    "frontend"
+  ],
+  "frontend": {
+    "entry": "plugin.js",
+    "ui": {
+      "pages": [
+        {
+          "id": "__PLUGIN_ID__.home",
+          "path": "x/__PLUGIN_PKG__"
+        }
+      ],
+      "commands": [
+        {
+          "id": "__PLUGIN_ID__.open",
+          "label": "Open __DISPLAY_NAME__"
+        }
+      ]
+    }
+  }
+}

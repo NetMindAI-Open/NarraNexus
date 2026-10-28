@@ -1,8 +1,80 @@
 ---
 code_file: frontend/src/components/chat/TurnTimeline.tsx
-last_verified: 2026-07-30
+last_verified: 2026-09-24
 stub: false
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+tool_output 行先查 `TOOL_RENDERERS`：命中则在 `PluginBoundary`（崩溃→通用行）+ `Suspense`（懒加载
+期间→通用行）里渲染插件组件，否则照旧 `ToolOutputBlock`。两层回落都是同一个通用行，所以加载中、
+崩溃、未注册三种状态用户看到的都是正常输出行，不会出现空白。
+
+## 2026-09-07 — a throwing plugin timeline-event component is isolated (I-6)
+
+The plugin-provided timeline-event component is wrapped in `<PluginBoundary key={event.id}
+owner={plugin.owner}>` so one bad event's render crash removes only that event's row, not the
+whole timeline (nor the conversation above it). See `platform/PluginBoundary.tsx`'s mirror doc.
+
+## 2026-08-31（二）— `defaultOpen` 整条删除：推理永远折叠
+
+`ThinkingBlock` 的推理档 `useState(false)` 写死，`defaultOpen` prop 从
+`TurnTimeline` / [[SegmentedReply]] / [[MessageBubble]] 三处一并移除
+（铁律 #2：没有调用方的参数不留）。
+
+Owner 的判据：**点开一轮的过程是要看结论，不是要读草稿纸。** 叙述句和工具行
+是这一轮的可读骨架，provider CoT 比它们加起来还长——自动展开等于把读者真正
+来看的东西埋掉。折叠 ≠ 丢弃，开关就在旁边（铁律 #16）。
+
+这条推翻了前一版加 `defaultOpen` 时写的理由（「用户已经花过一次点击」）。
+那个理由只看到点击成本，没看到**展开之后谁被埋掉**。
+
+## 2026-08-31 — plan 的去处改名
+
+文件头与 `processEvents` 处的注释原说 plan「渲染在 ProcessPanel 的钉底区」。
+该组件已删除，plan 现在在 [[process/PlanStrip]]。分工本身没变：过程归时间线，
+答案归 `SegmentedReply`，plan 归贴底细条。
+
+## 2026-08-30（二）— 成为唯一的过程渲染器
+
+直播、落定、团队观察三个面现在都渲染本组件（此前直播走
+`ProcessEventRows`、观察面也是）。`ToolCallBlock` 补上
+`data-testid={`tool-row-${event.id}`}` 与 `data-pending`，承接退役组件留下的
+断言抓手——`documentFlowConsistency.test.tsx` 靠它断言"叙述 → 工具 → 推理
+→ 正文"这个顺序。
+
+分档规则未变（见上一条）：叙述常显 ink70 + `Milestone` 记号，推理折叠成
+「已思考 ▸」。变的是它现在坐在**没有气泡**的文档里，所以这个对比第一次
+真正可见。
+
+## 2026-08-30 — ThinkingBlock 三档中的第二档：进度（独白）
+
+原来是二元的：**答案**（气泡，正文色）vs **过程**（dim）。现在过程语域内部
+再分两档，**用的是既有 ink 阶梯的三个档位，没有新 token、没有新色**：
+
+| 档 | 内容 | 色 |
+|---|---|---|
+| 答案 | reply / native_output | `--nm-ink`（不变） |
+| **进度** | `monologue=true` 的 thinking | **`--nm-ink70`**（新用法） |
+| 推理 | provider CoT | `--nm-ink50`（不变） |
+
+正文走 `.markdown-progress`（`index.css`，= `--text-secondary`），对位既有的
+`.markdown-dim`。图标 `Brain` → `Milestone`（lucide，12px 档，继承
+`currentColor`，符合 design_system §5），标签 `chat.timeline.narration`。
+
+**刻意没做的事**：不做气泡、不加背景填充、不加圆角、不配身份色。任何一个都
+会把它推进**消息语域**，而宪法承诺的正是「不是一条对你说的话」——A′ 之所以
+不用改宪法，全靠这条线守住——承诺的原话是 "The user never receives it **as a
+message**"，所以只要不进消息语域，承诺就仍然成立。表面填充另外还会平白消耗
+design_system §2.5 的层级预算。
+
+`narration` 由调用方算好（档位 AND [[uiStore]] 的 `interimNarration` 偏好），
+组件本身只是纯色调切换。
+
+## 2026-08-19 — 空名不渲染([输出] 与 [TOOL] 两行同规则)
+
+工具名缺失时只显示标签本身——名字位置的占位词/空洞读起来像 bug。
+真名恢复在上游(见 [[MessageBubble]]/[[../../lib/segmentTurn]])。
 
 ## 2026-07-30 — 降级为只渲染过程（答案层迁出）
 
@@ -181,3 +253,7 @@ the reply content itself is normal.
   timeline" logic lives in `ChatPanel.tsx::timeline useMemo`, not here.
   Without it, the just-completed reply would render twice (once as a
   history bubble and once as a reply block in this component).
+
+## 2026-09-04 · UI slot points (batch 3d.2)
+
+Event types registered in `timelineEvents` pass the process filter and render through the plugin's component in the same rail (`default` branch); unknown types still render nothing. Subscribed so a late registration is not filtered out.

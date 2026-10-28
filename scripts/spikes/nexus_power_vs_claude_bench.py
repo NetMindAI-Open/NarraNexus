@@ -41,8 +41,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/bench.db"
 os.environ["NARRANEXUS_DEPLOYMENT_MODE"] = "local"
 os.environ.setdefault("NEXUS_POWER_INPROCESS", "0")  # exercise the real runner
 
-from xyz_agent_context.agent_framework import get_agent_loop_driver  # noqa: E402
-from xyz_agent_context.agent_framework.api_config import (  # noqa: E402
+from narranexus.platform.agent_framework import get_agent_loop_driver  # noqa: E402
+from narranexus.platform.agent_framework.api_config import (  # noqa: E402
     ClaudeConfig,
     OpenAIConfig,
     set_user_config,
@@ -59,14 +59,19 @@ MCP = {
 
 # The delivery surface, declared explicitly (the platform passes this per
 # turn in production; the adapter no longer guesses from server names).
-REPLY_TOOLS = ["mcp__chat_module__send_message_to_user_directly"]
+# `reply_owner`, not the retired `send_message_to_user_directly`: this bench
+# validates the expressive-surface contract, so a REPLY_TOOLS entry naming a
+# tool that no longer exists would record zero replies for every run and report
+# NexusPower as silent — a harness lying in the direction that hides a
+# regression in the very mechanism it measures.
+REPLY_TOOLS = ["mcp__chat_module__reply_owner"]
 
 IDENTITY = (
     f"Identity: your agent_id is `{AGENT_ID}`; you serve the user whose "
     f"user_id is `{USER_ID}`. Pass these ids to platform tools that "
     "require them.\n"
     "To speak to the user, call "
-    "`mcp__chat_module__send_message_to_user_directly` with agent_id, "
+    "`mcp__chat_module__reply_owner` with agent_id, "
     "user_id and content — plain text is your private reasoning and is "
     "never delivered."
 )

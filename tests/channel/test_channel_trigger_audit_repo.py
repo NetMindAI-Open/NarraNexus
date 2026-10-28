@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from xyz_agent_context.repository.channel_trigger_audit_repository import (
+from narranexus.platform.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
     EVENT_INGRESS_PROCESSED,
     EVENT_HEARTBEAT,

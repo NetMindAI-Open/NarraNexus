@@ -20,15 +20,17 @@ Covers:
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import pytest_asyncio
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.db.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db.schema_registry import auto_migrate
+from narranexus.platform.utils.db.db_backend_sqlite import SQLiteBackend
+from narranexus.platform.utils.db.database import AsyncDatabaseClient
+from narranexus.platform.utils.db.schema_registry import auto_migrate
 
 import backend.routes.agents.cost as cost_mod
 
@@ -69,6 +71,30 @@ async def _seed_agent(db, agent_id="agent_a", created_by=VIEWER):
     })
 
 
+# The endpoint's window is `days=7` back from NOW. Seeding an absolute
+# timestamp therefore writes a test that passes for a week and then fails
+# forever — which is what "2026-07-30 08:00:00" did here, red since 2026-08-06
+# with nothing running pytest to say so.
+#
+# Anchored to YESTERDAY NOON UTC: always inside the 7-day window, never in the
+# future (noon today would be, for any run before midday), and far enough from
+# both midnights that a second row an hour later is still the same UTC day.
+#
+# Two DISTINCT times matter. The route buckets by `created_at[:10]` — a string
+# slice, not a date parse (`backend/routes/agents/cost.py`) — so "two different
+# timestamps collapse into one daily bucket" is only proven if the two rows
+# actually carry different timestamps. Seeding both from one anchor made the
+# `(daily,) = ...` assertion pass even against a regression that keyed the
+# bucket on the full timestamp, which is the same silently-green trade this
+# file was being repaired for.
+_ANCHOR = (datetime.now(timezone.utc) - timedelta(days=1)).replace(
+    hour=12, minute=0, second=0, microsecond=0
+)
+_ANCHOR_SQL = _ANCHOR.strftime("%Y-%m-%d %H:%M:%S")
+_ANCHOR_LATER_SQL = (_ANCHOR + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+_ANCHOR_DATE = _ANCHOR.strftime("%Y-%m-%d")
+
+
 async def _seed_cost(db, **overrides):
     row = {
         "agent_id": "agent_a",
@@ -80,7 +106,7 @@ async def _seed_cost(db, **overrides):
         "total_cost_usd": 0.0,
         "cache_read_input_tokens": 0,
         "cache_creation_input_tokens": 0,
-        "created_at": "2026-07-30 08:00:00",
+        "created_at": _ANCHOR_SQL,
     }
     row.update(overrides)
     await db.insert("cost_records", row)
@@ -110,7 +136,7 @@ async def test_aggregation_includes_cache_buckets(db_client, monkeypatch):
         cache_read_input_tokens=281_434,
         cache_creation_input_tokens=47_003,
         total_cost_usd=0.191,
-        created_at="2026-07-30 09:00:00",
+        created_at=_ANCHOR_LATER_SQL,
     )
 
     client = _build_client(db_client, monkeypatch)
@@ -135,7 +161,7 @@ async def test_aggregation_includes_cache_buckets(db_client, monkeypatch):
     assert helper["cache_creation_tokens"] == 47_003
 
     (daily,) = summary["daily"]
-    assert daily["date"] == "2026-07-30"
+    assert daily["date"] == _ANCHOR_DATE
     assert daily["cache_read_tokens"] == 1_016_581
     assert daily["cache_creation_tokens"] == 181_074
 
@@ -156,7 +182,7 @@ async def test_rows_without_cache_activity_aggregate_as_zero(db_client, monkeypa
         "input_tokens": 100,
         "output_tokens": 50,
         "total_cost_usd": 0.0,
-        "created_at": "2026-07-30 08:00:00",
+        "created_at": _ANCHOR_SQL,
     })
 
     client = _build_client(db_client, monkeypatch)

@@ -18,7 +18,7 @@ title could block yours. The contract now:
 """
 import pytest
 
-from xyz_agent_context.module.job_module.job_service import JobInstanceService
+from narranexus_plugins.job_module.job_service import JobInstanceService
 
 BASE = dict(
     description="d",
@@ -106,3 +106,24 @@ async def test_exact_title_same_user_stays_idempotent(db_client):
     assert again["success"] is True
     assert again["is_existing"] is True
     assert again["job_id"] == first["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_exact_title_match_on_a_blocked_job_says_it_is_waiting(db_client):
+    """review I5: a BLOCKED job (waiting on a dependency) is a duplicate-title
+    match, and the reply must say so rather than "is active" — the user would
+    otherwise believe the task is on the calendar."""
+    service = JobInstanceService(db_client)
+    first = await _create(service, agent_id="agent_1", user_id="user_1",
+                          title="Weekly Digest DS")
+    assert first["success"], first
+    await db_client.update("instance_jobs", {"job_id": first["job_id"]}, {"status": "blocked"})
+
+    again = await _create(service, agent_id="agent_1", user_id="user_1",
+                          title="Weekly Digest DS", confirm_new=True)
+
+    assert again["is_existing"] is True
+    assert again["job_id"] == first["job_id"]
+    assert "waiting on its dependencies" in again["message"]
+    rows = await db_client.get("instance_jobs", filters={"agent_id": "agent_1"})
+    assert len(rows) == 1

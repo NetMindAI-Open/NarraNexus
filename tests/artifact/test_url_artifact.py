@@ -16,10 +16,10 @@ import os
 
 import pytest
 
-from xyz_agent_context.artifact import ArtifactError, ArtifactService
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema.artifact_schema import EmbedVerdict, UrlArtifactDoc
-from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.artifact import ArtifactError, ArtifactService
+from narranexus.platform.repository.artifact_repository import ArtifactRepository
+from narranexus.platform.schema.artifact_schema import EmbedVerdict, UrlArtifactDoc
+from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -28,7 +28,7 @@ WS_REL = agent_workspace_relpath("agent_x", "user_y")
 async def env(db_client, monkeypatch, tmp_path):
     base = tmp_path / "workspaces"
     base.mkdir()
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
     (base / WS_REL).mkdir(parents=True)
 
@@ -39,7 +39,7 @@ async def env(db_client, monkeypatch, tmp_path):
     # Accept any public-looking URL through the SSRF gate (no real DNS).
     async def fake_assert(url, *, resolver=None):
         if "internal" in url:
-            from xyz_agent_context.utils.url_safety import UnsafeUrlError
+            from narranexus.platform.utils.url_safety import UnsafeUrlError
             raise UnsafeUrlError("blocked")
         return ["93.184.216.34"]
 
@@ -47,7 +47,7 @@ async def env(db_client, monkeypatch, tmp_path):
     async def fake_page_text(url, *, resolver=None, client=None):
         return None if "notext" in url else f"captured text of {url}"
 
-    import xyz_agent_context.artifact._artifact_impl.url_artifact as ua
+    import narranexus.platform.artifact._artifact_impl.url_artifact as ua
     monkeypatch.setattr(ua, "probe_url", fake_probe)
     monkeypatch.setattr(ua, "assert_public_http_url", fake_assert)
     monkeypatch.setattr(ua, "fetch_page_text", fake_page_text)
@@ -178,7 +178,7 @@ async def test_set_embed_mode_writes_override(env):
 async def test_open_url_rejects_self_origin_variants(env, monkeypatch, evil_url):
     # A URL that a BROWSER reads as our own origin must be refused, no matter
     # how it is spelled — else the allow-same-origin iframe reaches the token.
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
     with pytest.raises(ArtifactError):
         await env["service"].open_url(
@@ -191,7 +191,7 @@ async def test_open_url_rejects_self_origin_variants(env, monkeypatch, evil_url)
 async def test_open_url_self_origin_guard_uses_request_origin_when_config_unset(env, monkeypatch):
     # Even with public_base_url unset, the app_origin the HTTP route derives
     # from the request closes the guard (defense in depth).
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "public_base_url", "", raising=False)
     with pytest.raises(ArtifactError):
         await env["service"].open_url(
@@ -204,7 +204,7 @@ async def test_open_url_self_origin_guard_uses_request_origin_when_config_unset(
 @pytest.mark.asyncio
 async def test_open_url_allows_genuine_third_party(env, monkeypatch):
     # A different host is NOT self-origin — must be allowed.
-    from xyz_agent_context.settings import settings as sa_settings
+    from narranexus.platform.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
     result = await env["service"].open_url(
         agent_id="agent_x", user_id="user_y", session_id=None,
@@ -216,7 +216,7 @@ async def test_open_url_allows_genuine_third_party(env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_set_embed_mode_missing_doc_raises_content_gone(env):
-    from xyz_agent_context.artifact import ArtifactContentGone
+    from narranexus.platform.artifact import ArtifactContentGone
     result = await env["service"].open_url(
         agent_id="agent_x", user_id="user_y", session_id=None,
         url="https://gone.example/", title="Gone",
@@ -232,7 +232,7 @@ async def test_set_embed_mode_missing_doc_raises_content_gone(env):
 
 @pytest.mark.asyncio
 async def test_set_embed_mode_rejects_non_url_artifact(env):
-    from xyz_agent_context.artifact import ArtifactNotFound
+    from narranexus.platform.artifact import ArtifactNotFound
     # Register a normal html artifact, then try to flip its embed mode.
     (env["base"] / WS_REL / "r").mkdir()
     (env["base"] / WS_REL / "r" / "i.html").write_text("<p>x</p>")
@@ -244,3 +244,80 @@ async def test_set_embed_mode_rejects_non_url_artifact(env):
         await env["service"].set_embed_mode(
             agent_id="agent_x", artifact_id=html.artifact_id, mode="stream",
         )
+
+
+# ── raw serving of an entry at a team root ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_team_root_entry_does_not_serve_its_siblings(db_client, monkeypatch, tmp_path):
+    """A view token is a capability for ONE artifact.
+
+    The single-file guard refuses sibling sub-paths when the entry sits at a
+    workspace root, precisely so a token cannot walk the agent's other files.
+    Requiring team artifacts to live in the team folder put an entry at a root
+    that guard did not know about, so a token for one team artifact would serve
+    anything else in the team folder — including files shared for other
+    purposes — over a JWT-bypass route.
+    """
+    from datetime import datetime, timezone
+
+    from narranexus.platform.artifact import ArtifactService
+    from narranexus.platform.repository.artifact_repository import ArtifactRepository
+    from narranexus.platform.schema.artifact_schema import Artifact
+    from narranexus.platform.settings import settings as sa
+    from narranexus.platform.utils.workspace_paths import team_shared_dir
+
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+    shared = team_shared_dir("user_1", "team_1", str(tmp_path))
+    shared.mkdir(parents=True, exist_ok=True)
+    (shared / "entry.md").write_text("mine\n")
+    (shared / "someone_elses.md").write_text("not part of this artifact\n")
+
+    now = datetime.now(timezone.utc)
+    rel = str((shared / "entry.md").relative_to(tmp_path))
+    await ArtifactRepository(db_client).create(Artifact(
+        artifact_id="art_teamroot", agent_id="agent_a", user_id="user_1",
+        session_id=None, title="T", kind="text/markdown", pinned=True,
+        team_id="team_1", file_path=rel, size_bytes=5,
+        created_at=now, updated_at=now,
+    ))
+
+    svc = ArtifactService(db_client)
+    entry = await svc.resolve_raw_file(
+        agent_id="agent_a", artifact_id="art_teamroot", file_path=""
+    )
+    assert entry.path.endswith("entry.md")
+
+    with pytest.raises(Exception):
+        await svc.resolve_raw_file(
+            agent_id="agent_a", artifact_id="art_teamroot",
+            file_path="someone_elses.md",
+        )
+
+
+@pytest.mark.asyncio
+async def test_set_embed_mode_never_rewrites_a_doc_behind_a_swapped_link(env):
+    """The tab's folder is swapped for a link to another tenant's URL-tab folder.
+    The override toggle must not read or rewrite the victim's doc."""
+    import shutil
+
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        url="https://mine.example/", title="Mine",
+    )
+    art = await env["repo"].get_by_id(result.artifact_id)
+    tab_dir = (env["base"] / art.file_path).parent
+    victim_dir = env["base"] / agent_workspace_relpath("agent_v", "user_v") / "tab"
+    victim_dir.mkdir(parents=True)
+    victim_doc = victim_dir / os.path.basename(art.file_path)
+    shutil.copy(env["base"] / art.file_path, victim_doc)
+    before = victim_doc.read_bytes()
+    shutil.rmtree(tab_dir)
+    os.symlink(victim_dir, tab_dir)
+
+    with pytest.raises(ArtifactError):
+        await env["service"].set_embed_mode(
+            agent_id="agent_x", artifact_id=result.artifact_id, mode="stream",
+        )
+    assert victim_doc.read_bytes() == before

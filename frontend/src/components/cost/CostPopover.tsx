@@ -15,59 +15,30 @@ import { Button } from '@/components/ui';
 import { usePreloadStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { CostModelBreakdown, CostSummary } from '@/types/api';
+// Shared with the account page's NarraNexus-usage section — the same week of
+// usage must not read 1.2M here and 1.23M there. See lib/tokenFormat.ts.
+import {
+  formatCost,
+  formatTokens,
+  shortModelName,
+  summaryInputSideTokens,
+  summaryTotalTokens,
+  totalTokens,
+} from '@/lib/tokenFormat';
+import type { CostModelBreakdown, CostSummary } from '@/types';
 
 type CostView = 'agent' | 'all';
 
-/** Format token count (e.g. 12345 -> "12.3k") */
-function formatTokens(n: number): string {
-  if (n < 1000) return n.toString();
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1_000_000).toFixed(2)}M`;
-}
-
-/**
- * Format USD cost so a real amount never renders as a zero.
- *
- * toFixed(4) still prints "$0.0000" below a hundredth of a cent — and an
- * embedding-heavy day lands there. That is the same failure this panel avoids
- * everywhere else by hiding cost when it is 0: a displayed zero reads as
- * "free", not as "too small to show". Callers already gate on > 0, so anything
- * reaching here is genuinely non-zero and says so.
- */
-function formatCost(n: number): string {
-  if (n >= 0.01) return `$${n.toFixed(2)}`;
-  if (n >= 0.0001) return `$${n.toFixed(4)}`;
-  return '<$0.0001';
-}
-
-/** Short model name for display (drop date suffixes) */
-function shortModelName(
-  model: string,
-  mainUsageLabel: string,
-  helperUsageLabel: string,
-): string {
-  if (model === '__main_model__') return mainUsageLabel;
-  if (model === '__helper_model__') return helperUsageLabel;
-  return model.replace(/-\d{4}-?\d{2}-?\d{2}$/, '').replace(/-\d{8}$/, '');
-}
-
 function SummaryContent({ summary }: { summary: CostSummary }) {
   const { t } = useTranslation();
-  // input_tokens is only the full-rate bucket; the model also read the two
-  // cache buckets (write 1.25x, read 0.1x). Display input as all three or a
-  // cache-warm agent shows "input 213" for a 1.2M-token week. `?? 0`: a
-  // response from a backend build predating the cache fields has no such
-  // keys, and undefined in a sum renders as "NaN".
+  // The three-input-bucket rule lives in lib/tokenFormat.ts — see it for why
+  // input_tokens alone under-reports a cache-warm agent by an order of
+  // magnitude, and why `?? 0` is load-bearing.
   const cacheRead = summary.total_cache_read_tokens ?? 0;
   const cacheWrite = summary.total_cache_creation_tokens ?? 0;
-  const totalInputSide = summary.total_input_tokens + cacheRead + cacheWrite;
-  const totalTokens = totalInputSide + summary.total_output_tokens;
-  const modelTokens = (d: CostModelBreakdown) =>
-    d.input_tokens +
-    (d.cache_read_tokens ?? 0) +
-    (d.cache_creation_tokens ?? 0) +
-    d.output_tokens;
+  const totalInputSide = summaryInputSideTokens(summary);
+  const grandTotal = summaryTotalTokens(summary);
+  const modelTokens = (d: CostModelBreakdown) => totalTokens(d);
 
   // The raw token total reads scary on a cache-warm agent — 1.2M of it may be
   // 0.1x-priced cache reads. The hit rate carries the good news visibly
@@ -93,7 +64,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
           className="text-2xl font-bold text-[var(--text-primary)]"
           title={totalCostTip}
         >
-          {formatTokens(totalTokens)}
+          {formatTokens(grandTotal)}
         </div>
         <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
           {t('cost.popover.inOut', { in: formatTokens(totalInputSide), out: formatTokens(summary.total_output_tokens) })}
@@ -120,11 +91,10 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
           {models.map(([model, data]) => (
             <div key={model} className="flex items-center justify-between text-xs">
               <span className="text-[var(--text-secondary)] truncate max-w-[140px]" title={model}>
-                {shortModelName(
-                  model,
-                  t('cost.popover.modelUsage'),
-                  t('cost.popover.helperUsage'),
-                )}
+                {shortModelName(model, {
+                  main: t('cost.popover.modelUsage'),
+                  helper: t('cost.popover.helperUsage'),
+                })}
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--text-tertiary)]">
@@ -152,12 +122,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
             <div key={entry.date} className="flex items-center justify-between text-xs">
               <span className="text-[var(--text-tertiary)]">{entry.date.slice(5)}</span>
               <span className="font-medium text-[var(--text-primary)]">
-                {formatTokens(
-                  entry.input_tokens +
-                    (entry.cache_read_tokens ?? 0) +
-                    (entry.cache_creation_tokens ?? 0) +
-                    entry.output_tokens
-                )}
+                {formatTokens(totalTokens(entry))}
               </span>
             </div>
           ))}
@@ -243,11 +208,11 @@ export function CostPopover({ compact = false }: { compact?: boolean } = {}) {
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-[260px] p-3 bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-xl shadow-lg"
+        className="w-[260px] p-3 bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-[var(--radius-xl)] shadow-lg"
       >
         {/* Header with view toggle */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1 p-0.5 bg-[var(--bg-tertiary)] rounded-md">
+          <div className="flex items-center gap-1 p-0.5 bg-[var(--bg-tertiary)] rounded-[var(--radius-md)]">
             <button
               onClick={() => setView('agent')}
               className={cn(

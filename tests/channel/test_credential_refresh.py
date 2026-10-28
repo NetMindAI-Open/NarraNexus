@@ -28,9 +28,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
-from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.schema.parsed_message import ParsedMessage
+from narranexus.platform.channel.channel_trigger_base import ChannelTriggerBase
+from narranexus.platform.schema.hook_schema import WorkingSource
+from narranexus.platform.schema.parsed_message import ParsedMessage
 
 
 @dataclass
@@ -209,6 +209,91 @@ async def test_watcher_refreshes_running_subscriber_credential(db_client):
             lambda: trigger._subscriber_creds[key].permission_state.get(
                 "user_oauth_completed_at"
             )
+        )
+    finally:
+        await trigger.stop()
+
+
+# ── Test 3: a reconnect re-resolves the credential from the watcher cache ──
+
+class _ReconnectTrigger(_CapturingTrigger):
+    """connect() fails once, then succeeds; records which credential it got."""
+
+    def __init__(self):
+        super().__init__()
+        self.seen: list = []
+        self.fresh = None
+
+    async def connect(self, credential):
+        self.seen.append(credential)
+        if len(self.seen) == 1:
+            # the watcher refreshes the cache while the transport is up
+            self._subscriber_creds["bot1"] = self.fresh
+            raise RuntimeError("transient transport failure")
+        self.running = False
+        if False:  # pragma: no cover - makes this an async generator
+            yield {}
+
+
+@pytest.mark.asyncio
+async def test_reconnect_uses_the_watchers_fresh_credential_not_the_captured_one(monkeypatch):
+    """Regression (2026-10-14, Matrix reconnect replay): ``_subscribe_loop``
+    reused the credential captured when the subscriber started for every
+    reconnect, while the watcher kept ``_subscriber_creds`` current. Volatile
+    write-back fields (Matrix's ``matrix_since_token``) were therefore days
+    stale on reconnect."""
+    trigger = _ReconnectTrigger()
+    trigger.running = True
+    captured = _MutCredential(permission_state={"v": "captured"})
+    fresh = _MutCredential(permission_state={"v": "fresh"})
+    trigger.fresh = fresh
+
+    real_sleep = asyncio.sleep
+
+    async def _fast_sleep(_s):
+        await real_sleep(0)
+
+    from narranexus.platform.channel import channel_trigger_base as base_mod
+
+    monkeypatch.setattr(base_mod.asyncio, "sleep", _fast_sleep)
+    await asyncio.wait_for(trigger._subscribe_loop(captured), timeout=5)
+
+    assert trigger.seen[0] is captured  # first connect: the credential spawned with
+    assert trigger.seen[1] is fresh     # reconnect: the refreshed snapshot
+
+
+# ── Test 4: per-agent dedup baselines are released when a subscriber goes away ──
+
+@pytest.mark.asyncio
+async def test_stop_subscriber_releases_the_agents_dedup_baseline(db_client):
+    trigger = _RefreshTrigger()
+    await trigger.start(db_client)
+    try:
+        cred = _MutCredential()
+        trigger._subscriber_creds["bot1"] = cred
+        trigger._dedup_store.set_agent_baseline(cred.agent_id, 123)
+        await trigger._stop_subscriber("bot1")
+        assert cred.agent_id not in trigger._dedup_store._agent_baselines
+    finally:
+        await trigger.stop()
+
+
+@pytest.mark.asyncio
+async def test_reaping_a_dead_subscriber_releases_the_agents_dedup_baseline(db_client):
+    """A crashed subscriber task is reaped by the watcher — the same release
+    as an intentional stop, or a stale per-agent override outlives the session
+    that set it."""
+    trigger = _RefreshTrigger()
+    await trigger.start(db_client)
+    try:
+        assert await _wait_until(lambda: "bot1" in trigger._subscriber_creds)
+        dead = asyncio.get_event_loop().create_future()
+        dead.set_result(None)  # a done "task"
+        trigger._subscriber_tasks["bot1"].cancel()
+        trigger._subscriber_tasks["bot1"] = dead
+        trigger._dedup_store.set_agent_baseline("agent_a", 123)
+        assert await _wait_until(
+            lambda: "agent_a" not in trigger._dedup_store._agent_baselines
         )
     finally:
         await trigger.stop()

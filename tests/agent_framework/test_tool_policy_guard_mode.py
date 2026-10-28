@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters._tool_policy_guard import (
+from narranexus.platform.agent_framework.adapters._tool_policy_guard import (
     build_tool_policy_guard,
 )
 

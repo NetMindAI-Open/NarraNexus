@@ -34,7 +34,7 @@ from typing import Final
 
 from loguru import logger
 
-from xyz_agent_context.settings import settings
+from narranexus.platform.settings import settings
 
 
 # Artifact tabs can sit open for a while; sub-resources may load lazily long
@@ -90,7 +90,7 @@ def _secret() -> bytes:
     if explicit:
         return explicit.encode("utf-8")
 
-    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+    from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
     if is_cloud_mode():
         raise RuntimeError(

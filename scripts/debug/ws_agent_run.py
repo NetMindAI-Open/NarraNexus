@@ -56,7 +56,7 @@ async def run(input_text: str) -> None:
             elif mtype == "error":
                 print(f"[ws] ERROR: {msg.get('error_message')}", flush=True)
             elif mtype == "stop":
-                print(f"[ws] stop", flush=True)
+                print("[ws] stop", flush=True)
                 break
             else:
                 print(f"[ws] {mtype}: {str(msg)[:200]}", flush=True)

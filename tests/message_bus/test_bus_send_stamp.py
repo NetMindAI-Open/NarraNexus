@@ -6,7 +6,7 @@
 
 Found in PR #229 review: stamping the whole turn with
 ``BUS_ERRAND_TURN_SOURCE`` moved the P1 one seat over instead of fixing it.
-A bus turn is not homogeneous — ``MessageBusModule.hook_data_gathering``
+A bus turn is not homogeneous — ``MessageBusModule.gather``
 injects unread bus messages from ALL channels every turn (``bus.get_unread``
 JOINs across channel membership) and the module prompt REQUIRES answering
 them ("A question is never ping-pong — answer it"). So an errand-continuation
@@ -25,40 +25,21 @@ scope: only the errand peer/channel gets the errand stamp.
 """
 from __future__ import annotations
 
-import contextlib
-
 import pytest
 
-from xyz_agent_context.module._mcp_identity import agent_id_headers
-from xyz_agent_context.module.message_bus_module._message_bus_mcp_tools import (
+from narranexus.platform.module_system._mcp_identity import agent_id_headers
+from narranexus_plugins.message_bus_module._message_bus_mcp_tools import (
     _send_turn_source,
 )
-from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE
+from narranexus.platform.schema import BUS_ERRAND_TURN_SOURCE
+
+from ._mcp_headers import injected
 
 ME = "agent_xiaoque"
 ERRAND_PEER = "agent_yushu"       # answered our errand → follow-ups go here
 OTHER_PEER = "agent_c"            # asked us something, arrived via unread
 ERRAND_CHANNEL = "ch_dm_errand"
 OTHER_CHANNEL = "ch_dm_other"
-
-
-class _Headers(dict):
-    def get(self, key, default=None):  # noqa: D102
-        return super().get(key.lower(), default)
-
-
-@contextlib.contextmanager
-def injected(headers: dict):
-    from mcp.server.lowlevel.server import request_ctx
-
-    request = type("Req", (), {
-        "headers": _Headers({k.lower(): v for k, v in headers.items()})
-    })()
-    token = request_ctx.set(type("Ctx", (), {"request": request})())
-    try:
-        yield
-    finally:
-        request_ctx.reset(token)
 
 
 def _errand_turn(**kwargs) -> dict:
@@ -85,7 +66,7 @@ def test_answering_an_unrelated_peer_in_an_errand_turn_stays_plain():
 
 def test_following_up_with_the_errand_peer_is_stamped_as_an_errand():
     """Path A: the Owner Relay directive itself tells us to ask clarifying
-    questions with bus_send_to_agent. That send is a QUESTION."""
+    questions with message_agent. That send is a QUESTION."""
     with injected(_errand_turn()):
         assert _send_turn_source(to_agent=ERRAND_PEER) == BUS_ERRAND_TURN_SOURCE
         assert _send_turn_source(channel_id=ERRAND_CHANNEL) == BUS_ERRAND_TURN_SOURCE

@@ -1,0 +1,28 @@
+{
+  "id": "builtin.social_network",
+  "version": "1.0.0",
+  "displayName": "SocialNetwork",
+  "description": "Builtin module SocialNetworkModule.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0,
+    "data_access": 0,
+    "route": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.social_network_module.contribution:MODULES"
+    ],
+    "agent.capabilities.data_access": [
+      "narranexus_plugins.social_network_module.data_access:DATA_ACCESS"
+    ],
+    "backend.routes": [
+      "narranexus_plugins.social_network_module.routes:ROUTES"
+    ]
+  },
+  "quality": "gold"
+}

@@ -12,7 +12,7 @@ stub: false
 不用 React Context 或 Zustand：展开状态高度局部（每个元素独立），Context 会造成全局 re-render；每个组件自己持 local state 又丢失了跨 re-mount 的持久化。sessionStorage + 自定义 event 是甜点方案。
 
 ## 上下游
-- **被引用**：`AgentCard / SessionSection / JobsSection / RecentFeed / AttentionBanners / Sparkline`（后者虽然没展开，但也靠这套做 lazy load 触发）
+- **被引用**：`SessionSection / RecentFeed / AttentionBanners`。（`AgentCard` 与 `JobsSection` 已删除；`Sparkline` 现在自行懒加载，不再经过这里。）
 - **底层**：`window.sessionStorage` + `window.dispatchEvent('dashboard-expand-changed')` 自定义事件
 
 ## 导出

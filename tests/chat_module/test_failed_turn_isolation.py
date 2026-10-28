@@ -5,7 +5,7 @@
 @description: Bug 8 — a turn that errors out must NOT contaminate the next
 turn's history.
 
-Before this fix, ChatModule.hook_after_event_execution stored every
+Before this fix, ChatModule.after_turn stored every
 (user, assistant) pair regardless of whether the agent loop succeeded.
 If the agent crashed mid-turn, the next turn's prompt showed the
 user's failed question with an empty / partial / placeholder assistant
@@ -21,7 +21,7 @@ The fix has two halves:
    - On error, store only the user message, with
      ``meta_data.status="failed"`` and ``meta_data.error_type``.
    - When loading history for the prompt (long-term in
-     `hook_data_gathering`, short-term in `_load_short_term_memory`),
+     `gather`, short-term in `_load_short_term_memory`),
      transform failed user messages into an annotated note that tells
      the LLM "this turn errored, do NOT retry".
 """
@@ -31,15 +31,15 @@ from typing import List
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
-from xyz_agent_context.schema import (
+from narranexus_plugins.chat_module.chat_module import ChatModule
+from narranexus.platform.schema import (
     ContextData,
     ErrorMessage,
     HookAfterExecutionParams,
     ProgressMessage,
     ProgressStatus,
 )
-from xyz_agent_context.schema.hook_schema import (
+from narranexus.platform.schema.hook_schema import (
     HookExecutionContext,
     HookExecutionTrace,
     HookIOData,
@@ -69,7 +69,7 @@ def _hook_params(
     working_source: WorkingSource = WorkingSource.CHAT,
 ) -> HookAfterExecutionParams:
     """Build a HookAfterExecutionParams that mirrors what AgentRuntime
-    hands to ``hook_after_event_execution`` at end-of-turn."""
+    hands to ``after_turn`` at end-of-turn."""
     ctx = HookExecutionContext(
         event_id="evt_bug8_1",
         agent_id="a_bug8",
@@ -92,14 +92,14 @@ def _hook_params(
 
 
 def _success_progress_with_reply(text: str) -> ProgressMessage:
-    """A ProgressMessage that wraps a successful `send_message_to_user_directly` tool call."""
+    """A ProgressMessage that wraps a successful `reply_owner` tool call."""
     return ProgressMessage(
         step="3.2",
         title="Tool call",
-        description="send_message_to_user_directly",
+        description="reply_owner",
         status=ProgressStatus.COMPLETED,
         details={
-            "tool_name": "mcp__chat_module__send_message_to_user_directly",
+            "tool_name": "mcp__chat_module__reply_owner",
             "arguments": {"content": text},
         },
     )
@@ -120,7 +120,7 @@ async def test_failed_turn_stores_user_message_only_with_failed_status(
     )
     params = _hook_params(agent_loop_response=[error])
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_bug8_instance"
@@ -143,7 +143,7 @@ async def test_failed_turn_stores_user_message_only_with_failed_status(
 async def test_failed_turn_with_partial_assistant_output_still_not_stored_as_pair(
     chat_module,
 ):
-    """Even if the agent managed a partial `send_message_to_user_directly`
+    """Even if the agent managed a partial `reply_owner`
     before crashing, the turn is still a failure — we must not store
     the partial reply as a completed assistant answer that would trick
     the next turn into continuation.
@@ -158,7 +158,7 @@ async def test_failed_turn_with_partial_assistant_output_still_not_stored_as_pai
     )
     params = _hook_params(agent_loop_response=[partial_reply, error])
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_bug8_instance"
@@ -182,7 +182,7 @@ async def test_successful_turn_still_stores_user_and_assistant_pair(
     reply = _success_progress_with_reply("It's 21°C and sunny in Paris.")
     params = _hook_params(agent_loop_response=[reply])
 
-    await chat_module.hook_persist_turn(params)
+    await chat_module.persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_bug8_instance"
@@ -240,7 +240,7 @@ async def test_long_term_memory_annotates_failed_user_turn(chat_module):
         user_id="u_bug8",
         input_content="Tell me a joke",
     )
-    ctx_data = await chat_module.hook_data_gathering(ctx_data)
+    ctx_data = await chat_module.gather(ctx_data)
 
     loaded = ctx_data.chat_history or []
     # Find the failed user turn in the loaded history.
@@ -271,7 +271,7 @@ def test_filter_drops_failed_assistant_rows_defensively():
 
     Unit-tests the filter directly rather than going through
     `_load_short_term_memory` (which hits the real DB singleton)."""
-    from xyz_agent_context.module.chat_module.chat_module import (
+    from narranexus_plugins.chat_module.chat_module import (
         _apply_failed_turn_filter,
     )
 

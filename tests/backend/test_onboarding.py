@@ -15,6 +15,7 @@ Covers:
 - write-once-true: a False / None in the request never reverts a flag
 - the merge preserves sibling keys in users.metadata
 - unknown user -> success=False
+- landing_completed (the one-time welcome flow) is write-once and independent
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.repository.user_repository import UserRepository
+from narranexus.platform.repository.user_repository import UserRepository
 
 
 async def _async_return(value):
@@ -69,6 +70,7 @@ async def test_get_defaults_all_false(db_client, client):
         "first_agent_created": False,
         "template_applied": False,
         "dismissed": False,
+        "landing_completed": False,
     }
 
 
@@ -138,6 +140,39 @@ async def test_none_leaves_other_flags_intact(db_client, client):
     assert prog["dismissed"] is True
 
 
+# ───────────── landing flow (WelcomePage) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_landing_completed_is_write_once_and_isolated(db_client, client):
+    """The welcome flow's own flag: once the user has seen the first-run flow
+    (finished OR skipped), nothing may walk them through it again — including a
+    later request that carries False."""
+    await _seed_user(db_client, "u_landing")
+    r = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_landing"})
+    assert r.json()["progress"]["landing_completed"] is False
+
+    r = client.post(
+        "/api/auth/onboarding",
+        headers={"X-User-Id": "u_landing"},
+        json={"landing_completed": True},
+    )
+    prog = r.json()["progress"]
+    assert prog["landing_completed"] is True
+    # It is its own flag — completing the flow does not imply the others.
+    assert prog["first_agent_created"] is False
+    assert prog["dismissed"] is False
+
+    r = client.post(
+        "/api/auth/onboarding",
+        headers={"X-User-Id": "u_landing"},
+        json={"landing_completed": False, "first_agent_created": True},
+    )
+    prog = r.json()["progress"]
+    assert prog["landing_completed"] is True
+    assert prog["first_agent_created"] is True
+
+
 # ───────────── metadata merge safety ───────────────────────────────────────
 
 
@@ -153,3 +188,44 @@ async def test_merge_preserves_sibling_metadata_keys(db_client, client):
     user = await repo.get_user("u_sibling")
     assert user.metadata["keep_me"] == "value"
     assert user.metadata["onboarding_progress"]["first_agent_created"] is True
+
+
+@pytest.mark.asyncio
+async def test_post_never_clobbers_the_guide_agent_marker(db_client, client):
+    """The guide-agent idempotency marker is a TOP-LEVEL metadata key
+    precisely because this endpoint wholesale-replaces the
+    onboarding_progress sub-dict. If someone nests the marker back inside
+    onboarding_progress, this test goes red (the POST would wipe it and
+    every later login would re-provision — including after the user deleted
+    their guide agent)."""
+    from backend.onboarding.provisioning import GUIDE_METADATA_FLAG
+
+    await _seed_user(db_client, "u_guide", metadata={GUIDE_METADATA_FLAG: True})
+    r = client.post(
+        "/api/auth/onboarding",
+        headers={"X-User-Id": "u_guide"},
+        json={"first_agent_created": True},
+    )
+    assert r.status_code == 200 and r.json()["success"] is True
+    user = await UserRepository(db_client).get_user("u_guide")
+    assert user.metadata[GUIDE_METADATA_FLAG] is True
+    assert user.metadata["onboarding_progress"]["first_agent_created"] is True
+
+
+# ───────────── creating an agent completes the first-agent step ──────────
+@pytest.mark.asyncio
+async def test_creating_an_agent_marks_first_agent_created_server_side(db_client, client):
+    """Found on a fresh install: an agent created through the API left
+    first_agent_created False because only the welcome page posted the flag."""
+    import backend.routes.auth as auth_mod
+
+    await _seed_user(db_client, "u_maker")
+    await auth_mod._mark_first_agent_created(db_client, "u_maker")
+    r = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_maker"})
+    assert r.json()["progress"]["first_agent_created"] is True
+    # idempotent, and other steps untouched
+    await auth_mod._mark_first_agent_created(db_client, "u_maker")
+    body = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_maker"}).json()["progress"]
+    assert body == {"first_agent_created": True, "template_applied": False, "dismissed": False, "landing_completed": False}
+    # an unknown user is a no-op, never an error
+    await auth_mod._mark_first_agent_created(db_client, "u_ghost")

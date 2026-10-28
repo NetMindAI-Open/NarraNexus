@@ -1,6 +1,6 @@
 ---
 code_file: backend/migrations/__init__.py
-last_verified: 2026-07-18
+last_verified: 2026-09-04
 stub: false
 ---
 
@@ -63,3 +63,11 @@ Each migration lives in its own `mNNNN_<topic>.py` module exporting a single
 - The ledger table must exist before the runner records — guaranteed by running
   after `auto_migrate`. `_applied_ids` still degrades to "none applied" if the
   read fails (idempotent migrations make that safe).
+
+## 2026-09-04 · generic channel credentials (batch 4b)
+
+m0004 appended (channel_credentials backfill).
+
+## 2026-09-04 · m0005 registered (batch 4d.2)
+
+REGISTRY appends `_m0005` after `_m0004`: the channel_credentials copy re-run at the read switch. See [[m0005_channel_credentials_switch]].

@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/lib/netmindAuth/request.ts
-last_verified: 2026-06-11
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — `NetmindApiError`：区分「上游拒绝」与「传输失败」（Mark item 1）
+
+信封 `success:false` 时 `netmindPost` 抛 **`NetmindApiError`**（而非裸 `Error`），标记「上游明确拒绝了请求」。调用方（[[useNetmindAuth.ts]]）据此把凭据错误遮成模糊文案(防枚举),而断网/DNS/502 网关页那类**传输失败**（`fetch` 抛 `TypeError`、`resp.json()` 抛 `SyntaxError`）不是 `NetmindApiError`,显示 `connectionFailed`——不把服务故障误报成「密码错误」。
 
 # request.ts — NetMind auth API fetch wrapper
 

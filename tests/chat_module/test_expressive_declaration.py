@@ -7,7 +7,7 @@ sorted collection makes this the turn's default reply tool — the name the
 framework's constitution renders as its example.
 
 Drift guards mirror the channel side (test_setup_residency.py §6): the
-declaration is derived from get_mcp_config().server_name (never a literal
+declaration is derived from mcp_server().server_name (never a literal
 that a server rename would silently orphan), and the short name must be a
 tool the chat MCP server actually registers.
 """
@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from xyz_agent_context.module.chat_module.chat_module import ChatModule
+from narranexus_plugins.chat_module.chat_module import ChatModule
 
 
 def _module() -> ChatModule:
@@ -27,9 +27,9 @@ def _module() -> ChatModule:
 @pytest.mark.asyncio
 async def test_declaration_derives_from_mcp_server_name():
     module = _module()
-    mcp_config = await module.get_mcp_config()
-    assert await module.get_expressive_tools() == [
-        f"mcp__{mcp_config.server_name}__send_message_to_user_directly"
+    mcp_config = await module.mcp_server()
+    assert await module.expressive_tools() == [
+        f"mcp__{mcp_config.server_name}__reply_owner"
     ]
 
 
@@ -39,4 +39,4 @@ async def test_declared_short_name_is_actually_registered():
     mcp = module.create_mcp_server()
     assert mcp is not None
     registered = {t.name for t in await mcp.list_tools()}
-    assert "send_message_to_user_directly" in registered
+    assert "reply_owner" in registered

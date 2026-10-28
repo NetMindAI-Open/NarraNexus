@@ -1,0 +1,20 @@
+{
+  "id": "builtin.general_memory",
+  "version": "1.0.0",
+  "displayName": "GeneralMemory",
+  "description": "Builtin module GeneralMemoryModule.",
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "api": {
+    "module": 0
+  },
+  "provides": {
+    "agent.capabilities.modules": [
+      "narranexus_plugins.general_memory_module.contribution:MODULES"
+    ]
+  },
+  "quality": "gold"
+}

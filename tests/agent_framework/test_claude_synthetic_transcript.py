@@ -31,10 +31,10 @@ import asyncio
 
 import pytest
 
-import xyz_agent_context.agent_framework.adapters.claude.sdk as sdk_mod
-import xyz_agent_context.agent_framework.adapters.claude.transcript as transcript_mod
-from xyz_agent_context.agent_framework.adapters.claude.sdk import ClaudeAgentSDK
-from xyz_agent_context.agent_framework.api_config import (
+import narranexus_plugins.frameworks_claude_code.sdk as sdk_mod
+import narranexus_plugins.frameworks_claude_code.transcript as transcript_mod
+from narranexus_plugins.frameworks_claude_code.sdk import ClaudeAgentSDK
+from narranexus.platform.agent_framework.api_config import (
     ClaudeConfig,
     CodexConfig,
     OpenAIConfig,
@@ -49,7 +49,7 @@ WORKING = "/tmp/ws-synth"
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch, tmp_path):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     _StubClient.scripts = []
     _StubClient.instances = []
@@ -193,7 +193,7 @@ async def test_transcript_is_deleted_when_the_generator_is_abandoned(tmp_path):
 async def test_unwritable_config_dir_falls_back_to_history_in_prompt(
     tmp_path, monkeypatch
 ):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     ro = tmp_path / "ro"
     ro.mkdir()
@@ -223,7 +223,7 @@ async def test_no_history_runs_a_genuine_first_turn(tmp_path):
 
 @pytest.mark.asyncio
 async def test_gate_off_restores_the_previous_behavior(tmp_path, monkeypatch):
-    from xyz_agent_context.settings import settings
+    from narranexus.platform.settings import settings
 
     monkeypatch.setattr(settings, "claude_synthetic_transcript_enabled", False)
     _StubClient.scripts = [{"messages": [ResultMessage()]}]

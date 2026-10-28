@@ -1,8 +1,8 @@
 """DB ledger carrier + runtime model-suspect feedback (providers/model_health)."""
 import json
 
-from xyz_agent_context.agent_framework.providers import model_health
-from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+from narranexus.platform.agent_framework.providers import model_health
+from narranexus.platform.agent_framework.providers.model_probe_ledger import (
     PASS,
     FAIL,
     load_ledger_db,

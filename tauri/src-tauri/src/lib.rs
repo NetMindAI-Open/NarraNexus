@@ -61,6 +61,16 @@ pub fn run() {
                 responder.respond(response);
             });
         })
+        // `plugin://<id>/<asset>` — user plugin frontend bundles served from
+        // the plugin home (read-only, traversal-guarded). The frontend
+        // loader imports them with SRI; see commands/plugin_scheme.rs and
+        // frontend/src/platform/loader.ts.
+        .register_asynchronous_uri_scheme_protocol("plugin", |_ctx, request, responder| {
+            tauri::async_runtime::spawn(async move {
+                let response = commands::plugin_scheme::handle(request).await;
+                responder.respond(response);
+            });
+        })
         .manage(app_state)
         // Locked Use (prevent sleep) — holds the caffeinate child while the
         // user's no-sleep toggle is on. See commands/power.rs.

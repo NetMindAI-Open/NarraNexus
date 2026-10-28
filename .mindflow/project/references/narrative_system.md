@@ -2,9 +2,9 @@
 doc_type: reference
 last_verified: 2026-04-10
 scope:
-  - src/xyz_agent_context/narrative/
-  - src/xyz_agent_context/narrative/_narrative_impl/
-  - src/xyz_agent_context/narrative/_event_impl/
+  - src/narranexus/platform/narrative/
+  - src/narranexus/platform/narrative/_narrative_impl/
+  - src/narranexus/platform/narrative/_event_impl/
 related_playbooks:
   - ../playbooks/debug_runtime.md
 ---
@@ -86,7 +86,7 @@ ContextData 是连接 Narrative 选择 -> Module Hook -> LLM 调用的**核心�
 1. **Narrative 选择** -> ContextData 获得：`narrative_id`、`agent_id`、`user_id`、`input_content`
 2. **Step 2: 加载模块** -> 加载活跃 Instance，决定执行路径（`AGENT_LOOP` vs `DIRECT_TRIGGER`）
 3. **Step 2.5: 同步 Instance** -> 在数据库中建立/移除链接关系
-4. **`hook_data_gathering`** -> 各模块填充 ContextData：
+4. **`gather`** -> 各模块填充 ContextData：
    - `ChatModule`：`chat_history`
    - `BasicInfoModule`：`agent_name`、`created_by`
    - `AwarenessModule`：`awareness` 画像
@@ -128,7 +128,7 @@ ContextData 是连接 Narrative 选择 -> Module Hook -> LLM 调用的**核心�
 
 ### 能力类模块（始终在线）
 
-Agent 级别的 Instance（Awareness、SocialNetwork、BasicInfo、RAG）在**每个 Narrative** 中都会被加载。Narrative 级别的 Instance（如 ChatModule）按用户和 Narrative 隔离。这些模块通过 `hook_data_gathering` 丰富 ContextData，但不直接管理 Narrative。
+Agent 级别的 Instance（Awareness、SocialNetwork、BasicInfo、RAG）在**每个 Narrative** 中都会被加载。Narrative 级别的 Instance（如 ChatModule）按用户和 Narrative 隔离。这些模块通过 `gather` 丰富 ContextData，但不直接管理 Narrative。
 
 ### 任务类模块（JobModule）
 

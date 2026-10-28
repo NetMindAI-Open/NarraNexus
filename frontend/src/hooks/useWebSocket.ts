@@ -24,11 +24,13 @@ export function useAgentWebSocket(options: UseAgentWebSocketOptions = {}) {
       inputContent: string,
       agentName?: string,
       attachments?: Attachment[],
+      fastMode?: boolean,
     ) => {
       wsManager.run(agentId, userId, inputContent, {
         onComplete: options.onComplete,
         agentName,
         attachments,
+        fastMode,
       });
     },
     [options.onComplete]
@@ -63,11 +65,24 @@ export function useAgentWebSocket(options: UseAgentWebSocketOptions = {}) {
     wsManager.close(agentId);
   }, []);
 
+  // Fold a follow-up into the live run instead of starting a fresh one.
+  // Returns true if it was actually sent (open, steerable run).
+  const steer = useCallback((agentId: string, content: string, clientMsgId: string) => {
+    return wsManager.steer(agentId, content, clientMsgId);
+  }, []);
+
+  // NB: no `isSteerable` wrapper is exposed here. ChatPanel gates the composer
+  // on the store's reactive `currentSteerable` (a snapshot read wouldn't
+  // re-render on run_started), and `steer()` itself re-checks liveness at send
+  // time. `wsManager.isSteerable` stays public for non-React callers (#354
+  // cloud delivery, team panel); a hook wrapper for a caller that doesn't exist
+  // would be dead surface.
   return {
     run,
     reconnect,
     stop,
     close,
+    steer,
     isLoading: isStreaming,
   };
 }

@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/ui/LanguageToggle.tsx
-last_verified: 2026-06-25
+last_verified: 2026-08-12
 stub: false
 ---
+
+## 2026-08-12 — PR #284 review 轮
+
+直接写透移除——持久化改挂 i18n languageChanged 事件([[replyLanguageSync.ts]]),任何改语言路径都落库。
+
+## 2026-08-11 — reply_language:回复语言偏好落库并注入 system prompt
+
+select 时 fire-and-forget `api.setReplyLanguage(code)` 写透(UI 切换绝不阻塞网络;失败静默——下次切换重写)。此前只调 i18n.changeLanguage,模型无感知。
 
 # LanguageToggle.tsx — sidebar-footer language switcher
 

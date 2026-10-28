@@ -8,7 +8,7 @@ provided one, else falls back to raw input_content (capped by the token guard).
 """
 from __future__ import annotations
 
-from xyz_agent_context.narrative.narrative_service import resolve_retrieval_text
+from narranexus.platform.narrative.narrative_service import resolve_retrieval_text
 
 
 def test_anchor_used_when_present():

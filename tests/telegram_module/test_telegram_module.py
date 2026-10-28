@@ -3,12 +3,12 @@
 @date: 2026-05-09
 @description: Tests for TelegramModule — config metadata, prompt
 branching across owner trust states, extra_data shape, and registration
-in MODULE_MAP.
+in module_registry.
 
 Why this file exists:
     The module is the surface the orchestrator + frontend talk to. Its
     contract: priority=7 capability, ctx_data_key=telegram_info,
-    register-once in MODULE_MAP. The instructions branch off three
+    register-once in module_registry. The instructions branch off three
     owner-trust states (no owner / owner match / owner mismatch) which
     must each render distinct guidance to the agent.
 """
@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module import MODULE_MAP
-from xyz_agent_context.module.telegram_module._telegram_credential_manager import (
+from narranexus.platform.module_system import module_registry
+from narranexus_plugins.telegram_module._telegram_credential_manager import (
     TelegramCredential,
 )
-from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
-from xyz_agent_context.schema import ContextData, ModuleConfig
+from narranexus_plugins.telegram_module.telegram_module import TelegramModule
+from narranexus.platform.schema import ContextData, ModuleConfig
 
 
 def _ctx(extra: dict | None = None) -> ContextData:
@@ -66,8 +66,8 @@ def test_get_config_returns_capability_module_with_priority_seven():
 
 
 def test_module_map_registers_telegram_module():
-    assert "TelegramModule" in MODULE_MAP
-    assert MODULE_MAP["TelegramModule"] is TelegramModule
+    assert "TelegramModule" in module_registry
+    assert module_registry["TelegramModule"] is TelegramModule
 
 
 # ── build_extra_data ───────────────────────────────────────────────────
@@ -102,7 +102,7 @@ async def test_build_extra_data_owner_match_sets_trust_signal():
     assert extra["owner_user_id"] == "555"
 
 
-# ── get_instructions branching ────────────────────────────────────────
+# ── contribute_instructions branching ────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_get_instructions_returns_setup_line_when_unbound():
     pointer; the full @BotFather walkthrough is served on demand by
     tg_bind() called with no arguments."""
     module = _make_module()
-    text = await module.get_instructions(_ctx(extra=None))
+    text = await module.contribute_instructions(_ctx(extra=None))
 
     assert "tg_bind" in text
     assert "not connected" in text
@@ -123,7 +123,7 @@ async def test_get_instructions_returns_setup_line_when_unbound():
 def test_no_bot_instruction_keeps_discovery_walkthrough_wording():
     """The discovery constant (now served by tg_bind's zero-arg form)
     must keep the setup walkthrough content."""
-    from xyz_agent_context.module.telegram_module.telegram_module import (
+    from narranexus_plugins.telegram_module.telegram_module import (
         _NO_BOT_INSTRUCTION,
     )
 
@@ -146,7 +146,7 @@ async def test_no_bot_instruction_does_not_recommend_disable_privacy():
     Setup-residency note (2026-07-24): the walkthrough left the per-turn
     prompt; it is served by tg_bind() with no arguments. The wording
     guards below now assert against the constants directly."""
-    from xyz_agent_context.module.telegram_module.telegram_module import (
+    from narranexus_plugins.telegram_module.telegram_module import (
         _NO_BOT_INSTRUCTION,
         _TELEGRAM_IRON_RULES,
     )
@@ -200,7 +200,7 @@ async def test_get_instructions_returns_full_block_when_bound_no_owner():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "@acme_bot" in text
     assert "1001" in text
@@ -231,7 +231,7 @@ async def test_get_instructions_owner_match_renders_trust_block():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "Bin Liang" in text
     assert "is_owner_interacting=True" in text
@@ -254,7 +254,7 @@ async def test_get_instructions_owner_mismatch_renders_visitor_block():
             }
         }
     )
-    text = await module.get_instructions(ctx)
+    text = await module.contribute_instructions(ctx)
 
     assert "is_owner_interacting=False" in text
     assert "Treat as a visitor" in text

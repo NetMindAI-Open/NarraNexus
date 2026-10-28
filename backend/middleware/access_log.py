@@ -38,7 +38,7 @@ from uuid import uuid4
 from fastapi import Request, Response
 from loguru import logger
 
-from xyz_agent_context.utils.logging import bind_event
+from narranexus.platform.utils.logging import bind_event
 
 
 _SKIP_PATHS: frozenset[str] = frozenset({

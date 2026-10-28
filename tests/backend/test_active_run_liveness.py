@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import backend.routes.auth as auth
-from xyz_agent_context.agent_runtime.background_run import HEARTBEAT_INTERVAL_S
+from narranexus.platform.utils.run_liveness import HEARTBEAT_INTERVAL_S
 
 
 NOW = datetime(2026, 5, 21, 12, 0, 0, tzinfo=timezone.utc)

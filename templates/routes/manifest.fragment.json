@@ -1,0 +1,10 @@
+{
+  "api": {
+    "route": 0
+  },
+  "provides": {
+    "backend.routes": [
+      "nxplugins.__PLUGIN_PKG__:ROUTES"
+    ]
+  }
+}

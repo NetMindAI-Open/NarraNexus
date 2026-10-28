@@ -11,7 +11,7 @@ regression in the table or matching order breaks that promise silently
 """
 from __future__ import annotations
 
-from xyz_agent_context.module.lark_module._lark_error_translator import (
+from narranexus_plugins.lark_module._lark_error_translator import (
     ErrorTranslation,
     translate,
 )

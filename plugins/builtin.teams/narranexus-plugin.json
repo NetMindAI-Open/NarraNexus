@@ -1,0 +1,31 @@
+{
+  "id": "builtin.teams",
+  "version": "1.0.0",
+  "displayName": "Teams",
+  "description": "Agent teams: the /api/teams API and the team bulletin summary worker (feature-level plugin).",
+  "hosts": [
+    "backend"
+  ],
+  "api": {
+    "route": 0,
+    "worker": 0,
+    "hook": 0
+  },
+  "dependencies": {
+    "builtin.message_bus": ">=1.0",
+    "builtin.chat": ">=1.0"
+  },
+  "provides": {
+    "backend.routes": [
+      "narranexus_plugins.teams.routes:ROUTES",
+      "narranexus_plugins.teams.marketplace_routes:ROUTES"
+    ],
+    "backend.workers": [
+      "narranexus_plugins.teams.summary_worker:WORKERS"
+    ],
+    "backend.hooks": [
+      "narranexus_plugins.teams.plugin_hooks:HOOKS"
+    ]
+  },
+  "quality": "gold"
+}

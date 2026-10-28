@@ -3,68 +3,216 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "xyz-agent-context"
-version = "1.15.0"
-description = "XYZ Agent Context Framework for multi-agent systems"
+name = "narranexus"
+version = "1.21.11"
+description = "NarraNexus engine: kernel + platform + backend host (plugins, contracts and the SDK are workspace packages)"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.13"
 dependencies = [
-    "anthropic>=0.72.0",
-    "claude-agent-sdk~=0.1.43",
-    "openai>=2.7.1",
-    "openai-agents>=0.19.1",
-    # Official OpenAI Codex SDK — drives CodexSDKv2 (the v2 agent-loop
-    # driver registered under `codex_cli_v2`). Pinned to 0.1.x because
-    # the package is beta — accept patch/beta bumps inside 0.1, but
-    # treat 0.2 as a breaking change requiring deliberate upgrade.
-    # Transitively pulls openai-codex-cli-bin (the codex binary as a
-    # wheel) so users no longer need `npm install -g @openai/codex`.
-    "openai-codex>=0.1.0b3,<0.2",
-    "mcp[cli]>=1.20.0",
-    "loguru>=0.7.3",
-    "pydantic>=2.12.3",
-    "pydantic-settings>=2.0.0",
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
-    "sse-starlette>=2.2.0",
-    "croniter>=6.0.0",
-    "aiomysql>=0.3.2",
-    "aiosqlite>=0.20.0",
-    "google-genai>=1.0.0",
-    "fastmcp>=2.14.1",
-    "numpy>=1.26.0",
-    "httpx[socks]",
-    "bcrypt>=5.0.0",
+    # engine contracts + SDK — workspace members (plugin platform batch 6d)
+    "narranexus-contracts",
+    "narranexus-sdk",
+    # builtin plugins — workspace members (plugin platform batch 6b)
+    "narranexus-plugin-awareness",
+    "narranexus-plugin-basic-info",
+    "narranexus-plugin-channels-discord",
+    "narranexus-plugin-channels-lark",
+    "narranexus-plugin-channels-narramessenger",
+    "narranexus-plugin-channels-slack",
+    "narranexus-plugin-channels-telegram",
+    "narranexus-plugin-channels-wechat",
+    "narranexus-plugin-chat",
+    "narranexus-plugin-prompts",
+    "narranexus-plugin-auth-local",
+    "narranexus-plugin-auth-netmind",
+    "narranexus-plugin-teams",
+    "narranexus-plugin-ui",
+    "narranexus-plugin-frameworks-claude-code",
+    "narranexus-plugin-frameworks-codex-cli",
+    "narranexus-plugin-frameworks-nexus-power",
+    "narranexus-plugin-turn",
+    "narranexus-plugin-llm-clients",
+    "narranexus-plugin-memory-kinds",
+    "narranexus-plugin-providers",
+    "narranexus-plugin-common-tools",
+    "narranexus-plugin-general-memory",
+    "narranexus-plugin-browser",
+    "narranexus-plugin-home-assistant",
+    "narranexus-plugin-job",
+    "narranexus-plugin-message-bus",
+    "narranexus-plugin-nexus-plugins-module",
+    "narranexus-plugin-skills",
+    "narranexus-plugin-social-network",
+    # Every third-party requirement below carries an UPPER BOUND at the next
+    # major ABOVE THE LOCKED VERSION (0.x packages: `<1`) — hence `numpy<3`
+    # against a `>=1.26.0` floor, not `<2`: the bound tracks what we actually
+    # ship, not what the floor once allowed. uv.lock is the real protection — every image
+    # and script installs through it — but the bound is the second line of
+    # defence for the moments the lock is not in play: a `uv lock` refresh, a
+    # `uv add`, or an install path that slips past it. On 2026-09-10 exactly
+    # that happened: the desktop build resolved from these ranges instead of
+    # the lock and picked up `mcp` 2.2.0, whose renamed `streamablehttp_client`
+    # killed every service in the shipped dmg (see scripts/release/
+    # build-desktop.sh step 3). `regex` is deliberately left unbounded — it is
+    # CalVer (2026.x), so a "major" bump carries no API meaning.
+    # tests/release/test_dependency_upper_bounds.py keeps this classified.
+    "anthropic>=0.72.0,<1",
+    "openai>=2.7.1,<3",
+    "openai-agents>=0.19.1,<1",
+    "mcp[cli]>=1.20.0,<2",
+    "loguru>=0.7.3,<1",
+    "pydantic>=2.12.3,<3",
+    "pydantic-settings>=2.0.0,<3",
+    "fastapi>=0.115.0,<1",
+    "uvicorn[standard]>=0.32.0,<1",
+    "sse-starlette>=2.2.0,<4",
+    "croniter>=6.0.0,<7",
+    # Timeout-capable regex engine for grep_memory over untrusted (LLM-supplied)
+    # patterns — stdlib `re` is uninterruptible, so a ReDoS pattern would wedge
+    # the shared API loop. Was already present transitively; now a direct dep
+    # because retrieval.grep_filter imports it explicitly.
+    "regex>=2024.0.0",
+    "aiomysql>=0.3.2,<1",
+    # Floor raised from 0.20.0 on 2026-08-17: db_backend_sqlite monkeypatches
+    # aiosqlite internals (the module-level `core._connection_worker_thread`
+    # and `Connection._thread`), and setting an attribute that upstream has
+    # renamed away SUCCEEDS SILENTLY — the hardening would degrade to a no-op
+    # and the 5-minute lock class would come back green. uv.lock pins 0.22.1.
+    "aiosqlite>=0.22.1,<1",
+    # A RUNTIME dep, not a test one (2026-08-17): `skill_module.py` imports yaml
+    # unconditionally at module scope. Before this line it was in the graph only
+    # transitively, so the day the resolver stopped routing it here the
+    # SkillModule would have stopped importing — in production, with a traceback
+    # pointing at pyyaml rather than at the missing declaration. Which packages
+    # supply it transitively is a property of the resolution, not of our need for
+    # it, so they are deliberately not named here. Same reasoning as `regex`.
+    "pyyaml>=6.0,<7",
+    "google-genai>=1.0.0,<2",
+    "fastmcp>=2.14.1,<3",
+    "numpy>=1.26.0,<3",
+    # libmagic content-based MIME sniffing for uploaded/ingested bytes
+    # (utils/mime_sniff.py tier 1). Without it the sniffer falls back to the
+    # spoofable file extension / client Content-Type — a WAV renamed .png
+    # classified as an image. This wheel is pure-Python; it needs the native
+    # system libmagic1 at runtime, which must be installed in EVERY image that
+    # serves uploads: docker/Dockerfile.manyfold here AND the deploy repo's
+    # docker/Dockerfile.python (the dev/prod backend/mcp/workers image). Until
+    # that companion deploy change ships, cloud sniffing degrades to the
+    # extension (and logs a one-time warning — see mime_sniff._warn_libmagic_missing_once).
+    "python-magic>=0.4.27,<1",
+    "httpx[socks]>=0.28.1,<1",
+    "bcrypt>=5.0.0,<6",
     # Fernet encryption for skill env_config secrets (skill marketplace).
-    "cryptography>=42.0.0",
+    "cryptography>=42.0.0,<47",
     # S3 artifact storage for the skill marketplace. boto3 is imported ONLY
     # inside _skill_marketplace_impl/artifact_store.py (swap-friendly).
-    "boto3>=1.34.0",
-    "pyjwt>=2.10.1",
+    "boto3>=1.34.0,<2",
+    "pyjwt>=2.10.1,<3",
     "lark-oapi>=1.4.0,<2.0.0",
-    "slack-sdk>=3.27.0",
-    "discord.py>=2.4.0",
+    "slack-sdk>=3.27.0,<4",
+    "discord.py>=2.4.0,<3",
     # matrix-nio — Matrix client library for NarraMessenger MatrixTrigger
     # (replaces polling long-poll on the message plane). Pinned to the
     # non-`[e2e]` variant on purpose: matrix.netmind.chat rooms are
     # confirmed plaintext by default (2026-07-02 probe), so we skip
     # libolm and its native-C build burden. If encryption ever gets
     # turned on server-side, switch to `matrix-nio[e2e]`.
-    "matrix-nio>=0.25.0",
-    "aiohttp>=3.9.0",
-    "ddgs>=9.0.0",
-    "websockets>=15.0.1",
-    "tiktoken>=0.13.0",
-    "posthog>=7.18.0",
+    "matrix-nio>=0.25.0,<1",
+    "aiohttp>=3.9.0,<4",
+    "ddgs>=9.0.0,<10",
+    "websockets>=15.0.1,<16",
+    "tiktoken>=0.13.0,<1",
     # Floor at the newest STABLE release rather than an ancient one: with
     # a low floor the resolver is free to wander onto a pre-release above
     # it, which is how 1.95.0.dev3 got locked.
     "litellm>=1.94.0,<2",
 ]
 
+[project.optional-dependencies]
+# Optional coding-agent framework SDKs. On the lightweight LOCAL build
+# (`bash run.sh` + the desktop DMG) these are NOT installed — the user installs
+# them on demand from Settings → Plugins, into ~/.narranexus/plugins (see
+# src/narranexus/platform/agent_framework/plugin_paths.py and
+# backend/integrations/plugins/). `claude-agent-sdk` also carries the ~186 MB
+# bundled `claude` CLI, so keeping BOTH out of the base install is the bulk of
+# the local slim-down.
+#
+# Anything that must run/typecheck/test every framework installs this group
+# EXPLICITLY with `uv sync ... --extra plugins` — LOCKSTEP (铁律 #7) across:
+#   * .github/workflows/ci.yml            (this repo — BOTH `uv sync --dev`
+#     jobs; miss it and pyright reports missing imports + the agent_loop
+#     tests ERROR, i.e. this very PR's CI goes red)
+#   * docker/Dockerfile.manyfold          (this repo)
+#   * deploy repo docker/Dockerfile.executor, docker/Dockerfile.python
+# Miss one and that image/job's claude_code / codex_cli silently break (the SDK
+# is absent, the lazy driver factory raises ImportError at run time).
+#
+# `openai-codex` is beta-only and transitively pulls `openai-codex-cli-bin`
+# (the codex binary wheel); the `[tool.uv] prerelease = "if-necessary-or-explicit"`
+# policy below still covers it.
+plugins = [
+    "claude-agent-sdk~=0.1.43",
+    "openai-codex>=0.1.0b3,<0.2",
+]
+# The Lark channel's SDK as its own group. It is STILL in the base
+# `dependencies` today (every image and the DMG ship it); builtin.channels.lark
+# declares it `install.deps: on_demand`, so a future slim build may drop it from
+# the base list and the builtin installs it on first boot (or boots without
+# Lark, state deps_missing). Dropping it from the base list is a deploy-repo
+# lockstep change (Dockerfile.python / Dockerfile.executor), not a repo-local one.
+channels-lark = [
+    "lark-oapi>=1.4.0,<2.0.0",
+]
+
+[project.scripts]
+narranexus = "narranexus.cli.main:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/xyz_agent_context", "backend"]
+packages = ["src/xyz_agent_context", "src/narranexus", "backend"]
+# The CLI scaffold templates ship inside the wheel (narranexus.cli.scaffold
+# resolves the packaged copy first, the source checkout second); without this
+# `narranexus plugin new` only works from a git checkout.
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "narranexus/cli/resources/templates"
+# ``narranexus`` is a namespace package: contracts and sdk ship from packages/ (their own wheels).
+
+[tool.uv.workspace]
+members = ["packages/*", "plugins/*"]
+
+[tool.uv.sources]
+narranexus-contracts = { workspace = true }
+narranexus-sdk = { workspace = true }
+narranexus-plugin-awareness = { workspace = true }
+narranexus-plugin-basic-info = { workspace = true }
+narranexus-plugin-channels-discord = { workspace = true }
+narranexus-plugin-channels-lark = { workspace = true }
+narranexus-plugin-channels-narramessenger = { workspace = true }
+narranexus-plugin-channels-slack = { workspace = true }
+narranexus-plugin-channels-telegram = { workspace = true }
+narranexus-plugin-channels-wechat = { workspace = true }
+narranexus-plugin-chat = { workspace = true }
+narranexus-plugin-prompts = { workspace = true }
+narranexus-plugin-auth-local = { workspace = true }
+narranexus-plugin-auth-netmind = { workspace = true }
+narranexus-plugin-teams = { workspace = true }
+narranexus-plugin-ui = { workspace = true }
+narranexus-plugin-frameworks-claude-code = { workspace = true }
+narranexus-plugin-frameworks-codex-cli = { workspace = true }
+narranexus-plugin-frameworks-nexus-power = { workspace = true }
+narranexus-plugin-turn = { workspace = true }
+narranexus-plugin-llm-clients = { workspace = true }
+narranexus-plugin-memory-kinds = { workspace = true }
+narranexus-plugin-providers = { workspace = true }
+narranexus-plugin-common-tools = { workspace = true }
+narranexus-plugin-general-memory = { workspace = true }
+narranexus-plugin-browser = { workspace = true }
+narranexus-plugin-home-assistant = { workspace = true }
+narranexus-plugin-job = { workspace = true }
+narranexus-plugin-message-bus = { workspace = true }
+narranexus-plugin-nexus-plugins-module = { workspace = true }
+narranexus-plugin-skills = { workspace = true }
+narranexus-plugin-social-network = { workspace = true }
 
 [tool.uv]
 # Pre-release policy. ``openai-codex`` 0.1.0b3 + its transitive
@@ -81,14 +229,26 @@ packages = ["src/xyz_agent_context", "backend"]
 prerelease = "if-necessary-or-explicit"
 
 [dependency-groups]
+# Bounded like the runtime dependencies above, and for the same reason: CI runs
+# `uv sync --dev` (see .github/workflows/ci.yml), so a new major of pytest /
+# ruff / pyright can walk into a job whose lock was refreshed. Being a tool
+# rather than a shipped dependency does not make the break cheaper — it makes
+# it look like the PR's fault.
 dev = [
-    "hatchling>=1.27.0",
-    "pillow>=12.2.0",
-    "psutil>=7.2.2",
-    "pyright>=1.1.390",
-    "pytest>=9.0.1",
-    "pytest-asyncio>=1.3.0",
-    "ruff>=0.8.0",
+    # Imported directly by tests/release/test_dependency_upper_bounds.py to
+    # parse requirement specifiers. It was only ever present as a transitive
+    # dep of pytest — which is exactly the "relies on an incidental
+    # resolution" shape this PR exists to remove.
+    "packaging>=25.0,<26",
+    "hatchling>=1.27.0,<2",
+    "pillow>=12.2.0,<13",
+    "psutil>=7.2.2,<8",
+    "import-linter>=2.0,<3",
+    "griffe>=1.5,<3",
+    "pyright>=1.1.390,<2",
+    "pytest>=9.0.1,<10",
+    "pytest-asyncio>=1.3.0,<2",
+    "ruff>=0.8.0,<1",
 ]
 
 [tool.ruff]
@@ -97,7 +257,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 # Start conservative — only catch clear bugs, not style
-select = ["E", "F"]
+select = ["E", "F", "TID251"]
 # Ignore rules that conflict with existing codebase patterns
 ignore = [
     "E501",   # line too long (handled by formatter)
@@ -106,16 +266,234 @@ ignore = [
     "E741",   # ambiguous variable name
     "F401",   # unused imports (too many false positives with re-exports)
     "F811",   # redefinition of unused name
-    "F821",   # undefined name (false positives with forward refs and method scope)
     "F841",   # local variable assigned but never used
 ]
+# F821 (undefined name) is deliberately NOT ignored. It was, with the stated
+# reason "false positives with forward refs and method scope" — but running it
+# over the entire tree produced exactly four hits, all of them real string
+# annotations naming a type the module never imports, and all fixed by a
+# TYPE_CHECKING import. The cost of the ignore was paid on 2026-08-18: four
+# methods in database.py referenced an undefined `fetch` and shipped through
+# lint, CI and three review rounds; the first caller on the lazy path got a
+# NameError.
+#
+# Enforcement follows the repo's existing lint scope — CI and `make lint` both
+# run `ruff check src/ backend/ packages/ plugins/` — so scripts/ and tests/ are checked only when
+# someone runs ruff over the tree by hand. Widening that scope is a separate
+# change: it turns up pre-existing F541/E401/E702 outside src/ and backend/.
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Plugin code (plugins/**) programs against contracts, the SDK and the public
+# kernel registry types — never the loader/lifecycle/boot internals. The ban
+# is global and lifted for the engine itself in per-file-ignores.
+"narranexus.kernel.plugins.builtins".msg = "plugins never name the builtin manifest table; the host resolves manifests"
+"narranexus.kernel.plugins.loader".msg = "plugins never load other plugins; use contributions and hooks"
+"narranexus.kernel.plugins.lifecycle".msg = "the plugin registry is the host's; plugins do not read or mutate it"
+"narranexus.kernel.plugins.importer".msg = "plugin import isolation is the host's concern"
+"narranexus.hosts.boot".msg = "plugins never boot the host"
+
+[tool.ruff.lint.per-file-ignores]
+"src/**" = ["TID251"]
+"backend/**" = ["TID251"]
+"tests/**" = ["TID251"]
+"scripts/**" = ["TID251"]
+"packages/**" = ["TID251"]
+"plugins/*/tests/**" = ["TID251"]
+# The plugin factory IS the host's registry UI/agent surface packaged as a plugin
+# (spec section 12); it is the one plugin allowed to read and mutate the
+# registry. Exception tracked as plugin-platform follow-up "factory host API"
+# (move these calls behind a HostAPI service); expires 2026-12-31.
+"plugins/builtin.nexus_plugins_module/**" = ["TID251"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["xyz_agent_context", "backend"]
+known-first-party = ["narranexus", "narranexus_plugins", "backend"]
 
 [tool.pytest.ini_options]
+# Every test tree: the engine suite and the 29 builtin plugin packages (each
+# package's tests live next to the code they cover). The manifests are no
+# longer double-written — since batch 6b each one lives on disk in
+# plugins/<id>/narranexus-plugin.json and nowhere else.
+# templates/*/tests are NOT collected here: they run inside a scaffolded plugin
+# (tests/nx_kernel/cli exercises the scaffold). CI and `make test-backend` run
+# bare `pytest`, so this list is the single source of what gets collected.
+testpaths = ["tests", "plugins/*/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Make `uv run pytest` work without a manual PYTHONPATH or editable install:
 # `src` for the xyz_agent_context package, `.` for the backend package.
-pythonpath = ["src", "."]
+pythonpath = ["src", ".", "packages/narranexus-contracts/src", "packages/narranexus-sdk/src", "plugins/builtin.awareness/src", "plugins/builtin.basic_info/src", "plugins/builtin.channels.discord/src", "plugins/builtin.channels.lark/src", "plugins/builtin.channels.narramessenger/src", "plugins/builtin.channels.slack/src", "plugins/builtin.channels.telegram/src", "plugins/builtin.channels.wechat/src", "plugins/builtin.chat/src", "plugins/builtin.prompts/src", "plugins/builtin.auth.local/src", "plugins/builtin.auth.netmind/src", "plugins/builtin.teams/src", "plugins/builtin.frameworks.claude_code/src", "plugins/builtin.frameworks.codex_cli/src", "plugins/builtin.frameworks.nexus_power/src", "plugins/builtin.turn/src", "plugins/builtin.llm_clients/src", "plugins/builtin.memory_kinds/src", "plugins/builtin.providers/src", "plugins/builtin.common_tools/src", "plugins/builtin.general_memory/src", "plugins/builtin.browser/src", "plugins/builtin.home_assistant/src", "plugins/builtin.job/src", "plugins/builtin.message_bus/src", "plugins/builtin.nexus_plugins_module/src", "plugins/builtin.skills/src", "plugins/builtin.social_network/src", "plugins/builtin.ui/src"]
+
+[tool.importlinter]
+# Dependency direction for the plugin platform (batch 0). Contracts are a
+# leaf; the kernel sees only contracts; the legacy package may see both.
+# Exceptions, if ever needed, go in ``ignore_imports`` with an issue link
+# and an expiry date — the list only shrinks.
+root_packages = ["narranexus", "narranexus_plugins", "xyz_agent_context", "backend"]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "contracts is a leaf: no kernel, no legacy, no backend"
+type = "forbidden"
+source_modules = ["narranexus.contracts"]
+forbidden_modules = ["narranexus.kernel", "narranexus.platform", "xyz_agent_context", "backend"]
+
+[[tool.importlinter.contracts]]
+name = "kernel never imports the platform, the legacy alias or backend"
+type = "forbidden"
+source_modules = ["narranexus.kernel"]
+forbidden_modules = ["narranexus.platform", "xyz_agent_context", "backend"]
+
+[[tool.importlinter.contracts]]
+name = "narranexus layers: kernel above contracts"
+type = "layers"
+layers = ["narranexus.kernel", "narranexus.contracts"]
+
+# Batch 3c exit criterion (plugin-platform spec §20): the platform never
+# imports a builtin plugin. Builtins reach the platform only through the
+# registries (manifest contributions), host hooks and the service locator.
+# The ignore list is the set of backend files that ARE a builtin's own
+# contribution (its routers live under backend/ per rule #21 but are named by
+# its manifest) plus the factory's use of the protected nexus_plugins_module.
+[[tool.importlinter.contracts]]
+name = "the platform never imports a builtin plugin"
+type = "forbidden"
+# ``narranexus`` and ``backend`` are the two roots; every platform subpackage
+# is a descendant of the first, so enumerating them added 34 redundant lines
+# and a standing obligation to remember a new subpackage.
+source_modules = ["narranexus", "backend"]
+forbidden_modules = ["narranexus_plugins"]
+# "warn", not "none": an ignore that no longer matches anything is the signal
+# that the debt it covered was paid, and the whole point of the list is that it
+# only shrinks. With "none" the six ignores for backend/routes/channels/{slack,
+# telegram,discord} — routers that moved into plugin packages a batch ago —
+# survived silently, and moving one BACK would have passed the gate.
+unmatched_ignore_imports_alerting = "warn"
+ignore_imports = [
+    # The plugin factory drives the PROTECTED self-extension module (it is part
+    # of the distribution, and the factory IS its UI). Tracked as the
+    # plugin-platform follow-up "factory host API" (move these calls behind a
+    # HostAPI service); expires 2026-12-31 — kept in lockstep with the TID251
+    # exemption for the same package above.
+    "backend.plugins_factory.service -> narranexus_plugins.nexus_plugins_module.**",
+]
+
+# Batch 6c: a plugin never imports the HOST. Thirteen routers moved into
+# plugin packages in 6b but kept importing ``backend.*`` — six of those were
+# underscore-private modules — so the coupling moved instead of going away,
+# and it degraded from "backend imports its own private helper" (legal) to
+# "a separately-packaged wheel imports the host's private helper" (not).
+# What a router legitimately needs from the host is now
+# ``narranexus.contracts.web.WebHost``, published on the service locator by
+# ``backend/plugin_sdk_host.py`` and called through ``narranexus.sdk.web``.
+# ``ignore_imports`` is empty and must stay that way: an entry here means a
+# third-party plugin cannot copy the builtin next to it.
+[[tool.importlinter.contracts]]
+name = "plugins never import the host (backend)"
+type = "forbidden"
+source_modules = ["narranexus_plugins"]
+forbidden_modules = ["backend"]
+unmatched_ignore_imports_alerting = "warn"
+ignore_imports = []
+
+# Batch 6c: a plugin never imports a PRIVATE platform module. Builtins do
+# import ``narranexus.platform`` public modules (see docs/API_POLICY.md §1 —
+# same repo, same release, engine-internal coupling), but an underscore module
+# is private even inside the platform, and seven plugin packages were reaching
+# into four of them. Each one now has a named public seam on its owning
+# package's facade (``module_system`` caller identity, ``marketplace``'s four,
+# ``agent_framework.llm.prompt_probe_emit``,
+# ``agent_framework.adapters.build_tool_policy_guard``), so this list is empty.
+[[tool.importlinter.contracts]]
+name = "plugins never import a private platform module"
+type = "forbidden"
+# DIRECT imports only: a public platform module is free to use its own package's
+# private implementation (that is what "private to the package" means), and a
+# transitive rule would forbid a plugin from importing any public seam whose
+# implementation happens to live under an underscore — i.e. most of them.
+allow_indirect_imports = true
+source_modules = ["narranexus_plugins"]
+forbidden_modules = [
+    "narranexus.platform.module_system._mcp_identity",
+    "narranexus.platform.module_system._module_impl",
+    "narranexus.platform.marketplace._skill_marketplace_impl",
+    "narranexus.platform.marketplace._skill_marketplace_seed",
+    "narranexus.platform.agent_framework.llm._prompt_probe",
+    "narranexus.platform.agent_framework.adapters._tool_policy_guard",
+    "narranexus.platform.narrative._narrative_impl",
+    "narranexus.platform.narrative._event_impl",
+    "narranexus.platform.memory._memory_impl",
+    "narranexus.platform.artifact._artifact_impl",
+]
+unmatched_ignore_imports_alerting = "warn"
+ignore_imports = []
+
+# Batch 6b: builtin packages never import each other's internals — only a
+# plugin's ``api`` facade (spec section 19.1, charter 8).
+[[tool.importlinter.contracts]]
+name = "builtin packages are independent (api facades excepted)"
+type = "independence"
+# "warn": an api-facade exemption that stops matching means that pair of
+# plugins no longer talk, and the list should shrink (see the note above).
+unmatched_ignore_imports_alerting = "warn"
+modules = [
+    "narranexus_plugins.awareness_module",
+    "narranexus_plugins.basic_info_module",
+    "narranexus_plugins.chat_module",
+    "narranexus_plugins.common_tools_module",
+    "narranexus_plugins.discord_module",
+    "narranexus_plugins.general_memory_module",
+    "narranexus_plugins.browser_module",
+    "narranexus_plugins.home_assistant_module",
+    "narranexus_plugins.job_module",
+    "narranexus_plugins.lark_module",
+    "narranexus_plugins.memory_kinds",
+    "narranexus_plugins.message_bus_module",
+    "narranexus_plugins.prompts",
+    "narranexus_plugins.auth_local",
+    "narranexus_plugins.auth_netmind",
+    "narranexus_plugins.teams",
+    "narranexus_plugins.frameworks_claude_code",
+    "narranexus_plugins.frameworks_codex_cli",
+    "narranexus_plugins.frameworks_nexus_power",
+    "narranexus_plugins.turn",
+    "narranexus_plugins.llm_clients",
+    "narranexus_plugins.providers",
+    "narranexus_plugins.narramessenger_module",
+    "narranexus_plugins.nexus_plugins_module",
+    "narranexus_plugins.skill_module",
+    "narranexus_plugins.slack_module",
+    "narranexus_plugins.social_network_module",
+    "narranexus_plugins.telegram_module",
+    "narranexus_plugins.wechat_module",
+    "narranexus_plugins.ui",
+]
+ignore_imports = [
+    "narranexus_plugins.** -> narranexus_plugins.awareness_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.basic_info_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.chat_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.common_tools_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.discord_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.general_memory_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.home_assistant_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.job_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.lark_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.memory_kinds.api",
+    "narranexus_plugins.** -> narranexus_plugins.message_bus_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.prompts.api",
+    "narranexus_plugins.** -> narranexus_plugins.auth_local.api",
+    "narranexus_plugins.** -> narranexus_plugins.auth_netmind.api",
+    "narranexus_plugins.** -> narranexus_plugins.teams.api",
+    "narranexus_plugins.** -> narranexus_plugins.frameworks_claude_code.api",
+    "narranexus_plugins.** -> narranexus_plugins.frameworks_codex_cli.api",
+    "narranexus_plugins.** -> narranexus_plugins.frameworks_nexus_power.api",
+    "narranexus_plugins.** -> narranexus_plugins.turn.api",
+    "narranexus_plugins.** -> narranexus_plugins.llm_clients.api",
+    "narranexus_plugins.** -> narranexus_plugins.providers.api",
+    "narranexus_plugins.** -> narranexus_plugins.narramessenger_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.nexus_plugins_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.skill_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.slack_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.social_network_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.telegram_module.api",
+    "narranexus_plugins.** -> narranexus_plugins.wechat_module.api",
+]

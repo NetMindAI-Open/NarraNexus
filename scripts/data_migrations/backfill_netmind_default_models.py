@@ -25,8 +25,8 @@ from typing import List
 # Make project src/ importable when run as a script (no install required)
 sys.path.insert(0, "src")
 
-from xyz_agent_context.agent_framework.providers.model_catalog import get_default_models
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 _PROTOCOLS = ("openai", "anthropic")

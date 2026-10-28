@@ -46,12 +46,12 @@ from typing import Dict, TYPE_CHECKING
 
 from loguru import logger
 
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
 from . import Migration
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
 async def _apply(db: "AsyncDatabaseClient") -> Dict:

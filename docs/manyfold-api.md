@@ -533,7 +533,7 @@ extension:
 |---|---|---|
 | `delta.reasoning_content` | Agent's chain-of-thought (`agent_thinking` events + the LLM token stream in `agent_response` events before the reply tool fires) | OpenAI o1 / DeepSeek convention — standard for reasoning models |
 | `delta.tool_calls[]` | Non-reply tools the agent invokes (`web_search`, `lark_cli`, `skill_module`, …) | Standard OpenAI |
-| `delta.content` | The user-visible reply, populated when the agent calls `send_message_to_user_directly` | Standard OpenAI |
+| `delta.content` | The user-visible reply, populated when the agent calls `reply_owner` / `notify_owner` (the two registers of the owner-facing reply — same destination: `reply_owner` on the owner's own chat turn, `notify_owner` otherwise) | Standard OpenAI |
 | `delta.tool_results[]` | Tool outputs paired with the matching `tool_call_id` we just emitted | **Non-standard** — NarraNexus extension, see below |
 
 ### The `delta.tool_results[]` extension
@@ -571,7 +571,7 @@ UI's POV, but the agent itself doesn't care.
 ### `finish_reason` policy
 
 - `"stop"` — agent emitted user-visible content via
-  `send_message_to_user_directly` (the common case).
+  `reply_owner` / `notify_owner` (the common case).
 - `"tool_calls"` — agent invoked tools but never produced user-visible
   text. We honor this so an OpenAI-spec strict client can detect it,
   but in practice NarraNexus's helper_llm fallback fills in a default

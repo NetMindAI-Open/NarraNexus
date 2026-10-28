@@ -16,17 +16,17 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from xyz_agent_context.agent_framework.llm.transcription import url_signer
-from xyz_agent_context.agent_framework.llm.transcription.backends import (
+from narranexus.platform.agent_framework.llm.transcription import url_signer
+from narranexus.platform.agent_framework.llm.transcription.backends import (
     _audio_url as AU,
 )
-from xyz_agent_context.agent_framework.llm.transcription.backends import (
+from narranexus.platform.agent_framework.llm.transcription.backends import (
     netmind as N,
 )
-from xyz_agent_context.agent_framework.llm.transcription.backends.netmind import (
+from narranexus.platform.agent_framework.llm.transcription.backends.netmind import (
     NetMindBackend,
 )
-from xyz_agent_context.agent_framework.llm.transcription.credential import (
+from narranexus.platform.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
     TranscriptionCredential,
 )

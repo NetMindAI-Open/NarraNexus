@@ -10,6 +10,7 @@ Messages are streamed as JSON objects following the RuntimeMessage schema.
 Protocol:
 1. Client connects to /ws/agent/run
 2. Client sends JSON: {"agent_id": "...", "user_id": "...", "input_content": "..."}
+   (optional: "fast_mode": true — per-turn fast profile, see AgentRunRequest)
 3. Server streams RuntimeMessage objects as JSON
 4. Client may send {"action": "stop"} at any time to cancel the run
 5. Connection closes when execution completes or is cancelled
@@ -27,27 +28,142 @@ import asyncio
 import json
 import traceback
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Any, Optional
+from uuid import uuid4 as _uuid4
 import jwt
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 from loguru import logger
 
 from backend.config import settings
-from backend.auth import _is_cloud_mode, decode_token
+from backend.auth import _account_state, _is_cloud_mode, decode_token
+from backend.routes._mcp_egress import filter_public_mcp_servers
+from backend.auth_errors import (
+    ACCOUNT_SUSPENDED,
+    IDENTITY_MISSING,
+    IDENTITY_UNRESOLVED,
+    TOKEN_EXPIRED,
+    TOKEN_INVALID,
+    TOKEN_MISSING,
+)
 
-from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
-from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
-from xyz_agent_context.schema import WorkingSource
-from xyz_agent_context.repository import MCPRepository
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
+
+from narranexus.platform.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
+from narranexus.platform.agent_runtime.background_run import BackgroundRun
+from narranexus.platform.utils.run_liveness import run_is_live
+from narranexus.platform.agent_runtime.cancellation import CancellationToken, CancelledByUser
+from narranexus.platform.agent_runtime.steer_channel import SteerChannel
+from narranexus.platform.schema.steer_schema import SteerInjection
+from narranexus.platform.repository.steer_inbox_repository import (
+    MAX_CONTENT_BYTES,
+    MAX_UNCONSUMED_PER_RUN,
+)
+from narranexus.platform.analytics import track
+from narranexus.platform.analytics.events import (
+    EVENT_MESSAGE_ACCEPTED,
+    EVENT_RUN_STARTED,
+    PROP_AGENT_ID,
+    PROP_RUN_ID,
+    PROP_SESSION_ID,
+    PROP_TRIGGER_SOURCE,
+)
+from narranexus.platform.schema import WorkingSource
+from narranexus.platform.repository import MCPRepository
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()
 
 # WebSocket close codes (RFC 6455 + application-specific)
 WS_CLOSE_POLICY_VIOLATION = 1008  # auth failure / policy violation
+
+#: A client-supplied steer correlation id is only a UI-side handle; cap its
+#: length so it cannot be an unbounded string smuggled into the message dict's
+#: STEER_ID_KEY. Over-length / blank → we mint a fresh id instead of rejecting.
+_MAX_CLIENT_MSG_ID_LEN = 128
+
+async def _resolve_run_steerable(agent_id: str) -> bool:
+    """Whether THIS run can drain a mid-run steer — asked of the ACTUAL driver's
+    ``capabilities()`` (the negotiation seam), NOT a hardcoded framework list.
+
+    Steerability is the DRIVER's property, not the framework name's: on cloud the
+    broker routes every run through ``RemoteAgentLoopDriver`` (``BROKER_URL`` is
+    always set in compose), which declares ``steering`` only once the /steer
+    transport ships and only for the frameworks its executor can drain; locally
+    (no broker) an in-process driver runs. So a nexus_power slot is steerable
+    in-process but NOT over a remote executor that lacks the transport — a
+    framework-name check would wrongly say "steerable" on the cloud default path
+    and hang the client's bubble. We reproduce ``get_agent_loop_driver``'s
+    remote-vs-in-process choice with the SAME signal (a broker / executor URL is
+    configured) and read the resulting driver's ``capabilities()``.
+    ``capabilities()`` is URL-independent, so a placeholder executor URL selects
+    the remote driver class without touching the broker.
+
+    Best-effort: any resolution error → False (advertise not-steerable rather
+    than promise a capability we might not have — the safe direction, no hung
+    bubble)."""
+    try:
+        from narranexus.platform.agent_framework.providers.model_identity import (
+            resolve_agent_model_identity,
+        )
+        from narranexus.platform.agent_framework.loop.driver import get_agent_loop_driver
+        from narranexus.platform.agent_framework.loop.broker_client import (
+            executor_seam_active,
+        )
+
+        db = await get_db_client()
+        framework = (await resolve_agent_model_identity(agent_id, db)).framework
+        # Remote-vs-in-process from the CANONICAL signal — executor_seam_active()
+        # (both AGENT_EXECUTOR_URL and the broker), the single source
+        # get_agent_loop_driver's own choice keys on. Not re-derived from raw env
+        # here (its docstring warns that checking only the static var shipped a
+        # dead cloud guard once). A placeholder executor URL just selects the
+        # remote driver CLASS; capabilities() never dials it (and on the remote
+        # arm RemoteAgentLoopDriver's construction is side-effect-free).
+        remote = executor_seam_active()
+        driver = get_agent_loop_driver(
+            framework,
+            executor_url=("steer-capability-probe" if remote else None),
+            working_path="/tmp",
+        )
+        return "steering" in driver.capabilities()
+    except Exception as e:  # noqa: BLE001 — never let a capability probe break a run
+        logger.warning(f"[steer] steerability probe failed for {agent_id}: {e}")
+        return False
+
+
+async def _record_message_accepted(
+    *, user_id: str, agent_id: str, trigger_source: str, session_id: str
+) -> None:
+    await track(
+        user_id=user_id,
+        event=EVENT_MESSAGE_ACCEPTED,
+        event_id=f"message_accepted:{session_id}",
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_SESSION_ID: session_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+        },
+    )
+
+
+async def _record_run_started(
+    *, user_id: str, agent_id: str, run_id: str,
+    trigger_source: str, session_id: str,
+) -> None:
+    await track(
+        user_id=user_id,
+        event=EVENT_RUN_STARTED,
+        event_id=f"run_started:{run_id}",
+        properties={
+            PROP_AGENT_ID: agent_id,
+            PROP_RUN_ID: run_id,
+            PROP_SESSION_ID: session_id,
+            PROP_TRIGGER_SOURCE: trigger_source,
+        },
+    )
 
 
 class AgentRunRequest(BaseModel):
@@ -68,7 +184,7 @@ class AgentRunRequest(BaseModel):
     input_content: Optional[str] = None
     working_source: Optional[str] = "chat"
     # Optional list of attachments uploaded for this turn. Each entry is the
-    # JSON form of `xyz_agent_context.schema.Attachment` and is forwarded to
+    # JSON form of `narranexus.platform.schema.Attachment` and is forwarded to
     # the runtime via trigger_extra_data → ctx_data.extra_data["attachments"]
     # so ChatModule's hooks can persist + reference them.
     attachments: Optional[list[dict]] = None
@@ -80,30 +196,60 @@ class AgentRunRequest(BaseModel):
     # fresh-run path and instead replays history + subscribes to an
     # existing BackgroundRun.
     run_id: Optional[str] = None
+    # Fast-mode intent for this turn. Pure passthrough — AgentRuntime maps
+    # the flag to a TurnProfile (policy lives there, not in triggers);
+    # nothing is persisted, the profile rides this turn only.
+    fast_mode: bool = False
+
+
+def _fresh_run_drive_kwargs(
+    request: "AgentRunRequest",
+    *,
+    session_id: str,
+    working_source: Any,
+    mcp_servers: Optional[dict],
+) -> dict:
+    """Build the kwargs for ``BackgroundRun.drive`` on the fresh-run path.
+
+    Pure — unit-tested (test_websocket_fast_mode.py) so the WS payload →
+    drive contract can't silently drop a field."""
+    return {
+        "agent_id": request.agent_id,
+        "user_id": request.user_id,
+        "input_content": request.input_content or "",
+        "working_source": working_source,
+        "pass_mcp_servers": mcp_servers,
+        "fast_mode": request.fast_mode,
+        "trigger_extra_data": {
+            "trigger_id": f"ws_{session_id[:8]}",
+            # The logged-in sender's NarraNexus user_id. agent_runtime
+            # overrides ctx_data.user_id to the agent owner, so this is
+            # the only carrier of "who actually sent this turn" — the
+            # context builder resolves their display name + is-owner.
+            "sender_user_id": request.user_id,
+            # Front-end chat input is already a clean user message —
+            # use it directly as the narrative retrieval anchor.
+            "retrieval_anchor": request.input_content or "",
+            **(
+                {"attachments": request.attachments}
+                if request.attachments
+                else {}
+            ),
+        },
+    }
 
 
 def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
     """Build the WS error frame shown when the Agent circuit-breaker skips a
-    fresh run. ``cb_reason`` is ``should_skip``'s reason
-    ("paused:auth" / "paused:quota" / "cooling"). Pure — unit-tested."""
-    reason = cb_reason or ""
-    if reason.startswith("paused:quota"):
-        msg = (
-            "This agent is paused after repeated quota/balance failures. "
-            "Top up or reassign the Agent slot's provider, then resume the "
-            "agent in Settings."
-        )
-    elif reason.startswith("paused"):
-        msg = (
-            "This agent is paused after repeated authentication failures. "
-            "Re-authenticate (codex/claude login) or assign a working API-key "
-            "provider to the Agent slot, then resume the agent in Settings."
-        )
-    else:  # cooling
-        msg = (
-            "This agent recently failed and is briefly cooling down before it "
-            "will accept new messages. Please try again shortly."
-        )
+    fresh run. ``cb_reason`` is the reason ``should_skip`` / ``try_begin_probe``
+    returned ("paused:auth" / "paused:quota" / "cooling" / "probing"); the
+    copy is ``circuit_breaker.describe_skip_reason``, shared with the
+    OpenAI-compatible endpoint. Pure — unit-tested."""
+    from narranexus.platform.agent_framework.loop.circuit_breaker import (
+        describe_skip_reason,
+    )
+
+    msg = describe_skip_reason(cb_reason)
     return {
         "type": "error",
         "error_message": msg,
@@ -171,7 +317,7 @@ async def _handle_reconnect(
     # Local mode may have requesting_user_id missing → unchanged, allow.
     row_user_id = events_row.get("user_id")
     if requesting_user_id and requesting_user_id != row_user_id:
-        from xyz_agent_context.repository.agent_repository import AgentRepository
+        from narranexus.platform.repository.agent_repository import AgentRepository
 
         owner = await AgentRepository(db).resolve_owner(
             events_row.get("agent_id") or ""
@@ -188,8 +334,9 @@ async def _handle_reconnect(
             return
 
     # Extract the user's original input + the canonical timestamp that
-    # ChatModule will later use when persisting this turn into
-    # agent_messages.user_ts (= event.created_at). Frontend uses these
+    # ChatModule will later stamp on this turn's persisted USER row
+    # (`meta_data.timestamp` in instance_json_format_memory_chat, set to
+    # event.created_at — see ChatModule.persist_turn). Frontend uses these
     # to inject the user bubble that triggered this run; the timestamp
     # match guarantees ChatPanel's role:content + 60s dedup collapses
     # the reconnect-injected bubble with the eventual history row,
@@ -218,6 +365,13 @@ async def _handle_reconnect(
         await websocket.send_json({
             "type": "run_reconnect",
             "run_id": run_id,
+            # A reconnected session cannot steer: the run's live SteerChannel
+            # lives in the ORIGINAL WS handler's scope, which this observer WS
+            # does not hold. Advertise steerable=false so the client hides the
+            # mid-run input (rather than sending a steer that would hang with no
+            # ack). Folding a reconnect-side steer back into the run is a
+            # follow-up (needs the run to expose its channel via active_runs).
+            "steerable": False,
             "state": events_row.get("state") or "unknown",
             "started_at": _format_dt(events_row.get("started_at")),
             "tool_call_count": events_row.get("tool_call_count") or 0,
@@ -225,10 +379,10 @@ async def _handle_reconnect(
             # Phase C dedup: input_content + input_timestamp let the
             # client paint the user-side bubble while replaying.
             # input_timestamp is events.created_at — the same value
-            # ChatModule.hook_after_event_execution will write as
-            # agent_messages.user_ts after the run finishes, so the
-            # frontend's existing role:content + 60s dedup matches them
-            # by exact millisecond rather than by approximation.
+            # ChatModule.persist_turn stamps on the persisted user row
+            # once the run finishes, so the frontend's existing role:content
+            # + 60s dedup matches them by exact millisecond rather than by
+            # approximation.
             "input_content": input_content_str,
             "input_timestamp": _format_dt(events_row.get("created_at")),
         })
@@ -454,21 +608,118 @@ async def _follow_run_from_db(
 
 
 def _format_dt(value: Any) -> Optional[str]:
-    """ISO format for any datetime / string value, None passes through."""
+    """ISO format for any datetime / string value, None passes through.
+
+    Timezone contract (review #349 I1): DB datetimes are UTC, but MySQL's
+    DATETIME(6) strips tzinfo, so the driver hands back a NAIVE value —
+    ``isoformat()`` alone then emits an offset-less string that a browser's
+    ``Date.parse`` reads as LOCAL time, skewing every consumer by the
+    viewer's UTC offset (SQLite round-trips ``+00:00`` and hides the bug
+    locally). A naive datetime gets ``timezone.utc`` attached before
+    formatting. NOT ``format_for_api``: that helper truncates to whole
+    seconds, and ``input_timestamp`` must match the persisted chat row by
+    exact millisecond (see the run_reconnect frame comment).
+    """
     if value is None:
         return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
 
 
-async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken) -> None:
-    """
-    Background listener: watches for a stop signal from the client.
+async def _route_steer(
+    websocket: WebSocket, steer_channel: Any, user_id: str, data: dict,
+    steerable: bool = False,
+) -> None:
+    """Route one ``{"action":"steer"}`` frame into the run's SteerChannel, under
+    the SAME two bounds the durable ``steer_inbox`` write edge enforces —
+    imported from that repository so there is ONE definition, not a chat-side
+    copy that can drift. The ephemeral chat channel skips ``steer_inbox``, so
+    without re-imposing them here a client could push unbounded count/size into
+    an in-process queue (deploy iron rule #4 / iron rule #16).
 
-    Runs concurrently with the agent loop. When the client sends
-    {"action": "stop"}, triggers the cancellation token which
-    propagates through the entire execution pipeline.
+    Over-limit is REJECTED with an explicit ``steer_rejected`` frame the client
+    can render (never truncated, never silently dropped — a silent drop leaves
+    the optimistic bubble hung forever, which is worse than no bound). Rejection
+    happens BEFORE the push and never emits ``steer_queued``."""
+    content = data.get("input_content")
+    if not isinstance(content, str) or not content.strip():
+        return  # a blank/garbage steer never disturbs the run
+
+    # A client id is only a UI handle; over-length / blank → mint one rather than
+    # smuggle an unbounded string into the message dict's STEER_ID_KEY.
+    raw_id = data.get("client_msg_id")
+    msg_id = raw_id if isinstance(raw_id, str) and 0 < len(raw_id) <= _MAX_CLIENT_MSG_ID_LEN else _uuid4().hex
+
+    async def _reject(reason: str) -> None:
+        with suppress(Exception):
+            await websocket.send_json(
+                {"type": "steer_rejected", "client_msg_id": msg_id, "reason": reason}
+            )
+
+    if not steerable:
+        # This agent's framework never drains a steer, so accepting it would hang
+        # the bubble forever with no ack. Reject explicitly (the client should
+        # already have hidden the input off the run_started `steerable` flag; this
+        # is the backend backstop that turns a silent no-op into a diagnosable
+        # fact). NOT a model/slot suggestion (iron rule #15) — only an honest
+        # capability report.
+        await _reject("framework_no_steering")
+        return
+    if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
+        await _reject("too_large")  # matches steer_inbox's REJECTED-over-width, never truncate
+        return
+    if steer_channel.qsize() >= MAX_UNCONSUMED_PER_RUN:
+        await _reject("too_many_pending")  # backlog cap — the client backs off, nothing dropped
+        return
+
+    # run_id here is cosmetic (render/push ignore it; it names the steer_inbox row,
+    # which the ephemeral chat channel does not use).
+    #
+    # source="owner_chat" is DELIBERATELY exempt from the STEER_PROVENANCE_RULE
+    # anti-forge prompt the bus installs for source="team": that rule exists so a
+    # TEAMMATE cannot make the model read their words as the owner's (a privilege
+    # boundary between two distinct authorities). Here the sender IS the owner —
+    # the sole authority on their own agent — so there is no boundary to forge
+    # across and no impersonation surface; the rule would be a no-op. (If a future
+    # producer routes a NON-owner into this channel, that rule becomes required.)
+    inj = SteerInjection(
+        run_id=steer_channel.run_id or "chat",
+        msg_id=msg_id,
+        content=content,
+        sender_id=user_id,
+        source="owner_chat",
+    )
+    await steer_channel.push(inj)
+    # Echo the id back so the client flips that bubble to "queued" and later
+    # matches the steer_consumed ack to it.
+    with suppress(Exception):
+        await websocket.send_json({"type": "steer_queued", "client_msg_id": msg_id})
+
+
+async def _listen_for_control(
+    websocket: WebSocket,
+    cancellation: CancellationToken,
+    steer_channel: Any,
+    user_id: str,
+    steerable: bool = False,
+) -> None:
+    """
+    Background listener: watches for control signals from the client.
+
+    Runs concurrently with the agent loop. Handles:
+    * {"action": "stop"} / {"action": "force_stop"} → triggers the cancellation
+      token, which propagates through the entire execution pipeline.
+    * {"action": "steer", "input_content": str, "client_msg_id"?: str} → pushes
+      the message into ``steer_channel`` so it folds into THIS run at the next
+      step boundary (the owner's mid-run follow-up) instead of starting a fresh
+      run. The push is non-blocking; consumption is reported later out-of-band
+      via the channel's ``on_consumed`` (the ``steer_consumed`` frame). A blank
+      or non-string input is ignored — a bad control line never disturbs the run.
 
     Any WS close — whether truly client-initiated (tab close, navigate),
     a transport-level drop (network blip), or uvicorn's own ping-timeout
@@ -523,6 +774,9 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
                     })
                 cancellation.cancel("User force-stopped (escalation)")
                 return
+            if action == "steer":
+                await _route_steer(websocket, steer_channel, user_id, data, steerable)
+                continue
     except WebSocketDisconnect as e:
         # Phase C (2026-05-13) — WS disconnect NO LONGER cancels the
         # agent. Iron rule #14: agent runs are first-class and live
@@ -623,6 +877,7 @@ async def websocket_agent_run(websocket: WebSocket):
                         "must include ?x_user_id=<user_id> on the WS URL."
                     ),
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_MISSING,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -635,6 +890,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "user_id mismatch between URL and payload",
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_UNRESOLVED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -646,6 +902,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Authentication required",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_MISSING,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -657,6 +914,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Token expired",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_EXPIRED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -666,6 +924,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Invalid token",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_INVALID,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -677,6 +936,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "Invalid token claims",
                     "error_type": "AuthError",
+                    "error_code": TOKEN_INVALID,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
@@ -690,11 +950,35 @@ async def websocket_agent_run(websocket: WebSocket):
                     "type": "error",
                     "error_message": "User ID does not match token",
                     "error_type": "AuthError",
+                    "error_code": IDENTITY_UNRESOLVED,
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
 
             logger.info(f"WS auth OK: user_id={token_user_id}, role={payload.get('role')}")
+
+            # ---- Account-state gate (cloud) ----
+            # The JWT is valid, but a suspended account must not be able to
+            # start (or reconnect to) a run on its still-valid token. The HTTP
+            # auth middleware enforces this for /api/* and exempts /ws/*, so the
+            # gate has to be repeated here — WS is the product's MAIN run path.
+            # Uses the SAME shared non-transacting set and the SAME _account_state
+            # reader (TTL-cached, fail-OPEN) as the HTTP gate, so the two never
+            # drift. A JSONResponse (auth_error_response) is unsendable over a
+            # WebSocket, so we use the error-frame + close form already used for
+            # every other WS auth failure above.
+            if (await _account_state(token_user_id)) in NON_TRANSACTING_USER_STATUSES:
+                logger.warning(
+                    f"WS auth failed: account suspended user_id={token_user_id}"
+                )
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Account is not available",
+                    "error_type": "AuthError",
+                    "error_code": ACCOUNT_SUSPENDED,
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
 
         # ---- Phase C reconnect branch ----
         # If the client supplied ``run_id``, this WS is reconnecting to
@@ -720,20 +1004,63 @@ async def websocket_agent_run(websocket: WebSocket):
             await websocket.close()
             return
 
+        # Ownership / visibility (2026-10-28): the runtime runs a turn AS the
+        # agent's owner (agent_runtime overrides user_id with created_by), so
+        # a stranger who knows an agent_id would otherwise drive the owner's
+        # workspace, tools, channels and quota. Same rule as the dashboard:
+        # the caller owns the agent or it is public; everything else is a
+        # uniform "not found" so agent ids cannot be enumerated here. Both run
+        # modes are gated: in local mode request.user_id is the ?x_user_id=
+        # anchor checked above, so there is no local no-op here.
+        from backend.routes import _ownership
+        try:
+            await _ownership.assert_visible(request.user_id, request.agent_id)
+        except HTTPException:
+            await websocket.send_json({
+                "type": "error",
+                "error_message": "agent not found",
+                "error_type": "AgentNotFound",
+            })
+            await websocket.close()
+            return
+
         # Circuit-breaker skip-gate: if this agent's real-time turns are
         # paused (dead key / quota) or still cooling from recent failures,
         # do NOT start a run that would just fail again and burn resources.
         # Tell the user why instead of silently 401ing. Fail-open — a breaker
         # read error never blocks a turn.
-        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
-        cb_skip, cb_reason = await should_skip(request.agent_id)
-        if cb_skip:
-            await websocket.send_json(_circuit_open_frame(cb_reason))
+        from narranexus.platform.agent_framework.loop.circuit_breaker import (
+            should_skip,
+            try_begin_probe,
+        )
+        cb_gate = await should_skip(request.agent_id)
+        if cb_gate.skip:
+            await websocket.send_json(_circuit_open_frame(cb_gate.reason))
+            await websocket.close()
+            return
+        # The half-open probe is claimed HERE — the last gate before the run
+        # is recorded and created — never inside should_skip, so an entry
+        # point that asks and then does not run a turn cannot burn the single
+        # probe grant. A lost race answers with the "probing" copy. The gate's
+        # own read is reused (prior=), so an ordinary turn costs one read.
+        cb_admission = await try_begin_probe(request.agent_id, prior=cb_gate)
+        if not cb_admission.allowed:
+            await websocket.send_json(_circuit_open_frame(cb_admission.reason))
             await websocket.close()
             return
 
         # Convert working_source string to enum
         working_source = WorkingSource(request.working_source)
+
+        import uuid as _uuid
+        _session_id = str(_uuid.uuid4())
+
+        await _record_message_accepted(
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            trigger_source=request.working_source,
+            session_id=_session_id,
+        )
 
         logger.info(f"Starting agent runtime: agent_id={request.agent_id}, user_id={request.user_id}")
 
@@ -742,11 +1069,9 @@ async def websocket_agent_run(websocket: WebSocket):
         # ---- below guarantees removal on every exit path.
         # ---- NOTE: logging discipline — never print SessionInfo fields user_id /
         # ---- user_display / channel (PII). Only session_id + agent_id are log-safe.
-        import uuid as _uuid
         from datetime import datetime as _datetime, timezone as _timezone
         from backend.state.active_sessions import get_session_registry as _get_registry, SessionInfo as _SessionInfo
 
-        _session_id = str(_uuid.uuid4())
         _channel = request.working_source or "web"
         _registry = _get_registry()
         await _registry.add(
@@ -777,6 +1102,10 @@ async def websocket_agent_run(websocket: WebSocket):
                 if mcp.headers:
                     spec["headers"] = mcp.headers
                 mcp_servers[mcp.name] = spec
+            # SSRF egress guard (cloud only): the agent fetches these URLs at
+            # runtime and their responses enter the model's context, so drop any
+            # that resolve to an internal address before the run sees them.
+            mcp_servers = await filter_public_mcp_servers(mcp_servers)
             if mcp_servers:
                 logger.info(f"Loaded {len(mcp_servers)} MCP servers: {list(mcp_servers.keys())}")
         except Exception as e:
@@ -784,10 +1113,33 @@ async def websocket_agent_run(websocket: WebSocket):
 
         # ---- Shared cancellation token ----
         # Bound to the BackgroundRun, NOT to this WS task. WS disconnect
-        # never triggers cancel (iron rule #14). The only cancel paths are
-        # explicit user stop (via _listen_for_stop) and run shutdown on
-        # backend exit.
+        # never triggers cancel (iron rule #14). Only explicit user stop
+        # cancels the run; graceful backend shutdown waits for it to finish.
         cancellation = CancellationToken()
+
+        # ---- Live steering: the owner can fold a follow-up into the run ----
+        # A SteerChannel this WS pushes into when the client sends
+        # {"action":"steer", ...} while the run is in flight, so the message
+        # rides THIS run (drained at the next step boundary) instead of starting
+        # a fresh one. On consumption the loop reports which pushes it read; we
+        # relay that (`steer_consumed`) so the client's "queued" bubble can flip
+        # to "merged" (the three-state bubble). Created before the listener and
+        # handed to BackgroundRun below; both share this one object.
+        steer_channel = SteerChannel(agent_id=request.agent_id, channel_id="chat")
+
+        async def _relay_steer_consumed(ids: list, _latest: object) -> None:
+            # The producer-side cursor watermark (_latest) is a bus concept; for
+            # the ephemeral chat channel we only forward the consumed ids so the
+            # client marks those bubbles merged.
+            with suppress(Exception):
+                await websocket.send_json({"type": "steer_consumed", "ids": ids})
+
+        steer_channel.on_consumed = _relay_steer_consumed
+
+        # Can this agent's framework actually drain a steer? Advertised on
+        # run_started (the client hides the mid-run input when not) and enforced
+        # in the listener (reject rather than hang the bubble). Resolved once here.
+        run_steerable = await _resolve_run_steerable(request.agent_id)
 
         # ---- Heartbeat task ----
         # WS-level heartbeat for browser ping/pong. Independent of the
@@ -808,8 +1160,12 @@ async def websocket_agent_run(websocket: WebSocket):
 
         heartbeat_task = asyncio.create_task(heartbeat_loop())
 
-        # ---- Start stop listener (Task B) ----
-        stop_listener = asyncio.create_task(_listen_for_stop(websocket, cancellation))
+        # ---- Start control listener (Task B): stop / force_stop / steer ----
+        stop_listener = asyncio.create_task(
+            _listen_for_control(
+                websocket, cancellation, steer_channel, request.user_id, run_steerable
+            )
+        )
 
         import time as _time
         _ws_start = _time.monotonic()
@@ -823,9 +1179,9 @@ async def websocket_agent_run(websocket: WebSocket):
         #
         # Now:
         #  1. Create BackgroundRun (broadcaster + heartbeat + DB hooks)
-        #  2. asyncio.create_task(bg.drive(...))  — this task is OWNED
-        #     by app.state.active_runs[run_id] once Step 0 yields the
-        #     event_id; it is NOT awaited from here
+        #  2. run_tasks.start(bg.drive(...)) owns the task immediately,
+        #     including admission and Step 0, and drains it on shutdown.
+        #     active_runs indexes it by ID after Step 0; the WS never owns it.
         #  3. Subscribe this WS to bg.broadcaster
         #  4. Forward broadcaster events → ws.send_json
         #
@@ -841,32 +1197,19 @@ async def websocket_agent_run(websocket: WebSocket):
                 db=db_client_for_bg,
                 active_runs=websocket.app.state.active_runs,
                 cancellation=cancellation,
+                steering=steer_channel,
+                # A won probe claim rides the run to its settlement.
+                probe_token=cb_admission.probe_token,
             )
 
-            # Kick off the agent run task. It self-registers in
-            # active_runs once Step 0 yields the event_id.
-            bg.task = asyncio.create_task(bg.drive(
-                agent_id=request.agent_id,
-                user_id=request.user_id,
-                input_content=request.input_content or "",
-                working_source=working_source,
-                pass_mcp_servers=mcp_servers,
-                trigger_extra_data={
-                    "trigger_id": f"ws_{_session_id[:8]}",
-                    # The logged-in sender's NarraNexus user_id. agent_runtime
-                    # overrides ctx_data.user_id to the agent owner, so this is
-                    # the only carrier of "who actually sent this turn" — the
-                    # context builder resolves their display name + is-owner.
-                    "sender_user_id": request.user_id,
-                    # Front-end chat input is already a clean user message —
-                    # use it directly as the narrative retrieval anchor.
-                    "retrieval_anchor": request.input_content or "",
-                    **(
-                        {"attachments": request.attachments}
-                        if request.attachments
-                        else {}
-                    ),
-                },
+            # Retain the task even before Step 0 assigns its run ID.
+            bg.task = websocket.app.state.run_tasks.start(bg.drive(
+                **_fresh_run_drive_kwargs(
+                    request,
+                    session_id=_session_id,
+                    working_source=working_source,
+                    mcp_servers=mcp_servers,
+                )
             ))
 
             # Wait for run_id assignment (Step 0 completion). After this,
@@ -881,11 +1224,25 @@ async def websocket_agent_run(websocket: WebSocket):
             # never got set (rare — only if Step 0 crashed before
             # yielding) — in that case bg.run_id is None.
             if bg.run_id:
+                # Label the steer channel now the run id exists (used only for
+                # the overflow-warning log line; render/push never read it).
+                steer_channel.run_id = bg.run_id
                 with suppress(Exception):
                     await websocket.send_json({
                         "type": "run_started",
                         "run_id": bg.run_id,
+                        # The client shows the mid-run input box only when the
+                        # run's framework can drain a steer (else the bubble would
+                        # hang). Capability report only — never a slot suggestion.
+                        "steerable": run_steerable,
                     })
+                await _record_run_started(
+                    user_id=request.user_id,
+                    agent_id=request.agent_id,
+                    run_id=bg.run_id,
+                    trigger_source=request.working_source,
+                    session_id=_session_id,
+                )
 
             # Subscribe this WS to the broadcaster.
             subscriber = bg.broadcaster.subscribe(_session_id)
@@ -930,18 +1287,44 @@ async def websocket_agent_run(websocket: WebSocket):
 
     except Exception as e:
         logger.exception(f"WebSocket error: {e}")
-        logger.exception(traceback.format_exc())
         try:
-            await websocket.send_json({
-                "type": "error",
-                "error_message": str(e),
-                "error_type": type(e).__name__,
-                "traceback": traceback.format_exc(),
-            })
+            if _is_cloud_mode():
+                # Cloud: never leak internals to the client. A traceback (or raw
+                # exception text) exposes server paths, dependency versions and
+                # internal state; the full detail is in the server log above.
+                payload = {
+                    "type": "error",
+                    "error_message": "Internal server error.",
+                    "error_type": "InternalError",
+                }
+            else:
+                # Local / dev: full detail aids debugging.
+                payload = {
+                    "type": "error",
+                    "error_message": str(e),
+                    "error_type": type(e).__name__,
+                    "traceback": traceback.format_exc(),
+                }
+            await websocket.send_json(payload)
         except Exception:
             pass
 
     finally:
+        # A half-open probe this handler won but never handed to a
+        # BackgroundRun (setup threw between the claim and the run) is handed
+        # back by its token — else every entry point is refused until the
+        # grant expires. Once `bg.task` exists the run owns the token and settles
+        # it itself; releasing then would re-pause under a live probe.
+        if (
+            "cb_admission" in locals()
+            and cb_admission.probe_token
+            and ("bg" not in locals() or bg.task is None)
+        ):
+            from narranexus.platform.agent_framework.loop.circuit_breaker import (
+                release_probe,
+            )
+
+            await release_probe(request.agent_id, cb_admission.probe_token)
         # Dashboard v2 (TDR-2): remove session on every exit path. `_session_id`
         # may be unset if we exited before the registry add (auth failure, bad
         # payload) — guard against NameError.

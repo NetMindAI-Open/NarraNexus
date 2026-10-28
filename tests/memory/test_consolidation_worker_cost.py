@@ -22,13 +22,13 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     get_current_user_id,
     set_current_user_id,
     set_provider_source,
 )
-from xyz_agent_context.memory.spec import get_spec
-from xyz_agent_context.utils.cost_tracker import (
+from narranexus.platform.memory.spec import get_spec
+from narranexus.platform.utils.cost_tracker import (
     clear_cost_context,
     get_cost_context,
 )
@@ -95,7 +95,7 @@ def _reset_ctx():
 
 
 def _worker(db_client):
-    from xyz_agent_context.services import memory_consolidation_worker as mod
+    from narranexus.platform.services import memory_consolidation_worker as mod
     return mod, mod.MemoryConsolidationWorker(db_client=db_client)
 
 

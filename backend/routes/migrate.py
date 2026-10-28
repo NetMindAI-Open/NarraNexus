@@ -20,14 +20,15 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
-from xyz_agent_context.utils.db.db_factory import get_db_client
-from xyz_agent_context.migration import scanner
-from xyz_agent_context.migration.mapper import build_plan
-from xyz_agent_context.migration.applier import apply_plan
-from xyz_agent_context.schema.migration_schema import Framework, StandardizedAgentImport
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
+from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.migration import scanner
+from narranexus.platform.migration.mapper import build_plan
+from narranexus.platform.migration import hurry
+from narranexus.platform.migration.applier import apply_plan
+from narranexus.platform.schema.migration_schema import Framework, StandardizedAgentImport
 from backend.auth import resolve_current_user_id
 
 router = APIRouter()
@@ -86,6 +87,39 @@ class ApplyRequest(BaseModel):
     import_data: StandardizedAgentImport
     # Target agent; omit to create a new one.
     agent_id: Optional[str] = None
+    # Client-generated handle for THIS apply, so /hurry below can reach it
+    # mid-flight. Optional: an apply without one simply can't be hurried.
+    import_id: Optional[str] = None
+
+
+class HurryRequest(BaseModel):
+    # Bounded because the id is kept in a process-level registry (hurry.py)
+    # and this route is exempt from the body-size middleware. Ownership is NOT
+    # checked: the route is local-only (single user, single process) and the
+    # id is minted by that same client — a check would guard against nobody.
+    import_id: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/hurry")
+async def hurry_import(request: Request, payload: HurryRequest) -> dict:
+    """Tell a RUNNING apply to stop summarizing and just finish.
+
+    The user pressed stop while a project was importing. Cutting the HTTP
+    request would leave a half-populated agent, and waiting out N sequential
+    helper-LLM summaries can take minutes (Owner objection 2026-09-03) — so this
+    is the third option: the apply keeps going but drops to the deterministic
+    no-LLM summary for every session it has left. Every session still lands.
+
+    Best-effort by construction: the mark is in-process, so it has to reach the
+    worker running that apply. Local (the only place migration runs) is
+    single-process. If it misses, the import keeps its LLM summaries and the
+    user waits as before — never corrupt, just not faster.
+    """
+    _require_local_or_raise()
+    await resolve_current_user_id(request)
+    hurry.mark(payload.import_id)
+    logger.info(f"migrate.hurry: {payload.import_id}")
+    return {"success": True}
 
 
 @router.post("/apply")
@@ -111,5 +145,7 @@ async def apply(request: Request, payload: ApplyRequest) -> dict:
         if user_id and agent.get("created_by") != user_id:
             raise HTTPException(status_code=403, detail="Permission denied: you do not own this agent.")
     plan = build_plan(payload.import_data)
-    result = await apply_plan(db, user_id, plan, agent_id=payload.agent_id)
+    result = await apply_plan(
+        db, user_id, plan, agent_id=payload.agent_id, import_id=payload.import_id
+    )
     return result.model_dump()

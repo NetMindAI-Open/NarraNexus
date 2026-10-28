@@ -147,7 +147,10 @@ async def run_case(name: str, prompt: str, expect: dict) -> dict:
                 tool = details.get("tool_name")
                 if tool and msg.get("status") == "running":
                     seen["tools"].append(str(tool).split("__")[-1])
-                if tool and "send_message_to_user_directly" in str(tool):
+                # Both owner tools: this looks for "the agent spoke to its
+                # owner", and the retired single tool split into two.
+                if tool and ("reply_owner" in str(tool)
+                             or "notify_owner" in str(tool)):
                     content = (details.get("arguments") or {}).get("content")
                     if content:
                         seen["final_reply"] = str(content)

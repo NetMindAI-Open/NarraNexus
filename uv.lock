@@ -7,6 +7,43 @@ resolution-markers = [
     "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 
+[manifest]
+members = [
+    "narranexus",
+    "narranexus-contracts",
+    "narranexus-plugin-auth-local",
+    "narranexus-plugin-auth-netmind",
+    "narranexus-plugin-awareness",
+    "narranexus-plugin-basic-info",
+    "narranexus-plugin-browser",
+    "narranexus-plugin-channels-discord",
+    "narranexus-plugin-channels-lark",
+    "narranexus-plugin-channels-narramessenger",
+    "narranexus-plugin-channels-slack",
+    "narranexus-plugin-channels-telegram",
+    "narranexus-plugin-channels-wechat",
+    "narranexus-plugin-chat",
+    "narranexus-plugin-common-tools",
+    "narranexus-plugin-frameworks-claude-code",
+    "narranexus-plugin-frameworks-codex-cli",
+    "narranexus-plugin-frameworks-nexus-power",
+    "narranexus-plugin-general-memory",
+    "narranexus-plugin-home-assistant",
+    "narranexus-plugin-job",
+    "narranexus-plugin-llm-clients",
+    "narranexus-plugin-memory-kinds",
+    "narranexus-plugin-message-bus",
+    "narranexus-plugin-nexus-plugins-module",
+    "narranexus-plugin-prompts",
+    "narranexus-plugin-providers",
+    "narranexus-plugin-skills",
+    "narranexus-plugin-social-network",
+    "narranexus-plugin-teams",
+    "narranexus-plugin-turn",
+    "narranexus-plugin-ui",
+    "narranexus-sdk",
+]
+
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
@@ -264,15 +301,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bb/9b/b1661026ff24bc641b76b78c5222d614776b0c085bcfdac9bd15a1cb4b35/authlib-1.6.6.tar.gz", hash = "sha256:45770e8e056d0f283451d9996fbb59b70d45722b45d854d58f32878d0a40c38e", size = 164894, upload-time = "2025-12-12T08:01:41.464Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/51/321e821856452f7386c4e9df866f196720b1ad0c5ea1623ea7399969ae3b/authlib-1.6.6-py2.py3-none-any.whl", hash = "sha256:7d9e9bc535c13974313a87f53e8430eb6ea3d1cf6ae4f6efcd793f2e949143fd", size = 244005, upload-time = "2025-12-12T08:01:40.209Z" },
-]
-
-[[package]]
-name = "backoff"
-version = "2.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", size = 17001, upload-time = "2022-10-05T19:19:32.061Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", size = 15148, upload-time = "2022-10-05T19:19:30.546Z" },
 ]
 
 [[package]]
@@ -921,12 +949,103 @@ wheels = [
 ]
 
 [[package]]
-name = "griffelib"
-version = "2.1.0"
+name = "griffe"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/33/e4/8d187ea29c2e30b3a09505c567513077d6117861bde1fbd997a167f262ec/griffelib-2.1.0.tar.gz", hash = "sha256:762a186d2c6fd6794d4ea20d428d597ffb857cb56b66421651cbba15bdd5e813", size = 216234, upload-time = "2026-06-19T12:05:42.278Z" }
+dependencies = [
+    { name = "griffecli" },
+    { name = "griffelib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/a0/927cf9416f527f623f4ccd9220337fca0cd85303b7e82adeab1e53669cd3/griffe-2.2.0.tar.gz", hash = "sha256:9c0dd9a7feda9e169d783507d777c6fb2f2fc2919b139747a5b4f5357517a611", size = 246229, upload-time = "2026-08-16T14:04:57.232Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/d3/5268aeabf2ad82658c4e2ff3a060648d0f02f3926cb53247c0e4d0dab49e/griffelib-2.1.0-py3-none-any.whl", hash = "sha256:cc7b3d2d2865ad0b909fcc38086e3f554b5ea7acbaa7bbb7ecaa3f5dfb7d9f00", size = 142560, upload-time = "2026-06-19T12:05:38.742Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/51/c9f9cb144e2bd21cbcb6ebd7978ecb5b9f5a375e78313744158338c8039c/griffe-2.2.0-py3-none-any.whl", hash = "sha256:db20672b31c3de2a1af5a18a3b3d8c186ccc2425e10290486b4f0364d25929e9", size = 5070, upload-time = "2026-08-16T14:04:51.971Z" },
+]
+
+[[package]]
+name = "griffecli"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama" },
+    { name = "griffelib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/75/3cf2fb1ae21fb55a3b917b45d24426a620ee916f4bdbd03f350c69d3d892/griffecli-2.2.0.tar.gz", hash = "sha256:b9e763131218eb19887ed52de20fe944252d811bfb4a3e339874908a588f0044", size = 58066, upload-time = "2026-08-16T14:04:55.984Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/83/04652213d82afeecc8e8a31231eeb87cc484dcc055fd96ecb0bfd9860405/griffecli-2.2.0-py3-none-any.whl", hash = "sha256:8ebb7ae1dcc2617f5d39f00e4c238dd6b5cd0b13157b0ce22c1ea4ca8b4c5d1d", size = 11480, upload-time = "2026-08-16T14:04:53.14Z" },
+]
+
+[[package]]
+name = "griffelib"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/b4/a767e91c606deefc447a96eaf59edd77397960b1d677dffd833ee8449831/griffelib-2.2.0.tar.gz", hash = "sha256:e1bc36fe9cd21d4b6b659b456346755e4cfdc5676c0a5214083126ee12612b3c", size = 227048, upload-time = "2026-08-16T14:04:58.383Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f6/b6/f65ac785d4ac90dcf7c831ac6256f5dd4a19780f4e1575b2c0d6eeebe319/griffelib-2.2.0-py3-none-any.whl", hash = "sha256:d71c3bc2bbed9f958488634fe788b843a9f705d6d2838ca32cd6c25eeb64dfc4", size = 166779, upload-time = "2026-08-16T14:04:54.365Z" },
+]
+
+[[package]]
+name = "grimp"
+version = "3.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/35/895a446f53c47702f2c5fc0b4374e18a0e997a49cbdad9a044c1cef0b357/grimp-3.16.tar.gz", hash = "sha256:1aba8e6946ec9b05b466bfc52ecdc73c364f425ec196b13e495316b915fcf10e", size = 831930, upload-time = "2026-08-28T11:41:00.963Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/e1/31e1a7e877d26f56226a30fd0118897f05e08d80dfef1306676c3bd9affa/grimp-3.16-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:11a9ffc6956804aab8414dca48501f417aa56caba00dd2b113277c19fac37c8e", size = 2129483, upload-time = "2026-08-28T11:40:03.545Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/29/fe226976e6424489716d6bd5956b59f78f20df9de1334fc02c90b8ac696e/grimp-3.16-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:30ee913a725b2a1647edf63e8e91f6709c08119cd1be86602b09f1ec5e25af00", size = 2077894, upload-time = "2026-08-28T11:39:52.706Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/02/f3d891abf9b00977169b898c231c0d932bc620d04e175c2c643380e25edd/grimp-3.16-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:946929a3f3c987783134d8ee6aee6553fcf35eb26a82def9ebe157df441ab6b5", size = 2259982, upload-time = "2026-08-28T11:38:32.887Z" },
+    { url = "https://files.pythonhosted.org/packages/32/c5/de406be061e3ee50518f7b76e8f9d8a202d526a8ff25db3171dd99bebd81/grimp-3.16-cp313-cp313-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:4c3092593356ece3ad61d81893651100e969628c2ff147b8ab634aecad837c2b", size = 2205705, upload-time = "2026-08-28T11:38:44.608Z" },
+    { url = "https://files.pythonhosted.org/packages/01/aa/b8a228209c5a004a2759a9ac24867deced740f54b514b4f06154d6cfb129/grimp-3.16-cp313-cp313-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:90f3d03e489a6947f3aa9bf98afa0be64c4c31e6551cfabba15fd82e2e93cf21", size = 2350031, upload-time = "2026-08-28T11:39:20.829Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/d5/8e9799786ddfd54765cdd9aad84649713c950edaa2cc1796dd78a44fe597/grimp-3.16-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:2b4d408ebb89a4aff5e402b0b8919648fe39276fec7566a3da8365da3ceaf8e9", size = 2609098, upload-time = "2026-08-28T11:38:56.727Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/4b/64230082ac5b277166c9e63ece351dfd75de5b311b673b9daba280786f18/grimp-3.16-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:45152f16a4eb455f732e95c7d75a5375487fb84b14049fb58358939155ad72c1", size = 2328797, upload-time = "2026-08-28T11:39:08.914Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/c5/90f3cff5d143045f19126b4b3640890ada6a8eff5e849d6d8a4e8ba80d05/grimp-3.16-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:2dfd52e9fcf2edc1afb88a37e9130771dd3916713e2d2dba6b6ee791283cec9f", size = 2266501, upload-time = "2026-08-28T11:39:37.183Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/fa/52745d11cf555e8478d01e1c2b3abaed4b1aa88a9572659596b4da03d717/grimp-3.16-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:520c7e09534fc168906944061ef6ce090f041dc1c728b88fd8d8d5d7feed43e3", size = 2436597, upload-time = "2026-08-28T11:40:15.464Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/f1/e4e349c783db592455743f978214637cbd00037a7ddba70f874cc6eda3f9/grimp-3.16-cp313-cp313-musllinux_1_2_armv7l.whl", hash = "sha256:9ad2ef95fce8a34aba2805d84d8d06ff81f6f3144ba72da0c6be7200a551e011", size = 2479940, upload-time = "2026-08-28T11:40:28.115Z" },
+    { url = "https://files.pythonhosted.org/packages/51/ea/2356d89d270db649ab55ecd427e387add5cf32f0495ac2ae6d474c0486ed/grimp-3.16-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:7b26bf8f3b5d59298c5d285aae609436a94a954b4d2bb576e3dc3813cf34f356", size = 2508682, upload-time = "2026-08-28T11:40:40.751Z" },
+    { url = "https://files.pythonhosted.org/packages/37/2c/90a9a0909df2b3d7b1d3764050dcdf74a7f27ca35729b52509873d1ad156/grimp-3.16-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:9e271e8b4d915334ab7645367cceea3025e994297aec9219651fbe189c89829e", size = 2521744, upload-time = "2026-08-28T11:40:54.06Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/e1/211fa3ceac04b4ab9fb4c1c880717e9cb12080c5d9d226d867cde43015d9/grimp-3.16-cp313-cp313-win32.whl", hash = "sha256:9c144b81cf1d1699ecf9192f7997f71301a0ce730030b1c30fec5673796a0ccc", size = 1856024, upload-time = "2026-08-28T11:41:36.328Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/66/66db0aa202e638fce7929a78db1ecae2e059f22effc1925239f8ebe1b870/grimp-3.16-cp313-cp313-win_amd64.whl", hash = "sha256:8ceb54d891f879b4e5aa55ba9c95d37ac2af5c9bee5fcc7a07a909d03f3d9ade", size = 1982718, upload-time = "2026-08-28T11:41:20.854Z" },
+    { url = "https://files.pythonhosted.org/packages/34/e8/6a7e0d68b6b24b79ffd4f274dc2d66751c3cdb6cfefe180201119c173f17/grimp-3.16-cp313-cp313-win_arm64.whl", hash = "sha256:86124a3dafb3184f34389c650db3ff2a27238773da2fbc840f51290552d83ca3", size = 1906377, upload-time = "2026-08-28T11:41:06.15Z" },
+    { url = "https://files.pythonhosted.org/packages/02/ed/a610e125d26dd4009a07d0926f597a7d2a7910ec376e1af63b8132aedf63/grimp-3.16-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:effd0823194230fb77335fd2b25cefedb08b5a66f1957b24551ede7000766532", size = 2145473, upload-time = "2026-09-11T10:36:44.183Z" },
+    { url = "https://files.pythonhosted.org/packages/71/13/7a6474d44b6815f30d6aa7862c464976ebf2c40b88f6abc1ecd65f5bd87c/grimp-3.16-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:c98876370f8d88c2a15cc76a1ebe3e7f1fb51a168eb84a58bf716f92292cc187", size = 2091978, upload-time = "2026-09-11T10:36:40.901Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/b1/676a33dee3897841d741028feae79930586ebbf092d9fc2c7942844a47f9/grimp-3.16-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:826ba2eacb67ba50f32ea2e8ec3c5503dca9a6159165a0b3e725f9a816eaff0f", size = 2259778, upload-time = "2026-08-28T11:38:34.608Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/83/042e97731f2e374bdbc64b40cf08910fafabc63904ade03e4d66dadf298f/grimp-3.16-cp314-cp314-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:38c148df96ef17f36521e45539eb3baa958098dc54e00fc901aba83e0d976429", size = 2206517, upload-time = "2026-08-28T11:38:46.218Z" },
+    { url = "https://files.pythonhosted.org/packages/72/72/e8daaf975629c5ac16ee49c5d8a486d4492c74121124d2e88ca2dea8041f/grimp-3.16-cp314-cp314-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:6b94363624bd1e4959b5dfad67bbc20d80c1c62c4cd086ef0c268736995b3597", size = 2351283, upload-time = "2026-08-28T11:39:22.53Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/b8/a152cb8ac1da8af7bdc88c0a8bc8fe2615ca3aa17a2b4a1ab3514d298cd1/grimp-3.16-cp314-cp314-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:5ec352053e1ef7040d027821bc023dc01ee6137871178de14df3ea815fa614ea", size = 2608660, upload-time = "2026-08-28T11:38:58.432Z" },
+    { url = "https://files.pythonhosted.org/packages/51/4e/60cfb19a6b2daa80c7d49bfa4bae512d2ebbbdfe2d43e6045f11a7dbe9a7/grimp-3.16-cp314-cp314-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:4c5bfd01ebdd98c9f73eb1434161ae325d30e3c77d8f2d8c0b2dfa5ff6bab242", size = 2329729, upload-time = "2026-08-28T11:39:10.61Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/8d/82273065ca0621e3a32b2c2abf508fb56ba738622d727172f99bb7dc2a17/grimp-3.16-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9af1b76629f1f0b5cbb03f2ec02a7983767ef149344f7babe2be0eeaeb37b46c", size = 2268037, upload-time = "2026-08-28T11:39:38.818Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/e5/406064a105392f42d8f8bde9686dfcb87dc0d334c831bf7c4a675a4b09d8/grimp-3.16-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:ee715b5c31d56248d488c33d24a188ae135f6dcda685cd89937f9bf9d3314219", size = 2435713, upload-time = "2026-08-28T11:40:17.35Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/f5/430736f15960341125f83f3892cbd51bc7452633fcb2b5979e65d4b72c7d/grimp-3.16-cp314-cp314-musllinux_1_2_armv7l.whl", hash = "sha256:77ebbac18bc5af688ad6379d46c2f62b16396df33bbc69f644c3806d4b40c76d", size = 2481004, upload-time = "2026-08-28T11:40:29.95Z" },
+    { url = "https://files.pythonhosted.org/packages/11/c1/1ab480673ab77c698975a296a30d2ff7f6d1c0c594e3e56c1218e4c6d4d3/grimp-3.16-cp314-cp314-musllinux_1_2_i686.whl", hash = "sha256:908c98d7e773e4136af48a0e0e6f8f392f43bd44a4ff21b4bc4d64acfe4ebde9", size = 2509684, upload-time = "2026-08-28T11:40:42.465Z" },
+    { url = "https://files.pythonhosted.org/packages/88/b3/781855a0771ffbb599115e97b98568137748b890512518b267c52f5cb827/grimp-3.16-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:f08537994d2aace1fa51d9b5a50bbf5e13982fede528caf5b692931a795f28d9", size = 2522081, upload-time = "2026-08-28T11:40:55.827Z" },
+    { url = "https://files.pythonhosted.org/packages/07/32/d3f17ffb29a82bfb99c6e3c230ea759f52205bfba1da5fea445ae5e42d76/grimp-3.16-cp314-cp314-win32.whl", hash = "sha256:d8d96a234f5d3a22cd78d4857b786fc16a9310157ca600dddbed2cd4d36be9f9", size = 1856509, upload-time = "2026-08-28T11:41:38.245Z" },
+    { url = "https://files.pythonhosted.org/packages/de/9b/71516c091fdfefa6b2a2f729925ab34ef6524df36b343bc79ce213b583cb/grimp-3.16-cp314-cp314-win_amd64.whl", hash = "sha256:5d5e7709132fd0e553014e8fa621316c432558e6b0dc2043cc02928b6d4941ae", size = 1983395, upload-time = "2026-08-28T11:41:22.632Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/ce/196f4204cc0645ef8e0f1e23a6549cdfce4523a274b11b7c21b75e848bac/grimp-3.16-cp314-cp314-win_arm64.whl", hash = "sha256:4810c0ce5117d611c17dff5bece8924b45bd5884047f093eb22e0168828506e5", size = 1906404, upload-time = "2026-08-28T11:41:07.983Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/d2/e7893c3cbc92f7e5e5a7bc24c1951f0f6f50866d32f9ef76b159743515d9/grimp-3.16-cp314-cp314t-macosx_10_12_x86_64.whl", hash = "sha256:7cd3c3470caae7631e2bc1906b8334dcbd2a23b099ef013dad72de751bd02b61", size = 2129134, upload-time = "2026-08-28T11:40:05.397Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/3a/24b1a4992757a445f1c8e70510d1ee6f2f96e45e6303001d8ff2fc26affe/grimp-3.16-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:6bcba87bbd7cc800b86745bb15cc12f159e90c14a332263020376c45c8dfff98", size = 2077088, upload-time = "2026-08-28T11:39:54.572Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/e6/b04ffa6c2bd6fe38f3832d58bf1bf832dc8f6b0f6235f79db33c4230fb7c/grimp-3.16-cp314-cp314t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7249a2b566836932c65e52931202aac3281a4aa5463e383b90bc3320a90f9c86", size = 2258760, upload-time = "2026-08-28T11:38:36.364Z" },
+    { url = "https://files.pythonhosted.org/packages/39/96/4e9b142051c5d076f44ea97754cc30e0ad1e799024b9d939d5fee005bdbd/grimp-3.16-cp314-cp314t-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:cfc0b5623e014b045cb563484c40468ae964b7cfdddac57134a04712032e570d", size = 2204820, upload-time = "2026-08-28T11:38:48.036Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/ce/01d9ca30d4c57380daec9fdbf0ca98e60b0f3ab272c33e1bef26fcd92051/grimp-3.16-cp314-cp314t-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:c910491b8b49b38f9313edd8620da08b2c8cc12395faefda9e65338e28d2ec3c", size = 2349438, upload-time = "2026-08-28T11:39:24.356Z" },
+    { url = "https://files.pythonhosted.org/packages/01/42/490cbbef13412c3b268da2a2b9c95d88017719e5a353694b7f39190a03ee/grimp-3.16-cp314-cp314t-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:acd3e88a1ef7fecf59bca6e3d872a193c317acb22342d641fb205bf1f8eb722d", size = 2610540, upload-time = "2026-08-28T11:39:00.27Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/1d/67eaa5610f9389b60f6b7bfdc60074f5e551f8db06db2b5bf14f0dfa24a5/grimp-3.16-cp314-cp314t-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:9a59c245015fbe0ec5c100d643d7590f15c2fcf85d027c2795e3cbd4b3f81f2f", size = 2328945, upload-time = "2026-08-28T11:39:12.183Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/48/8bff5f976ad5bb57170698464616ee3e0e1716bff2d80021ad9b739ba4a2/grimp-3.16-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0877cfa68d12e30a2c49172a60bed6f91bb1e7a8514a685554278fb60cf39fe4", size = 2267989, upload-time = "2026-08-28T11:39:40.725Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/99/06e1462bf2f16818fef3e589c4d2f161ad76146c43b3ddac9eaadea21b95/grimp-3.16-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:4ebf29413261ef5cce2241cc2cfc0e49db4390fee42c81ed24c5b49ba2ebe97a", size = 2437313, upload-time = "2026-08-28T11:40:19.13Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/6f/b6119143c4892d270f61a6caa6ca270df07c3ba4393c89ae8d38bb180a69/grimp-3.16-cp314-cp314t-musllinux_1_2_armv7l.whl", hash = "sha256:0dc257478122442d5c48c4b13853b6345d0f42f5ec1b97195385701a6c0e43a9", size = 2477933, upload-time = "2026-08-28T11:40:31.771Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/5c/b7f78ccf10f1d3031a14167803933d6c7be748f93a7ca017e45d0e4e0f28/grimp-3.16-cp314-cp314t-musllinux_1_2_i686.whl", hash = "sha256:969634d0d24ab7e634fb3aaeba47e06d8386a945652ce48fb14d8129ee0ee41d", size = 2507543, upload-time = "2026-08-28T11:40:44.447Z" },
+    { url = "https://files.pythonhosted.org/packages/51/c6/112cfe6fa33137db15b120d9328b38e179d00573cce19d4eb68979f588a9/grimp-3.16-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:be12564e56b236440ae81f76a1ff7c945c41a2f14b00c150f8d0239f090b6c0a", size = 2521645, upload-time = "2026-08-28T11:40:57.571Z" },
+    { url = "https://files.pythonhosted.org/packages/31/9c/cab716aa63f6ce2302334bffa371820c8c5fa20bd068c47470872cb661b4/grimp-3.16-cp314-cp314t-win32.whl", hash = "sha256:23a8a3d95f03428ada95188de5e22538647304b5393985f46a58c2982d58c48e", size = 1854274, upload-time = "2026-08-28T11:41:40.127Z" },
+    { url = "https://files.pythonhosted.org/packages/16/4f/b60f10c5110c5903219af76fd39b10b318e0fad265d76083bc16828e6a5d/grimp-3.16-cp314-cp314t-win_amd64.whl", hash = "sha256:9fb1677225506f273bbabdafb0e24ab25fdcf165138ced77e4d7489908755222", size = 1982384, upload-time = "2026-08-28T11:41:24.797Z" },
+    { url = "https://files.pythonhosted.org/packages/10/e0/990bcfe005645a35af1039ef917cb7fe015fcbd2d7790ed7750784630ee8/grimp-3.16-cp314-cp314t-win_arm64.whl", hash = "sha256:91fccaaf93090bd1f1d787f611bc3d4d69db07e6eaa6d4cbe947c2cc3232a9c4", size = 1905443, upload-time = "2026-08-28T11:41:09.807Z" },
+    { url = "https://files.pythonhosted.org/packages/be/8c/ca54ebd59e04a582fdc9318f947d33789c482e30218a151816ec3ffae225/grimp-3.16-cp315-cp315-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:a910f0fda34f56cb16f2be4448ae3bd40fe720b865d7c3773145ba51606d5f0d", size = 2351407, upload-time = "2026-08-28T11:39:26.245Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/6d/32e085efdf5a397592caf6da6e75ed72329a921656531a17ba99bef13f60/grimp-3.16-cp315-cp315-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:486a53676651e65b72643310e9fec88a598e577fa2f533bfed6e3884a1006792", size = 2268556, upload-time = "2026-08-28T11:39:42.365Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/6e/c14fd511171f01a9285cd0ff71ff264319da8dd94fd1efc7305164970192/grimp-3.16-cp315-cp315-win32.whl", hash = "sha256:49fbc38ee2ae83b3bf3edc526a7710ae38cfcc9793eebbc789648614e8c0f859", size = 1858242, upload-time = "2026-08-28T11:41:42.057Z" },
+    { url = "https://files.pythonhosted.org/packages/49/71/23fd3292b67846ee4c0e5ab6ceab35953d23b52565000d9c7ae1d6cafc37/grimp-3.16-cp315-cp315-win_amd64.whl", hash = "sha256:71f8517c2e947d867854e6fc809f3ea1c52a2da1acb71ffb94d41c47a3db8682", size = 1983626, upload-time = "2026-08-28T11:41:26.788Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/2e/b2b39e466271adab6f4d37f0f27a36aff82a3389d709e36296cfcab2e0aa/grimp-3.16-cp315-cp315-win_arm64.whl", hash = "sha256:aaceeae65a24a1d7ee1bc7d3ea2dbc2efdc86a4978bb8ae22887e71d8e9c8dea", size = 1906704, upload-time = "2026-08-28T11:41:11.658Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/0e/2b03739fcb01a39b5bb7c30abc887b7665afd9433f8643fae33d96ad4db1/grimp-3.16-cp315-cp315t-macosx_10_12_x86_64.whl", hash = "sha256:01f5334c3c9a6cb919eacb286f4fd70ecf44c99d3158760d739de18f08007863", size = 2129421, upload-time = "2026-08-28T11:40:07.388Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/ce/8aea5a02a483993229796e7c69dbfe8225c4c8f39c6270a253edb7a04914/grimp-3.16-cp315-cp315t-macosx_11_0_arm64.whl", hash = "sha256:3be5711a014bcc80bf151271fb987fd7885a9c2c93e7426dcc977cf745196d38", size = 2077284, upload-time = "2026-08-28T11:39:56.265Z" },
+    { url = "https://files.pythonhosted.org/packages/23/4c/9daa11c225abf1498d70d7eb0bcccd0879aeafa7d3eea7726981851225e2/grimp-3.16-cp315-cp315t-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:1ab4218366192a9f1975a22d4d053d2d61d943bb092d117d0a5825391b8bae9a", size = 2350050, upload-time = "2026-08-28T11:39:28.046Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/c8/811468f8a39046d2f92096bf3b9aaf9b15e0d32792b51f5e296905547a64/grimp-3.16-cp315-cp315t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:caa6432baf432711d8816ece8137e4ad19dffb6f31dd09ffa08cbbc5cf1e07fd", size = 2268355, upload-time = "2026-08-28T11:39:44.13Z" },
+    { url = "https://files.pythonhosted.org/packages/97/c8/10815103a73f8b078bbbcc1d9436d89c1d64955ade22ce0d339753f739a4/grimp-3.16-cp315-cp315t-win32.whl", hash = "sha256:73e198e65c51b71e62d253f4fa6b2fa422e1225d84d21e8b320b43c144057ba5", size = 1853678, upload-time = "2026-08-28T11:41:43.844Z" },
+    { url = "https://files.pythonhosted.org/packages/20/b6/a91b08bb84ae845beef2bce91d3441adb453c80e57cc235469f5de3ec709/grimp-3.16-cp315-cp315t-win_amd64.whl", hash = "sha256:9cd98c050fb811bd8c0932a0c27a4eb8a865dd04bf524930e20419e169a6a8a6", size = 1982724, upload-time = "2026-08-28T11:41:28.519Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/28/01cb9c8d722e5eee92dec36269e04499131faecd1d11da37aca3ee59bf63/grimp-3.16-cp315-cp315t-win_arm64.whl", hash = "sha256:a93e6f3c5f7968c4b70de7dcfa66949ba524dc922ce21cef852437a65f2d11c8", size = 1905107, upload-time = "2026-08-28T11:41:13.547Z" },
 ]
 
 [[package]]
@@ -1099,6 +1218,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6f/6d/0703ccc57f3a7233505399edb88de3cbd678da106337b9fcde432b65ed60/idna-3.11.tar.gz", hash = "sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902", size = 194582, upload-time = "2025-10-12T14:55:20.501Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0e/61/66938bbb5fc52dbdf84594873d5b51fb1f7c7794e9c0f5bd885f30bc507b/idna-3.11-py3-none-any.whl", hash = "sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea", size = 71008, upload-time = "2025-10-12T14:55:18.883Z" },
+]
+
+[[package]]
+name = "import-linter"
+version = "2.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "grimp" },
+    { name = "rich" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/54/ee/709dfd34cd2729b6d2dfa1381fd3c1370e0e3e5d4ce7d0643fd8c12652c1/import_linter-2.14.tar.gz", hash = "sha256:8e6304d9a9ddfbd39f6ac990710d95aaf9ac71eb1ba81ac8ce53e1ef2f9773d3", size = 1283529, upload-time = "2026-08-28T11:28:36.511Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/f1/a9ef72a7ad4a49e77e4df579dd23e2bbf84f1b7da9087a744b086657929e/import_linter-2.14-py3-none-any.whl", hash = "sha256:0039771a991f9a309055ac6fa18340b0024d0bb88722f9dd2834f0d930a2224c", size = 639603, upload-time = "2026-08-28T11:28:35.091Z" },
 ]
 
 [[package]]
@@ -1668,6 +1802,685 @@ wheels = [
 ]
 
 [[package]]
+name = "narranexus"
+version = "1.21.11"
+source = { editable = "." }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aiomysql" },
+    { name = "aiosqlite" },
+    { name = "anthropic" },
+    { name = "bcrypt" },
+    { name = "boto3" },
+    { name = "croniter" },
+    { name = "cryptography" },
+    { name = "ddgs" },
+    { name = "discord-py" },
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "google-genai" },
+    { name = "httpx", extra = ["socks"] },
+    { name = "lark-oapi" },
+    { name = "litellm" },
+    { name = "loguru" },
+    { name = "matrix-nio" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "narranexus-contracts" },
+    { name = "narranexus-plugin-auth-local" },
+    { name = "narranexus-plugin-auth-netmind" },
+    { name = "narranexus-plugin-awareness" },
+    { name = "narranexus-plugin-basic-info" },
+    { name = "narranexus-plugin-browser" },
+    { name = "narranexus-plugin-channels-discord" },
+    { name = "narranexus-plugin-channels-lark" },
+    { name = "narranexus-plugin-channels-narramessenger" },
+    { name = "narranexus-plugin-channels-slack" },
+    { name = "narranexus-plugin-channels-telegram" },
+    { name = "narranexus-plugin-channels-wechat" },
+    { name = "narranexus-plugin-chat" },
+    { name = "narranexus-plugin-common-tools" },
+    { name = "narranexus-plugin-frameworks-claude-code" },
+    { name = "narranexus-plugin-frameworks-codex-cli" },
+    { name = "narranexus-plugin-frameworks-nexus-power" },
+    { name = "narranexus-plugin-general-memory" },
+    { name = "narranexus-plugin-home-assistant" },
+    { name = "narranexus-plugin-job" },
+    { name = "narranexus-plugin-llm-clients" },
+    { name = "narranexus-plugin-memory-kinds" },
+    { name = "narranexus-plugin-message-bus" },
+    { name = "narranexus-plugin-nexus-plugins-module" },
+    { name = "narranexus-plugin-prompts" },
+    { name = "narranexus-plugin-providers" },
+    { name = "narranexus-plugin-skills" },
+    { name = "narranexus-plugin-social-network" },
+    { name = "narranexus-plugin-teams" },
+    { name = "narranexus-plugin-turn" },
+    { name = "narranexus-plugin-ui" },
+    { name = "narranexus-sdk" },
+    { name = "numpy" },
+    { name = "openai" },
+    { name = "openai-agents" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pyjwt" },
+    { name = "python-magic" },
+    { name = "pyyaml" },
+    { name = "regex" },
+    { name = "slack-sdk" },
+    { name = "sse-starlette" },
+    { name = "tiktoken" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+channels-lark = [
+    { name = "lark-oapi" },
+]
+plugins = [
+    { name = "claude-agent-sdk" },
+    { name = "openai-codex" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "griffe" },
+    { name = "hatchling" },
+    { name = "import-linter" },
+    { name = "packaging" },
+    { name = "pillow" },
+    { name = "psutil" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9.0,<4" },
+    { name = "aiomysql", specifier = ">=0.3.2,<1" },
+    { name = "aiosqlite", specifier = ">=0.22.1,<1" },
+    { name = "anthropic", specifier = ">=0.72.0,<1" },
+    { name = "bcrypt", specifier = ">=5.0.0,<6" },
+    { name = "boto3", specifier = ">=1.34.0,<2" },
+    { name = "claude-agent-sdk", marker = "extra == 'plugins'", specifier = "~=0.1.43" },
+    { name = "croniter", specifier = ">=6.0.0,<7" },
+    { name = "cryptography", specifier = ">=42.0.0,<47" },
+    { name = "ddgs", specifier = ">=9.0.0,<10" },
+    { name = "discord-py", specifier = ">=2.4.0,<3" },
+    { name = "fastapi", specifier = ">=0.115.0,<1" },
+    { name = "fastmcp", specifier = ">=2.14.1,<3" },
+    { name = "google-genai", specifier = ">=1.0.0,<2" },
+    { name = "httpx", extras = ["socks"], specifier = ">=0.28.1,<1" },
+    { name = "lark-oapi", specifier = ">=1.4.0,<2.0.0" },
+    { name = "lark-oapi", marker = "extra == 'channels-lark'", specifier = ">=1.4.0,<2.0.0" },
+    { name = "litellm", specifier = ">=1.94.0,<2" },
+    { name = "loguru", specifier = ">=0.7.3,<1" },
+    { name = "matrix-nio", specifier = ">=0.25.0,<1" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.20.0,<2" },
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-plugin-auth-local", editable = "plugins/builtin.auth.local" },
+    { name = "narranexus-plugin-auth-netmind", editable = "plugins/builtin.auth.netmind" },
+    { name = "narranexus-plugin-awareness", editable = "plugins/builtin.awareness" },
+    { name = "narranexus-plugin-basic-info", editable = "plugins/builtin.basic_info" },
+    { name = "narranexus-plugin-browser", editable = "plugins/builtin.browser" },
+    { name = "narranexus-plugin-channels-discord", editable = "plugins/builtin.channels.discord" },
+    { name = "narranexus-plugin-channels-lark", editable = "plugins/builtin.channels.lark" },
+    { name = "narranexus-plugin-channels-narramessenger", editable = "plugins/builtin.channels.narramessenger" },
+    { name = "narranexus-plugin-channels-slack", editable = "plugins/builtin.channels.slack" },
+    { name = "narranexus-plugin-channels-telegram", editable = "plugins/builtin.channels.telegram" },
+    { name = "narranexus-plugin-channels-wechat", editable = "plugins/builtin.channels.wechat" },
+    { name = "narranexus-plugin-chat", editable = "plugins/builtin.chat" },
+    { name = "narranexus-plugin-common-tools", editable = "plugins/builtin.common_tools" },
+    { name = "narranexus-plugin-frameworks-claude-code", editable = "plugins/builtin.frameworks.claude_code" },
+    { name = "narranexus-plugin-frameworks-codex-cli", editable = "plugins/builtin.frameworks.codex_cli" },
+    { name = "narranexus-plugin-frameworks-nexus-power", editable = "plugins/builtin.frameworks.nexus_power" },
+    { name = "narranexus-plugin-general-memory", editable = "plugins/builtin.general_memory" },
+    { name = "narranexus-plugin-home-assistant", editable = "plugins/builtin.home_assistant" },
+    { name = "narranexus-plugin-job", editable = "plugins/builtin.job" },
+    { name = "narranexus-plugin-llm-clients", editable = "plugins/builtin.llm_clients" },
+    { name = "narranexus-plugin-memory-kinds", editable = "plugins/builtin.memory_kinds" },
+    { name = "narranexus-plugin-message-bus", editable = "plugins/builtin.message_bus" },
+    { name = "narranexus-plugin-nexus-plugins-module", editable = "plugins/builtin.nexus_plugins_module" },
+    { name = "narranexus-plugin-prompts", editable = "plugins/builtin.prompts" },
+    { name = "narranexus-plugin-providers", editable = "plugins/builtin.providers" },
+    { name = "narranexus-plugin-skills", editable = "plugins/builtin.skills" },
+    { name = "narranexus-plugin-social-network", editable = "plugins/builtin.social_network" },
+    { name = "narranexus-plugin-teams", editable = "plugins/builtin.teams" },
+    { name = "narranexus-plugin-turn", editable = "plugins/builtin.turn" },
+    { name = "narranexus-plugin-ui", editable = "plugins/builtin.ui" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+    { name = "numpy", specifier = ">=1.26.0,<3" },
+    { name = "openai", specifier = ">=2.7.1,<3" },
+    { name = "openai-agents", specifier = ">=0.19.1,<1" },
+    { name = "openai-codex", marker = "extra == 'plugins'", specifier = ">=0.1.0b3,<0.2" },
+    { name = "pydantic", specifier = ">=2.12.3,<3" },
+    { name = "pydantic-settings", specifier = ">=2.0.0,<3" },
+    { name = "pyjwt", specifier = ">=2.10.1,<3" },
+    { name = "python-magic", specifier = ">=0.4.27,<1" },
+    { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "regex", specifier = ">=2024.0.0" },
+    { name = "slack-sdk", specifier = ">=3.27.0,<4" },
+    { name = "sse-starlette", specifier = ">=2.2.0,<4" },
+    { name = "tiktoken", specifier = ">=0.13.0,<1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0,<1" },
+    { name = "websockets", specifier = ">=15.0.1,<16" },
+]
+provides-extras = ["plugins", "channels-lark"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "griffe", specifier = ">=1.5,<3" },
+    { name = "hatchling", specifier = ">=1.27.0,<2" },
+    { name = "import-linter", specifier = ">=2.0,<3" },
+    { name = "packaging", specifier = ">=25.0,<26" },
+    { name = "pillow", specifier = ">=12.2.0,<13" },
+    { name = "psutil", specifier = ">=7.2.2,<8" },
+    { name = "pyright", specifier = ">=1.1.390,<2" },
+    { name = "pytest", specifier = ">=9.0.1,<10" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0,<2" },
+    { name = "ruff", specifier = ">=0.8.0,<1" },
+]
+
+[[package]]
+name = "narranexus-contracts"
+version = "1.15.0"
+source = { editable = "packages/narranexus-contracts" }
+
+[[package]]
+name = "narranexus-plugin-auth-local"
+version = "1.0.0"
+source = { editable = "plugins/builtin.auth.local" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+
+[[package]]
+name = "narranexus-plugin-auth-netmind"
+version = "1.0.0"
+source = { editable = "plugins/builtin.auth.netmind" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+
+[[package]]
+name = "narranexus-plugin-awareness"
+version = "1.0.0"
+source = { editable = "plugins/builtin.awareness" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-basic-info"
+version = "1.0.0"
+source = { editable = "plugins/builtin.basic_info" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-browser"
+version = "1.0.0"
+source = { editable = "plugins/builtin.browser" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-discord"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.discord" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-lark"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.lark" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.optional-dependencies]
+full = [
+    { name = "lark-oapi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "lark-oapi", marker = "extra == 'full'", specifier = ">=1.4.0,<2.0.0" },
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-narramessenger"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.narramessenger" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-slack"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.slack" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-telegram"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.telegram" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-channels-wechat"
+version = "1.0.0"
+source = { editable = "plugins/builtin.channels.wechat" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-chat"
+version = "1.0.0"
+source = { editable = "plugins/builtin.chat" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-common-tools"
+version = "1.0.0"
+source = { editable = "plugins/builtin.common_tools" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-frameworks-claude-code"
+version = "1.0.0"
+source = { editable = "plugins/builtin.frameworks.claude_code" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-frameworks-codex-cli"
+version = "1.0.0"
+source = { editable = "plugins/builtin.frameworks.codex_cli" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-frameworks-nexus-power"
+version = "1.0.0"
+source = { editable = "plugins/builtin.frameworks.nexus_power" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-general-memory"
+version = "1.0.0"
+source = { editable = "plugins/builtin.general_memory" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-home-assistant"
+version = "1.0.0"
+source = { editable = "plugins/builtin.home_assistant" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-job"
+version = "1.0.0"
+source = { editable = "plugins/builtin.job" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-llm-clients"
+version = "1.0.0"
+source = { editable = "plugins/builtin.llm_clients" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-memory-kinds"
+version = "1.0.0"
+source = { editable = "plugins/builtin.memory_kinds" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-message-bus"
+version = "1.0.0"
+source = { editable = "plugins/builtin.message_bus" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-nexus-plugins-module"
+version = "1.0.0"
+source = { editable = "plugins/builtin.nexus_plugins_module" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-prompts"
+version = "1.0.0"
+source = { editable = "plugins/builtin.prompts" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+
+[[package]]
+name = "narranexus-plugin-providers"
+version = "1.0.0"
+source = { editable = "plugins/builtin.providers" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-skills"
+version = "1.0.0"
+source = { editable = "plugins/builtin.skills" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-social-network"
+version = "1.0.0"
+source = { editable = "plugins/builtin.social_network" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-teams"
+version = "1.0.0"
+source = { editable = "plugins/builtin.teams" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+
+[[package]]
+name = "narranexus-plugin-turn"
+version = "1.0.0"
+source = { editable = "plugins/builtin.turn" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+provides-extras = ["full"]
+
+[[package]]
+name = "narranexus-plugin-ui"
+version = "1.0.0"
+source = { editable = "plugins/builtin.ui" }
+dependencies = [
+    { name = "narranexus-contracts" },
+    { name = "narranexus-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "narranexus-contracts", editable = "packages/narranexus-contracts" },
+    { name = "narranexus-sdk", editable = "packages/narranexus-sdk" },
+]
+
+[[package]]
+name = "narranexus-sdk"
+version = "1.15.0"
+source = { editable = "packages/narranexus-sdk" }
+dependencies = [
+    { name = "narranexus-contracts" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "narranexus-contracts", editable = "packages/narranexus-contracts" }]
+
+[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1982,21 +2795,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
-]
-
-[[package]]
-name = "posthog"
-version = "7.18.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "backoff" },
-    { name = "distro" },
-    { name = "requests" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b2/56/49d06b64baf270f8ec7fdb9352eaf2469167fcf0a1cbd2facc9335ab52fb/posthog-7.18.1.tar.gz", hash = "sha256:a4a3496448aa2bc4e13880daab205d11c13f8a537570662dcf9e5ecef3696ca1", size = 231652, upload-time = "2026-06-10T14:22:28.434Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b9/c5/0db39bdf91ae2e473ba139568ed24d631e87caac6c175f466d06eedc8747/posthog-7.18.1-py3-none-any.whl", hash = "sha256:54797ae8767911dfd83541f69a9e4fda65e100cb77dc0cf093fd98a3b84916a6", size = 270818, upload-time = "2026-06-10T14:22:26.849Z" },
 ]
 
 [[package]]
@@ -2471,6 +3269,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-magic"
+version = "0.4.27"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/da/db/0b3e28ac047452d079d375ec6798bf76a036a08182dbb39ed38116a49130/python-magic-0.4.27.tar.gz", hash = "sha256:c1ba14b08e4a5f5c31a302b7721239695b2f0f058d125bd5ce1ee36b9d9d3c3b", size = 14677, upload-time = "2022-06-07T20:16:59.508Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6c/73/9f872cb81fc5c3bb48f7227872c28975f998f3e7c2b1c16e95e6432bbb90/python_magic-0.4.27-py2.py3-none-any.whl", hash = "sha256:c212960ad306f700aa0d01e5d7a325d20548ff97eb9920dcd29513174f0294d3", size = 13840, upload-time = "2022-06-07T20:16:57.763Z" },
+]
+
+[[package]]
 name = "python-multipart"
 version = "0.0.20"
 source = { registry = "https://pypi.org/simple" }
@@ -2822,8 +3629,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography" },
-    { name = "jeepney" },
+    { name = "cryptography", marker = "sys_platform != 'darwin'" },
+    { name = "jeepney", marker = "sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
@@ -3232,105 +4039,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/79/d9/7cfd5a312760ac4dd8bf0184a6ee9e43c33e47f3dadc303032ce012b8fa3/wrapt-1.17.3-cp314-cp314t-win_amd64.whl", hash = "sha256:73d496de46cd2cdbdbcce4ae4bcdb4afb6a11234a1df9c085249d55166b95116", size = 41334, upload-time = "2025-08-12T05:53:14.178Z" },
     { url = "https://files.pythonhosted.org/packages/46/78/10ad9781128ed2f99dbc474f43283b13fea8ba58723e98844367531c18e9/wrapt-1.17.3-cp314-cp314t-win_arm64.whl", hash = "sha256:f38e60678850c42461d4202739f9bf1e3a737c7ad283638251e79cc49effb6b6", size = 38471, upload-time = "2025-08-12T05:52:57.784Z" },
     { url = "https://files.pythonhosted.org/packages/1f/f6/a933bd70f98e9cf3e08167fc5cd7aaaca49147e48411c0bd5ae701bb2194/wrapt-1.17.3-py3-none-any.whl", hash = "sha256:7171ae35d2c33d326ac19dd8facb1e82e5fd04ef8c6c0e394d7af55a55051c22", size = 23591, upload-time = "2025-08-12T05:53:20.674Z" },
-]
-
-[[package]]
-name = "xyz-agent-context"
-version = "1.15.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "aiomysql" },
-    { name = "aiosqlite" },
-    { name = "anthropic" },
-    { name = "bcrypt" },
-    { name = "boto3" },
-    { name = "claude-agent-sdk" },
-    { name = "croniter" },
-    { name = "cryptography" },
-    { name = "ddgs" },
-    { name = "discord-py" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "google-genai" },
-    { name = "httpx", extra = ["socks"] },
-    { name = "lark-oapi" },
-    { name = "litellm" },
-    { name = "loguru" },
-    { name = "matrix-nio" },
-    { name = "mcp", extra = ["cli"] },
-    { name = "numpy" },
-    { name = "openai" },
-    { name = "openai-agents" },
-    { name = "openai-codex" },
-    { name = "posthog" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pyjwt" },
-    { name = "slack-sdk" },
-    { name = "sse-starlette" },
-    { name = "tiktoken" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "websockets" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "hatchling" },
-    { name = "pillow" },
-    { name = "psutil" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9.0" },
-    { name = "aiomysql", specifier = ">=0.3.2" },
-    { name = "aiosqlite", specifier = ">=0.20.0" },
-    { name = "anthropic", specifier = ">=0.72.0" },
-    { name = "bcrypt", specifier = ">=5.0.0" },
-    { name = "boto3", specifier = ">=1.34.0" },
-    { name = "claude-agent-sdk", specifier = "~=0.1.43" },
-    { name = "croniter", specifier = ">=6.0.0" },
-    { name = "cryptography", specifier = ">=42.0.0" },
-    { name = "ddgs", specifier = ">=9.0.0" },
-    { name = "discord-py", specifier = ">=2.4.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "fastmcp", specifier = ">=2.14.1" },
-    { name = "google-genai", specifier = ">=1.0.0" },
-    { name = "httpx", extras = ["socks"] },
-    { name = "lark-oapi", specifier = ">=1.4.0,<2.0.0" },
-    { name = "litellm", specifier = ">=1.94.0,<2" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "matrix-nio", specifier = ">=0.25.0" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.20.0" },
-    { name = "numpy", specifier = ">=1.26.0" },
-    { name = "openai", specifier = ">=2.7.1" },
-    { name = "openai-agents", specifier = ">=0.19.1" },
-    { name = "openai-codex", specifier = ">=0.1.0b3,<0.2" },
-    { name = "posthog", specifier = ">=7.18.0" },
-    { name = "pydantic", specifier = ">=2.12.3" },
-    { name = "pydantic-settings", specifier = ">=2.0.0" },
-    { name = "pyjwt", specifier = ">=2.10.1" },
-    { name = "slack-sdk", specifier = ">=3.27.0" },
-    { name = "sse-starlette", specifier = ">=2.2.0" },
-    { name = "tiktoken", specifier = ">=0.13.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
-    { name = "websockets", specifier = ">=15.0.1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "hatchling", specifier = ">=1.27.0" },
-    { name = "pillow", specifier = ">=12.2.0" },
-    { name = "psutil", specifier = ">=7.2.2" },
-    { name = "pyright", specifier = ">=1.1.390" },
-    { name = "pytest", specifier = ">=9.0.1" },
-    { name = "pytest-asyncio", specifier = ">=1.3.0" },
-    { name = "ruff", specifier = ">=0.8.0" },
 ]
 
 [[package]]

@@ -31,8 +31,8 @@ const strengthLabelKey: Record<StrengthLevel, string> = {
 };
 
 const strengthText: Record<StrengthLevel, string> = {
-  high: 'text-[var(--color-green-500)]',
-  medium: 'text-[var(--color-yellow-500)]',
+  high: 'text-[var(--color-success)]',
+  medium: 'text-[var(--color-warning)]',
   low: 'text-[var(--text-tertiary)]',
 };
 

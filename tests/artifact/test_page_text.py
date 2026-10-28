@@ -13,7 +13,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from xyz_agent_context.artifact._artifact_impl.page_text import (
+from narranexus.platform.artifact._artifact_impl.page_text import (
     fetch_page_text,
     html_to_text,
 )
@@ -140,7 +140,7 @@ async def test_fetch_stops_reading_at_byte_cap():
     # Prove the BODY read stops at _MAX_FETCH_BYTES: a unique marker placed far
     # past the cap must NOT appear in the extracted text (if we read the whole
     # body it would). Uses an async byte stream so aiter_bytes is exercised.
-    from xyz_agent_context.artifact._artifact_impl import page_text as pt
+    from narranexus.platform.artifact._artifact_impl import page_text as pt
 
     body = b"<p>" + (b"x" * (pt._MAX_FETCH_BYTES + 500_000)) + b" UNIQUE_TAIL_MARKER</p>"
 

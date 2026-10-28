@@ -18,6 +18,7 @@ import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores';
 import { fetchArtifactText, fetchArtifactBlobUrl } from '@/services/artifactsApi';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { ARTIFACT_KINDS, useRegistryEntries } from '@/platform/registries';
 
 interface Props {
   artifact: Artifact;
@@ -25,8 +26,9 @@ interface Props {
 
 export default function ArtifactPreviewCard({ artifact }: Props) {
   const { t } = useTranslation();
-  const setActive = useArtifactStore((s) => s.setActive);
-  const setCollapsed = useArtifactStore((s) => s.setCollapsed);
+  // restoreTab, not setActive: the target may be minimized, and an active
+  // pointer on a hidden tab blanks the column (0802 ①⑤ family).
+  const restoreTab = useArtifactStore((s) => s.restoreTab);
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
@@ -37,10 +39,15 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  void useRegistryEntries(ARTIFACT_KINDS);
+  const descriptor = ARTIFACT_KINDS.get(artifact.kind);
+  const preview = descriptor?.preview ?? 'none';
+  const placeholderKey = descriptor?.previewPlaceholderKey;
+
   useEffect(() => {
     if (!url) return;
-    const isText = artifact.kind === 'text/csv' || artifact.kind === 'text/markdown';
-    const isImage = artifact.kind === 'image/png' || artifact.kind === 'image/jpeg';
+    const isText = preview === 'csv-head' || preview === 'md-head';
+    const isImage = preview === 'image';
     if (!isText && !isImage) return;
 
     let cancelled = false;
@@ -60,7 +67,7 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
         } else {
           const t = await fetchArtifactText(url);
           if (cancelled) return;
-          if (artifact.kind === 'text/csv') {
+          if (preview === 'csv-head') {
             setCsvHead(t.split(/\r?\n/).slice(0, 5).map((row) => row.split(',')));
           } else {
             setMdHead(t.slice(0, 200) + (t.length > 200 ? '…' : ''));
@@ -75,29 +82,28 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
       cancelled = true;
       if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl);
     };
-  }, [artifact.kind, url]);
+  }, [preview, url]);
 
   const open = () => {
-    setCollapsed(false);
-    setActive(artifact.artifact_id);
+    restoreTab(artifact.artifact_id);
   };
 
   return (
     <button
       onClick={open}
-      className="w-full max-w-md flex flex-col gap-2 p-3 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-secondary)] text-left"
+      className="w-full max-w-md flex flex-col gap-2 p-3 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--nm-paper-warm)] text-left"
     >
       <div className="text-xs uppercase opacity-60">{artifact.kind}</div>
       <div className="text-sm font-semibold">{artifact.title}</div>
       <div className="min-h-[80px]">
-        {(artifact.kind === 'image/png' || artifact.kind === 'image/jpeg') && imageSrc && (
+        {preview === 'image' && imageSrc && (
           <img
             src={imageSrc}
             alt={artifact.title}
             className="max-h-24 object-contain"
           />
         )}
-        {artifact.kind === 'text/csv' && csvHead && (
+        {preview === 'csv-head' && csvHead && (
           <table className="text-xs border-collapse">
             <tbody>
               {csvHead.map((row, i) => (
@@ -112,17 +118,11 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
             </tbody>
           </table>
         )}
-        {artifact.kind === 'text/markdown' && mdHead && (
+        {preview === 'md-head' && mdHead && (
           <p className="text-xs opacity-80 whitespace-pre-line">{mdHead}</p>
         )}
-        {artifact.kind === 'application/vnd.echarts+json' && (
-          <p className="text-xs opacity-60">{t('artifacts.preview.chart')}</p>
-        )}
-        {artifact.kind === 'text/html' && (
-          <p className="text-xs opacity-60">{t('artifacts.preview.html')}</p>
-        )}
-        {artifact.kind === 'application/pdf' && (
-          <p className="text-xs opacity-60">{t('artifacts.preview.pdf')}</p>
+        {preview === 'placeholder' && placeholderKey && (
+          <p className="text-xs opacity-60">{t(placeholderKey)}</p>
         )}
       </div>
       {previewError && (

@@ -22,7 +22,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.agent_framework.llm.transcription import TranscriptionService
+from narranexus.platform.agent_framework.llm.transcription import TranscriptionService
 
 
 router = APIRouter()

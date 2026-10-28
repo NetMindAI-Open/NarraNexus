@@ -9,7 +9,7 @@
 
 # Importing the arena service registers the "arena" profile as a side effect.
 import backend.integrations.arena.arena_provisioning_service  # noqa: F401
-from xyz_agent_context.bootstrap.profiles import (
+from narranexus.platform.bootstrap.profiles import (
     BootstrapContext,
     DEFAULT_AUTO_DELETE_AFTER_EVENTS,
     auto_delete_threshold_from_meta,
@@ -30,9 +30,24 @@ def test_registry_has_builtins_and_arena():
     assert get_profile(None).name == "default"
 
 
-def test_default_profile_renders_generic_first_run():
+def test_default_profile_greets_by_name_once_the_agent_has_one():
+    """A blank row (placeholder name) gets the "who am I" opener; a named agent
+    (the creation studio names every agent) gets the named opener — it must
+    never introduce itself with "I don't have a name yet"."""
+    from narranexus.platform.bootstrap.template import BOOTSTRAP_GREETING, PLACEHOLDER_AGENT_NAME
+
     p = get_profile("default")
-    assert "woke up" in p.greeting(_ctx())
+    assert p.greeting(BootstrapContext(agent_id="a", user_id="u", agent_name=PLACEHOLDER_AGENT_NAME)) == BOOTSTRAP_GREETING
+    assert p.greeting(BootstrapContext(agent_id="a", user_id="u", agent_name=None)) == BOOTSTRAP_GREETING
+    named = p.greeting(_ctx())
+    assert "Name" in named and "don't have a name" not in named
+
+
+def test_default_profile_renders_generic_first_run():
+    from narranexus.platform.bootstrap.template import PLACEHOLDER_AGENT_NAME
+
+    p = get_profile("default")
+    assert "woke up" in p.greeting(BootstrapContext(agent_id="agent_x", user_id="u", agent_name=PLACEHOLDER_AGENT_NAME))
     assert p.bootstrap_md(_ctx()).startswith("# Bootstrap")
     # B: configurable threshold, default value is 3
     assert p.auto_delete_after_events == DEFAULT_AUTO_DELETE_AFTER_EVENTS == 3

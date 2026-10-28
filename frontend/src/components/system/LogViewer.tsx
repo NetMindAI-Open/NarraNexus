@@ -26,7 +26,7 @@ interface LogViewerProps {
 const SERVICE_COLORS: Record<string, string> = {
   backend: 'text-blue-400',
   mcp: 'text-purple-400',
-  poller: 'text-[var(--color-green-500)]',
+  poller: 'text-[var(--color-success)]',
   frontend: 'text-cyan-400',
 };
 
@@ -167,7 +167,7 @@ export function LogViewer({
           </p>
         ) : (
           visibleLogs.map((entry, i) => (
-            <div key={i} className="flex gap-2 hover:bg-[var(--bg-secondary)]/30 px-1 rounded">
+            <div key={i} className="flex gap-2 hover:bg-[var(--nm-paper-warm)] px-1 rounded">
               <span className="text-[var(--text-tertiary)] shrink-0 select-none">
                 {formatLogTimestamp(entry.timestamp)}
               </span>

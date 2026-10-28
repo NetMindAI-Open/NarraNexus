@@ -22,16 +22,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_FETCH_FAILED,
     EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
 )
-from xyz_agent_context.module.lark_module._lark_credential_manager import (
+from narranexus_plugins.lark_module._lark_credential_manager import (
     LarkCredential,
 )
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
-from xyz_agent_context.schema.attachment_schema import AttachmentCategory
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
+from narranexus.platform.schema.attachment_schema import AttachmentCategory
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -255,7 +255,7 @@ async def test_fetch_attachments_downloads_and_persists_pdf(monkeypatch, tmp_pat
 
     # Mock _persist_attachment to avoid filesystem writes + workspace setup.
     async def fake_persist(*, agent_id, raw_bytes, original_name, mime_hint):
-        from xyz_agent_context.schema.attachment_schema import (
+        from narranexus.platform.schema.attachment_schema import (
             Attachment, AttachmentCategory,
         )
         return Attachment(
@@ -286,6 +286,7 @@ async def test_fetch_attachments_oversized_pre_check_audits_and_skips(monkeypatc
     # Force a tiny cap.
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 1024)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "1024")  # workers topology: no WebHost
 
     parsed = t.parse_event(
         _raw(
@@ -318,6 +319,7 @@ async def test_fetch_attachments_post_download_cap_audits_and_skips(monkeypatch)
 
     from backend.config import settings as backend_settings
     monkeypatch.setattr(backend_settings, "max_upload_bytes", 100)
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "100")  # workers topology: no WebHost
 
     parsed = t.parse_event(
         _raw(
@@ -427,13 +429,13 @@ async def test_attachments_wired_into_trigger_extra_data(monkeypatch, tmp_path):
     silently break the attachment marker injection in chat_history.
     """
     from dataclasses import dataclass
-    from xyz_agent_context.schema.attachment_schema import (
+    from narranexus.platform.schema.attachment_schema import (
         Attachment, AttachmentCategory,
     )
-    from xyz_agent_context.schema.parsed_message import ParsedMessage
+    from narranexus.platform.schema.parsed_message import ParsedMessage
 
     # Redirect workspace so we don't write outside tmp.
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)
     )
@@ -463,8 +465,8 @@ async def test_attachments_wired_into_trigger_extra_data(monkeypatch, tmp_path):
 
     # The trigger runs through the AgentRuntimeClient seam; patch the
     # sources its lazy imports resolve — lark_trigger holds no local aliases.
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -473,7 +475,7 @@ async def test_attachments_wired_into_trigger_extra_data(monkeypatch, tmp_path):
         return "user_test_owner"
 
     monkeypatch.setattr(
-        "xyz_agent_context.channel.channel_trigger_base.ChannelTriggerBase._resolve_agent_owner",
+        "narranexus.platform.channel.channel_trigger_base.ChannelTriggerBase._resolve_agent_owner",
         _fake_resolve_owner,
     )
 
@@ -546,9 +548,9 @@ async def test_empty_attachments_does_NOT_set_trigger_extra_data_key(
     None and chat_history flows text-only.
     """
     from dataclasses import dataclass
-    from xyz_agent_context.schema.parsed_message import ParsedMessage
+    from narranexus.platform.schema.parsed_message import ParsedMessage
 
-    from xyz_agent_context import settings as settings_mod
+    from narranexus.platform import settings as settings_mod
     monkeypatch.setattr(
         settings_mod.settings, "base_working_path", str(tmp_path)
     )
@@ -578,8 +580,8 @@ async def test_empty_attachments_does_NOT_set_trigger_extra_data_key(
     # The trigger now runs through the AgentRuntimeClient seam; patch the
     # sources its lazy imports resolve (agent_runtime.AgentRuntime and
     # run_collector.collect_run) — lark_trigger holds no local aliases.
-    import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
-    import xyz_agent_context.agent_runtime.run_collector as rc_mod
+    import narranexus.platform.agent_runtime.agent_runtime as ar_mod
+    import narranexus.platform.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
 
@@ -587,7 +589,7 @@ async def test_empty_attachments_does_NOT_set_trigger_extra_data_key(
         return "user_test_owner"
 
     monkeypatch.setattr(
-        "xyz_agent_context.channel.channel_trigger_base.ChannelTriggerBase._resolve_agent_owner",
+        "narranexus.platform.channel.channel_trigger_base.ChannelTriggerBase._resolve_agent_owner",
         _fake_resolve_owner,
     )
 

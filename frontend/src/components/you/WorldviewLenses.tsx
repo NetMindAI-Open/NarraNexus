@@ -112,7 +112,7 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
             {t('you.worldview.summaryTitle')}
           </span>
         </div>
-        <p className="text-[12.5px] leading-relaxed text-[var(--text-secondary)]">
+        <p className="text-[12px] leading-relaxed text-[var(--text-secondary)]">
           {lenses.length === 1
             ? t('you.worldview.summaryBody', { count: lenses.length })
             : t('you.worldview.summaryBodyPlural', { count: lenses.length })}
@@ -171,7 +171,7 @@ export function WorldviewLenses({ search = '' }: { search?: string }) {
                   <div className="mb-1 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.13em] text-[var(--color-carbon)]">
                     {t('you.worldview.seesYouAs')}
                   </div>
-                  <p className="text-[12.5px] leading-relaxed text-[var(--text-primary)] mb-2.5">{l.sees_you}</p>
+                  <p className="text-[12px] leading-relaxed text-[var(--text-primary)] mb-2.5">{l.sees_you}</p>
 
                   {l.worldview.length > 0 && (
                     <>

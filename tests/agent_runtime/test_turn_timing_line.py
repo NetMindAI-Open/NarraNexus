@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from xyz_agent_context.agent_runtime.agent_runtime import _turn_timing_line
+from narranexus.platform.agent_runtime.steps import turn_timing_line
 
 _TIMING_RE = re.compile(
     r"^\[turn-timing\] agent=(?P<agent>\S+) event=(?P<event>\S+) "
@@ -26,7 +26,7 @@ _TIMING_RE = re.compile(
 
 
 def test_turn_timing_line_matches_the_grep_contract():
-    line = _turn_timing_line(
+    line = turn_timing_line(
         agent_id="agent_a", event_id="evt_1", source="chat",
         pre_s=0.128, setup_s=1.5, loop_s=42.0, persist_s=0.4,
         total_s=44.028, interrupted=False,
@@ -42,7 +42,7 @@ def test_turn_timing_line_matches_the_grep_contract():
 
 
 def test_turn_timing_line_interrupted_and_missing_event():
-    line = _turn_timing_line(
+    line = turn_timing_line(
         agent_id="a", event_id="-", source="message_bus",
         pre_s=0.0, setup_s=0.0, loop_s=0.0, persist_s=0.0,
         total_s=0.0, interrupted=True,
@@ -51,3 +51,21 @@ def test_turn_timing_line_interrupted_and_missing_event():
     assert m, line
     assert m["event"] == "-"
     assert m["interrupted"] == "True"
+
+
+def test_turn_timing_line_profile_marker():
+    """Fast-mode turns append ` profile=<name>`; normal turns stay
+    byte-identical to the pinned contract above (no trailing field)."""
+    base = turn_timing_line(
+        agent_id="a", event_id="e", source="chat",
+        pre_s=0.1, setup_s=0.2, loop_s=0.3, persist_s=0.4,
+        total_s=1.0, interrupted=False,
+    )
+    assert _TIMING_RE.match(base)  # unchanged without a profile
+
+    fast = turn_timing_line(
+        agent_id="a", event_id="e", source="chat",
+        pre_s=0.1, setup_s=0.2, loop_s=0.3, persist_s=0.4,
+        total_s=1.0, interrupted=False, profile="voice_fast",
+    )
+    assert fast == base + " profile=voice_fast"

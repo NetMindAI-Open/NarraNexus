@@ -24,12 +24,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.agent_runtime.run_collector import RunError
-from xyz_agent_context.module.lark_module.lark_trigger import (
+from narranexus.platform.agent_runtime.run_collector import RunError
+from narranexus_plugins.lark_module.lark_trigger import (
     LarkTrigger,
     format_lark_error_reply,
 )
-from xyz_agent_context.schema.runtime_message import MessageType
+from narranexus.platform.schema.runtime_message import MessageType
 
 
 # -------- pure formatter --------------------------------------------------
@@ -108,11 +108,11 @@ class _ErrorRuntime:
 async def test_build_and_run_agent_sends_friendly_error_reply(monkeypatch):
     """On ERROR, the trigger must call lark-cli send_message with a
     user-friendly text and return the same text."""
-    from xyz_agent_context.module.lark_module import lark_trigger as lt_mod
+    from narranexus_plugins.lark_module import lark_trigger as lt_mod
 
     # 1) Stub out AgentRuntime so we don't need a real DB / LLM / MCP.
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+        "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
         lambda **_kw: _ErrorRuntime(
             err_type="NoProviderConfiguredError",
             err_msg="quota exhausted",
@@ -155,10 +155,10 @@ async def test_build_and_run_agent_sends_friendly_error_reply(monkeypatch):
 async def test_build_and_run_agent_swallows_lark_send_failure(monkeypatch):
     """If the error-reply itself fails to send, _build_and_run_agent must
     still return the friendly text so the inbox row is written correctly."""
-    from xyz_agent_context.module.lark_module import lark_trigger as lt_mod
+    from narranexus_plugins.lark_module import lark_trigger as lt_mod
 
     monkeypatch.setattr(
-        "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
+        "narranexus.platform.agent_runtime.agent_runtime.AgentRuntime",
         lambda **_kw: _ErrorRuntime(
             err_type="LLMConfigNotConfigured",
             err_msg="'agent' slot missing",

@@ -10,7 +10,7 @@ import json
 import pytest
 
 from backend.migrations.m0001_unified_memory_backfill import MIGRATION
-import xyz_agent_context.memory.specs  # noqa: F401 — registers kinds
+import narranexus_plugins.memory_kinds.specs  # noqa: F401 — registers kinds
 
 AGENT = "agent_mig01"
 INST = "inst_mig01"

@@ -15,13 +15,11 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.module.slack_module import _slack_credential_manager as cm_mod
-from xyz_agent_context.module.slack_module._slack_credential_manager import (
+from narranexus_plugins.slack_module import _slack_credential_manager as cm_mod
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredentialManager,
-    _decode_token,
-    _encode_token,
 )
-from xyz_agent_context.module.slack_module.slack_sdk_client import SlackSDKError
+from narranexus_plugins.slack_module.slack_sdk_client import SlackSDKError
 
 
 class _FakeSlackClient:
@@ -74,19 +72,8 @@ def _patch_auth_fail(monkeypatch: pytest.MonkeyPatch, code: str) -> None:
     )
 
 
-# ── Encoding round-trip ────────────────────────────────────────────────
 
 
-def test_encode_decode_round_trip():
-    raw = "xoxb-12345-secretpayload"
-    encoded = _encode_token(raw)
-    assert encoded != raw
-    assert _decode_token(encoded) == raw
-
-
-def test_encode_empty_returns_empty():
-    assert _encode_token("") == ""
-    assert _decode_token("") == ""
 
 
 # ── bind() ─────────────────────────────────────────────────────────────
@@ -107,11 +94,11 @@ async def test_bind_valid_inserts_row_and_returns_team_metadata(
     assert result["data"]["bot_user_id"] == "U0BOT"
 
     # Row landed in DB and tokens are NOT plaintext at rest.
-    row = await db_client.get_one("channel_slack_credentials", {"agent_id": "agent_a"})
+    row = await db_client.get_one("channel_credentials", {"channel": "slack", "agent_id": "agent_a"})
     assert row is not None
-    assert row["bot_token_encoded"] != "xoxb-real-token"
-    assert row["app_token_encoded"] != "xapp-real-token"
-    assert _decode_token(row["bot_token_encoded"]) == "xoxb-real-token"
+    assert "xoxb-real-token" not in row["secret_json"]  # encrypted at rest
+    assert "xapp-real-token" not in row["secret_json"]  # encrypted at rest
+    assert (await mgr.get("agent_a")).bot_token == "xoxb-real-token"
 
 
 @pytest.mark.asyncio
@@ -126,7 +113,7 @@ async def test_bind_rejects_invalid_bot_token_prefix(
     assert result["success"] is False
     assert "xoxb-" in result["error"]
     # Nothing persisted
-    row = await db_client.get_one("channel_slack_credentials", {"agent_id": "agent_a"})
+    row = await db_client.get_one("channel_credentials", {"channel": "slack", "agent_id": "agent_a"})
     assert row is None
 
 
@@ -159,7 +146,7 @@ async def test_bind_propagates_auth_test_failure(
     assert "Bot Token" in result["error"] and (
         "invalid" in result["error"].lower() or "revoked" in result["error"].lower()
     )
-    row = await db_client.get_one("channel_slack_credentials", {"agent_id": "agent_a"})
+    row = await db_client.get_one("channel_credentials", {"channel": "slack", "agent_id": "agent_a"})
     assert row is None
 
 
@@ -173,9 +160,9 @@ async def test_bind_rebind_updates_existing_row(
     await mgr.bind("agent_a", "xoxb-first", "xapp-first")
     await mgr.bind("agent_a", "xoxb-second", "xapp-second")
 
-    rows = await db_client.get("channel_slack_credentials", {"agent_id": "agent_a"})
+    rows = await db_client.get("channel_credentials", {"channel": "slack", "agent_id": "agent_a"})
     assert len(rows) == 1
-    assert _decode_token(rows[0]["bot_token_encoded"]) == "xoxb-second"
+    assert (await mgr.get("agent_a")).bot_token == "xoxb-second"
 
 
 # ── get_public never returns tokens ────────────────────────────────────
@@ -219,7 +206,7 @@ async def test_unbind_removes_row(db_client, monkeypatch: pytest.MonkeyPatch):
 
     assert removed is True
     assert (
-        await db_client.get_one("channel_slack_credentials", {"agent_id": "agent_a"})
+        await db_client.get_one("channel_credentials", {"channel": "slack", "agent_id": "agent_a"})
         is None
     )
 
@@ -248,9 +235,7 @@ async def test_list_active_filters_disabled_rows(
     await mgr.bind("agent_on", "xoxb-on", "xapp-on")
     await mgr.bind("agent_off", "xoxb-off", "xapp-off")
     # Manually disable the second one
-    await db_client.update(
-        "channel_slack_credentials", {"agent_id": "agent_off"}, {"enabled": 0}
-    )
+    await mgr.set_enabled("agent_off", False)
 
     active = await mgr.list_active()
 

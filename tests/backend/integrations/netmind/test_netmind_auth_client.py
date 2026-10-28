@@ -12,7 +12,8 @@ httpx.MockTransport — no real network.
 Covers:
 - happy path: token accepted, identity fields extracted + normalised
 - request contract: header name is `token` (NOT Authorization), Bearer prefix
-- invalid token (4xx / success:false envelope) -> NetmindAuthError
+- invalid token (4xx / success:false envelope / Spring 500 naming a Shiro
+  authc exception — the shape NetMind really returns) -> NetmindAuthError
 - upstream trouble (network error / 5xx / malformed body) -> NetmindUpstreamError
 - dev-bypass: double switch (env + token prefix), never hits the network
 """
@@ -131,6 +132,108 @@ async def test_verify_token_5xx_with_success_false_is_auth_error():
 
     with pytest.raises(NetmindAuthError):
         await _client_with(handler).verify_token("garbage-jwt")
+
+
+# Captured live on 2026-09-08 (POST /user/balance, header `token: Bearer
+# <garbage>`, both userauth.protago-dev.com and auth-api.netmind.ai): NetMind
+# answers an invalid/expired/forged token with HTTP 500 and Spring Boot's
+# generic error page naming the Shiro authc exception. There is NO
+# {success:false} envelope in this shape — the only auth signal is the
+# `exception` class. GitHub #102 was exactly this being mapped to 502.
+_SHIRO_AUTH_500 = {
+    "timestamp": 1788926050436,
+    "status": 500,
+    "error": "Internal Server Error",
+    "exception": "org.apache.shiro.authc.AuthenticationException",
+    "message": (
+        "Authentication failed for token submission "
+        "[com.netmind.auth.shiro.JwtToken@3de4cb06].  Possible unexpected "
+        "error? (Typical or expected login exceptions should extend from "
+        "AuthenticationException)."
+    ),
+    "path": "/user/balance",
+}
+
+
+@pytest.mark.asyncio
+async def test_verify_token_shiro_authentication_500_is_auth_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json=_SHIRO_AUTH_500)
+
+    with pytest.raises(NetmindAuthError) as exc_info:
+        await _client_with(handler).verify_token("definitely-bogus-token-123")
+    message = str(exc_info.value)
+    assert "status=500" in message
+    assert "AuthenticationException" in message
+    assert "definitely-bogus-token-123" not in message
+
+
+@pytest.mark.asyncio
+async def test_verify_token_shiro_subclass_exception_is_auth_error():
+    # Shiro's concrete rejections (expired / incorrect credentials ...) all
+    # live under org.apache.shiro.authc — any of them is a bad token.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["exception"] = "org.apache.shiro.authc.ExpiredCredentialsException"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindAuthError):
+        await _client_with(handler).verify_token("expired-jwt")
+
+
+@pytest.mark.asyncio
+async def test_verify_token_base_authentication_exception_without_token_phrase_stays_upstream_error():
+    # Shiro wraps a Realm's OWN failures (its DB / user service down) in the
+    # same base class. Without the "token submission" phrase it is an outage,
+    # and an outage must not log every user out as "invalid token".
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["message"] = "Realm lookup failed: connection refused (user-service:8080)"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
+
+
+@pytest.mark.asyncio
+async def test_verify_token_unlisted_authc_class_stays_upstream_error():
+    # Only the explicit credential-verdict classes map to 401.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["exception"] = "org.apache.shiro.authc.pam.UnsupportedTokenException"
+        body["message"] = "no realm configured"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
+
+
+@pytest.mark.asyncio
+async def test_verify_token_unknown_authc_subclass_stays_upstream_error():
+    # An authc class outside the explicit credential-verdict set (a future
+    # Shiro release, a NetMind-specific subclass) must not be guessed as 401.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["exception"] = "org.apache.shiro.authc.SomeFutureAuthcException"
+        body["message"] = "Authentication failed for token submission [JwtToken@1]"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
+
+
+@pytest.mark.asyncio
+async def test_verify_token_spring_500_with_non_auth_exception_stays_upstream_error():
+    # Same Spring error page, but a genuine server bug — must stay 502 so a
+    # NetMind outage is never disguised as "your token is wrong".
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(_SHIRO_AUTH_500)
+        body["exception"] = "java.lang.NullPointerException"
+        body["message"] = "No message available"
+        return httpx.Response(500, json=body)
+
+    with pytest.raises(NetmindUpstreamError):
+        await _client_with(handler).verify_token("jwt-abc")
 
 
 @pytest.mark.asyncio

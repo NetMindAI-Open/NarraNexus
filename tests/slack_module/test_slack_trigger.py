@@ -18,13 +18,13 @@ from unittest.mock import AsyncMock
 import pytest
 from slack_sdk.errors import SlackApiError
 
-from xyz_agent_context.module.slack_module import slack_trigger as st_mod
-from xyz_agent_context.module.slack_module._slack_credential_manager import (
+from narranexus_plugins.slack_module import slack_trigger as st_mod
+from narranexus_plugins.slack_module._slack_credential_manager import (
     SlackCredential,
 )
-from xyz_agent_context.module.slack_module.slack_sdk_client import SlackSDKError
-from xyz_agent_context.module.slack_module.slack_trigger import SlackTrigger
-from xyz_agent_context.schema.parsed_message import ChatType
+from narranexus_plugins.slack_module.slack_sdk_client import SlackSDKError
+from narranexus_plugins.slack_module.slack_trigger import SlackTrigger
+from narranexus.platform.schema.parsed_message import ChatType
 
 
 def _cred(bot_user_id: str = "U0BOT") -> SlackCredential:

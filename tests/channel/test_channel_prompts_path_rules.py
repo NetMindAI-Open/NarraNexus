@@ -21,20 +21,29 @@ can change wording but must preserve the three guarantees.
 """
 from __future__ import annotations
 
-from xyz_agent_context.channel.channel_prompts import (
+from narranexus.platform.channel.channel_prompts import (
     CHANNEL_MESSAGE_EXECUTION_TEMPLATE,
+    ROOM_TYPE_GROUP,
+    communication_protocol_for,
 )
 
 
 def _rendered_for_lark() -> str:
     """Fill the template with Lark placeholders so we can inspect the
-    final prompt the agent would see."""
+    final prompt the agent would see.
+
+    ``communication_protocol`` became a required placeholder on
+    2026-08-06 when the protocol split into DM vs group variants — filled
+    the same way ``build_prompt`` fills it, so this fixture keeps
+    rendering the real prompt rather than a shape that no longer ships.
+    """
     return CHANNEL_MESSAGE_EXECUTION_TEMPLATE.format(
         channel_display_name="Lark",
         channel_key="lark",
         room_name="test-room",
         room_id="r1",
-        room_type="Group Room",
+        room_type=ROOM_TYPE_GROUP,
+        communication_protocol=communication_protocol_for(ROOM_TYPE_GROUP),
         sender_display_name="Alice",
         sender_id="u1",
         timestamp="2026-04-20T10:00:00",

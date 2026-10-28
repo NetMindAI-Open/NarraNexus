@@ -1,0 +1,15 @@
+{
+  "api": {
+    "stage_strategy": 0
+  },
+  "hosts": [
+    "backend",
+    "mcp",
+    "workers"
+  ],
+  "provides": {
+    "turn.pipeline.recall": [
+      "nxplugins.__PLUGIN_PKG__:RECALL_STRATEGIES"
+    ]
+  }
+}

@@ -125,6 +125,10 @@ canonical sources:
 
 ---
 
+### Plugin platform
+
+Feature code lives in `plugins/builtin.*` (one package per builtin, workspace members), the engine in `src/narranexus` (kernel, platform, hosts, cli, engine) with contracts and the SDK in `packages/`. The platform never imports a plugin (import-linter enforces it); plugins never import kernel internals (ruff TID251); contract changes go through `docs/API_POLICY.md` and the griffe gate. Docs: `docs/plugins/`, `docs/guides/`.
+
 ## 4. Quick start (for humans who want a sanity check)
 
 > **Two GitHub orgs, one project.** NarraNexus is developed at

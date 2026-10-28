@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-07-23
+last_verified: 2026-08-20
 stub: false
 ---
+
+## 2026-08-19 — collapsed 状态退役
+
+`collapsed`/`setCollapsed`/`COLLAPSED_KEY`(localStorage
+`artifact_column_collapsed`)删除——唯一写入者(列头折叠钮)v4 已删,唯一
+读者(sliver 分支)同轮删除,见 [[ArtifactColumn]]。残留的 localStorage 旧值
+无人再读,无迁移必要。
+
+## 2026-08-12 (r2 review) — active 收敛到单一 helper + 注册表数组化
+
+新增 `_pickVisibleActive(list, minimized, preferred)` 作为「谁是 active」的**单一真相**:remove + 两个 loader(loadForSession/loadPinned 各两分支)+ minimizeTab 全部过它,active 永不落在最小化 tab(此前 4 个 loader 写入点仍取 [0],刷新后配合 effectiveActiveId 从「显示错图」退化为「整列全白」——review Critical ①,治根因)。`chartInstances` 由单槽 `Record<id, T|null>` 改**数组** `Record<id, T[]>`:register 追加、unregister 按身份 filter、空则删键——修 modal 关闭后列内活实例被清空导致下载报 not ready(review ③);`|null` 死路径清除(铁律 #2)。upsert 的 focus 分支**不**走 helper(故意先取消最小化再聚焦)。
+
+## 2026-08-12 — 0802 前端包:resize/注册表/active 不变量(bug ①②⑤)
+
+`remove()` 新 active 过滤 minimizedTabIds(此前 list[0] 可指最小化 tab→整列空白),并顺带清 minimizedTabIds/chartInstances 该 id;新增 `unregisterChartInstance(id, instance)` 身份校验(只有当前 owner 能清槽);`minimizeTab`/`restoreTab` 补 `_promoteChartLru`(此前是唯二跳过 LRU 的路径,恢复到不在池里的 chart=无挂载空白)。
 
 ## 2026-07-23 — upsert focus option
 
@@ -99,3 +114,27 @@ Consumed by (future) `ArtifactColumn.tsx` and `ArtifactViewer.tsx`. The `collaps
 **`disconnectWs` nulls out `onmessage` and `onclose` before calling `ws.close()`.** This prevents the `onclose` handler from writing `{ _ws: null }` to the store again after `disconnectWs` has already done so — avoiding a redundant state update and a potential double-close race.
 
 **No reconnect logic.** If the WS drops mid-session (network blip), the store ends up with `_ws: null` and stops receiving push events. The next `connectWs(agentId)` call (triggered by the consumer when it detects stale state, or by a component re-mount) re-establishes the connection cleanly.
+
+## 2026-08-18 — `applyEvent`:store 的唯一实时输入
+
+后端推的 artifact_changed 事件在此落地(registered/updated/repointed→upsert,
+deleted→remove+清理)。**updated_at 单调守卫**:迟到/重放事件(≥ 已知时间戳)
+直接丢弃——重连时 event_stream 回放和全量拉会赛跑,守卫让顺序不再重要。
+永不抛(坏事件 console.error 后丢弃,打开时全量拉兜底)。registered 走
+upsert 新条目自动聚焦;updated/repointed 原地刷新不抢焦点(内容重载由
+updated_at 经 useArtifactRawUrl refreshKey 驱动)。loadPinned 的刷新自
+2026-08-18 拉 scope=context(自有 pinned ∪ team,与 agent 状态块同一可见
+面)——方法名保留,因为"加载该 agent 的面板"语义未变。文件头那句「tool_output
+frames parsed in ChatPanel」已过时,发现机制=事件+全量拉。
+
+## 2026-08-19 — editorDirtyIds(dirty 守卫的视觉层)
+
+编辑面 dirty 集合,TabStrip 圆点消费。内容安全**不**依赖它
+(localStorage 草稿层才是兜底),纯视觉。
+
+## 2026-08-20 — remove() 顺删编辑草稿键(#334 I8/r2 I5)
+
+本地删除与 `applyEvent('deleted')` 都经 remove(),一处覆盖两路。
+键模板/体积门的 owner 是 [[drafts]](lib/artifactEditing),store 只
+消费 `removeDraft`——**不 import hooks**(否则 React 进 zustand 模块
+图,store 纯函数测试变重)。

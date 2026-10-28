@@ -13,8 +13,8 @@ from datetime import datetime, timezone as dt_tz
 
 import pytest
 
-from xyz_agent_context.schema.job_schema import JobStatus
-from xyz_agent_context.module.job_module.job_recovery import pause_job, resume_job
+from narranexus.platform.schema.job_schema import JobStatus
+from narranexus_plugins.job_module.job_recovery import pause_job, resume_job
 
 SCHEDULED_TRIGGER = '{"cron":"0 8 * * *","timezone":"Asia/Shanghai"}'
 
@@ -55,6 +55,18 @@ async def test_resume_paused_no_quota_job(db_client):
     ok, _ = await resume_job("job_p3", db_client)
     assert ok is True
     row = await db_client.get_one("instance_jobs", {"job_id": "job_p3"})
+    assert row["status"] == JobStatus.ACTIVE.value
+    assert row["paused_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_resume_paused_spend_cap_job(db_client):
+    """A spend-capped job is manually resumable too (review C1) — the next
+    start re-checks the cap, so resuming early is harmless."""
+    await _insert(db_client, "job_p3b", JobStatus.PAUSED_SPEND_CAP.value)
+    ok, _ = await resume_job("job_p3b", db_client)
+    assert ok is True
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_p3b"})
     assert row["status"] == JobStatus.ACTIVE.value
     assert row["paused_reason"] is None
 

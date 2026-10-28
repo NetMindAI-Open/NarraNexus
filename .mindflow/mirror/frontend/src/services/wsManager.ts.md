@@ -1,8 +1,83 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-07-31
+last_verified: 2026-09-08
 stub: false
 ---
+
+## 2026-09-08 — 注释同步
+
+注释里的 ChatModule 方法名改为能力契约词汇（`after_turn`），无行为变化。
+
+## 2026-08-30 — `translateReconnectFrame` 带上独白档位（缺口已补）
+
+两个 replay 分支（`thinking_partial_replay` / `replay.thinking_segment`）现在
+都带档位：[[run_recorder]] 按 tier 写 `thinking_segment` /
+`thinking_segment_monologue` 两种 kind，[[broadcaster]] 的在途 partial 也带
+`monologue` 布尔，本文件翻译回 `AgentThinking`。
+
+**于是运行中刷新不再有色阶断层**——重放出来的前半截和重连后的新帧同档，
+[[chatStore]] 直接合并成一块。
+
+**改这里的人先看这条**：`AgentThinking.monologue` 是**子集字符串**不是 bool。
+tier 为真的帧必须把自己的正文**重复**进这个字段（谓词是
+`monologue === thinking_content`）；塞 `true` 会拿 bool 和 string 比，恒 false，
+改完看起来「没生效」。
+
+`thinking_segment`（无 monologue 后缀）同时覆盖两种情况：provider 推理，以及
+**本改动之前写入的存量行**——那些行的档位确实未知，回放成 receded，也正是它们
+一直以来的样子（无回填，铁律 #2/#6）。
+
+## 2026-08-26 — `translateReconnectFrame` 回放兜底 step id 不得撞相位 id
+
+`tool_call` / `tool_output` 回放帧在 payload 解析失败(`safeParseJson` 返 null)
+时,合成 progress 的 step id 兜底值从 `'3.4'` 改成 `'3.4.replay'`。
+
+**这是一条约束,不是流水账**:`'3.4'` 是 run-agent 相位的 id。currentSteps
+按 step id upsert([[chatStore]] / [[useRunObservation]]),裸 `'3.4'` 会**覆盖
+真正的 run-agent 相位行**——`tool_output` 分支合成的是 `status:'completed'`,
+于是直播中途面板显示「Agent 运行中… ✓」。兜底值必须是 `3.4.x` 形状的子步:
+`parseFloat('3.4.replay')` 仍是 3.4(落定逻辑不变),但不在
+[[processShared]] 的 `PHASE_STEP_IDS` 白名单里,永远渲染成工具行、绝不成相位
+行。**谁把它当冗余魔法字符串「清理」回 `'3.4'`,就复现上面的 bug。**
+测试 `wsManager.reconnect.test.ts` 钉住「不得撞相位 id」这条约束本身。
+
+## 2026-08-24 (review #349) — 续接锚点只认 running;时间戳解析归一
+
+- **I2**:`markResumedRun` 加 `raw.state === 'running'` 守卫——后端对
+  **任何**可 attach 的 run 都先发 run_reconnect,「早已结束」是常见
+  情形,不加守卫会对昨天完成的 run 打出「已续接进行中 · 已运行
+  1500 分钟」(chip 要消灭的误判反向复现)。判定条件与后端补发
+  run_ended 的分支逐字一致。测试补 `state: 'completed'` 用例。
+- **I1**:`started_at` 与 `input_timestamp` 的解析都改走
+  [[../lib/backendTs]](naive-UTC 规则收敛单点;`input_timestamp`
+  原来裸 `Date.parse`,云端 UTC+8 下注入的用户气泡会排到 8 小时前)。
+
+## 2026-08-21 — run_reconnect 落「续接」锚点(深圳复测 B1)
+
+reconnect 的全量重放此前没有任何「这是同一个 run 在继续」的信号,刷新
+中途的测试者把重放记成「重新生成」。`run_reconnect` 分支现在把帧里的
+`started_at` 解析成 epoch ms 并 `markResumedRun` 进 [[../stores/chatStore.ts]]
+(UI 据此渲染「已续接 · 已运行 N 分」chip)。解析坑:后端 `_format_dt`
+输出 DB 的 **naive-UTC** ISO(无时区后缀),浏览器 `Date.parse` 会按
+本地时区解——无后缀的串显式补 'Z',带偏移的原样信任。重放协议本身
+零改动(铁律 #16:同帧同序同内容,只加呈现锚点)。
+## 2026-08-24 — mid-run steer 发送 + steerable 捕捉
+
+`run_started.steerable` 存进 `entry.steerable`;新增 `steer(agentId, content, clientMsgId)`:仅当连接在、`entry.steerable`、**`!entry.completed`**、`ws.OPEN` 才发 `{action:'steer',input_content,client_msg_id}` 并返 true;否则返 false——调用方须自行处理(ChatPanel 把乐观气泡标 `rejected`),**绝不回退新 run**(那会 `close()` 掉正在跑的这条 socket、中止用户想补话的那一轮)。`isSteerable(agentId)` 读 `entry.steerable && !entry.completed`——**跑完的 run 不可 steer**(已无法 drain),`complete`/circuit-open/error 等任一收尾路径置 `entry.completed=true` 即统一失效,无需各处重置 `steerable`。steer_queued/consumed/rejected 帧照常经 `processMessage` 进 [[chatStore.ts]]。
+
+## 2026-08-14 — chat fast mode: 首包可带 fast_mode
+
+`run()` options 增 `fastMode?: boolean`；开启时首包多一个字段
+`fast_mode: true`，关闭/缺省时**省略字段**（wire 上与旧 payload 逐字节
+相同）。仅此一处上 wire——backend `AgentRunRequest.fast_mode` 对应接收，
+纯透传到 AgentRuntime；reconnect 首包不带（profile 不持久化）。
+
+## 2026-08-06 — 两处 auth 桥接改调 `reportWsAuthFailure(frame)`
+
+`run()` 与 `reconnect()` 的 onmessage 里，`dispatchAuthExpired()` →
+`reportWsAuthFailure(message/raw)`，把帧本身传下去（里面带
+`error_code`）。语义变化见 [[wsAuthError.ts]]：AuthError 帧不再直接登出，
+先经 [[sessionGuard.ts]] 探针确认。
 
 ## 2026-07-31 — translateReconnectFrame 导出（观察面共用翻译器）
 
@@ -13,7 +88,6 @@ stub: false
 ## 2026-07-13 — Agent 实时层熔断器接入
 
 run() 的 onmessage 识别后端 `agent_circuit_open` 帧 → `dispatchAgentCircuitOpen({agentId,reason})` + 标记 completed + processMessage + stopStreaming（清 spinner，避免卡在 streaming），mirror auth-expired 桥。仅 run() 路径（reconnect 不过 fresh-run 闸门）。
-
 
 ## 2026-06-10 — run_reconnect 注入幂等 + 终结性 reconnect 错误帧停止重连循环
 
@@ -94,7 +168,7 @@ stranded. TODO: 2026-05-26-auto-logout-on-expired-jwt.md.
 其中 `tsMs = Date.parse(raw.input_timestamp)`（后端给的是
 `events.created_at` 的 ISO）。
 
-为什么时间戳要这么精确：`ChatModule.hook_after_event_execution`
+为什么时间戳要这么精确：`ChatModule.after_turn`
 在 run 结束后会把 user 行持久化到 `agent_messages`，使用
 `user_ts = event.created_at.isoformat()`——和我们 inject 时用的是
 **同一个时间基准**。这样下一次拉 simple-chat-history 时，

@@ -1,0 +1,352 @@
+"""
+@file_name: base.py
+@author: Bin Liang
+@date: 2026-05-13
+@description: Driver Protocol + ProviderCard dataclass + shared types
+
+The Driver abstraction is the heart of the Provider Unification work
+(spec 2026-05-13-provider-unification-design.md). Each row of
+``user_providers`` maps to exactly one Driver instance via the
+``driver_type`` column; the Driver knows how to talk to that specific
+kind of LLM endpoint (NetMind, Yunwu, custom OpenAI, Claude OAuth via
+CLI, the cloud-only system free-tier pool, ...).
+
+We deliberately use ``typing.Protocol`` instead of an ABC so that:
+
+* Third-party drivers (future) can be duck-typed without inheriting
+  from anything in this codebase.
+* Stub drivers in tests can stay simple — no boilerplate ``__init__``
+  forwarding.
+* Optional methods (e.g. ``probe``) can carry default implementations
+  on the Protocol while keeping the classes flat.
+
+Drivers are credential/config builders only — they do NOT bill. Free-tier
+quota is debited in ``utils.cost_tracker.record_cost`` off the
+``provider_source`` context tag, alongside the ``cost_records`` write.
+Do not reintroduce a per-driver post-call billing hook without removing
+that one first: two live deduction paths would double-charge users.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, ClassVar, Literal, Optional, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from narranexus.kernel.plugins.registry import Contribution
+
+from narranexus.platform.agent_framework.api_config import (
+    AnthropicHelperConfig,
+    ClaudeConfig,
+    CliHelperConfig,
+    CodexConfig,
+    OpenAIConfig,
+)
+from narranexus.platform.agent_framework.providers.driver.derive import (
+    derive_auth_ref,
+)
+
+
+# =============================================================================
+# ProviderCard — in-memory view of one user_providers row
+# =============================================================================
+
+@dataclass(frozen=True)
+class ProviderCard:
+    """In-memory snapshot of a single ``user_providers`` row.
+
+    Frozen so a Driver instance can be cached / passed around without
+    risk of mutation from the call site. Use :meth:`from_row` to build
+    one from a raw ``db.get_one`` dict — that helper handles JSON
+    decoding of ``models`` and normalises None defaults.
+    """
+
+    provider_id: str
+    user_id: str
+    name: str
+    source: str
+    protocol: str
+    auth_type: str
+    api_key: str
+    base_url: str
+    models: list[str] = field(default_factory=list)
+    linked_group: str = ""
+    is_active: bool = True
+    supports_anthropic_server_tools: bool = False
+
+    # Provider Unification additions (Phase 0)
+    driver_type: Optional[str] = None
+    owner_user_id: Optional[str] = None
+    billing_policy: str = "user_pays"
+    auth_ref: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row: dict) -> "ProviderCard":
+        """Build a ProviderCard from a raw ``db.get_one`` result.
+
+        Tolerates legacy rows where the new columns are still null —
+        callers in the resolve path should ensure backfill has run, but
+        unit tests construct cards directly without going through DB.
+        """
+        models_raw = row.get("models") or "[]"
+        if isinstance(models_raw, list):
+            models_list = models_raw
+        else:
+            try:
+                models_list = json.loads(models_raw)
+            except (ValueError, TypeError):
+                models_list = []
+
+        return cls(
+            provider_id=row["provider_id"],
+            user_id=row.get("user_id", ""),
+            name=row.get("name", ""),
+            source=row.get("source", "user"),
+            protocol=row.get("protocol", "openai"),
+            auth_type=row.get("auth_type") or "api_key",
+            api_key=row.get("api_key") or "",
+            base_url=row.get("base_url") or "",
+            models=models_list,
+            linked_group=row.get("linked_group") or "",
+            is_active=bool(row.get("is_active", 1)),
+            supports_anthropic_server_tools=bool(
+                row.get("supports_anthropic_server_tools", 0)
+            ),
+            driver_type=row.get("driver_type"),
+            owner_user_id=row.get("owner_user_id"),
+            billing_policy=row.get("billing_policy") or "user_pays",
+            # Read-time fallback for rows the startup backfill hasn't
+            # touched yet (inserted before 2026-08-27, backend not
+            # restarted since): auth_ref is fully derivable from
+            # (auth_type, source), so derive it here instead of failing
+            # the probe and steering the user into remove + re-add —
+            # which would wipe every per-agent slot override on the card.
+            # Same read-time philosophy test_provider applies to the
+            # sibling driver_type column. derive_auth_ref returns None
+            # for oauth_token rows — the token IS the credential, no
+            # file sentinel must be invented for them. Persisting stays
+            # the backfill's job; this is a view-level default only.
+            auth_ref=row.get("auth_ref")
+            or derive_auth_ref(row.get("source"), row.get("auth_type")),
+        )
+
+
+# =============================================================================
+# DriverHealth — return type for Driver.probe()
+# =============================================================================
+
+@dataclass(frozen=True)
+class DriverHealth:
+    """Result of a Driver probe.
+
+    Producers populate ``ok`` (True if the credential is usable) plus
+    optional ``detail`` and ``expires_at`` for UI surfacing. Drivers
+    that can't perform a real probe (e.g. SystemDriver) should still
+    return a meaningful summary.
+    """
+
+    ok: bool
+    detail: str = ""
+    expires_at: Optional[str] = None  # ISO-8601 string when known (OAuth)
+
+
+# =============================================================================
+# VerifyVerdict — return type for Driver.verify_live()
+# =============================================================================
+
+# Three states, deliberately not a bool (PR #224 review, item 4): collapsing
+# "confirmed dead" and "cannot verify from this node" into one False turned
+# every undecidable situation (CLI not in this container, control-plane vs
+# executor split, timeout) into "credential is dead" — which blocks
+# ProviderReadiness's edge recovery, the ONLY path that re-arms
+# PAUSED_NO_QUOTA jobs. Consumers map:
+#   "ok"      → verified working (live CLI round-trip succeeded)
+#   "dead"    → verified broken (the CLI itself said unauthorized / no
+#               credential exists to try) — the only state that may block
+#   "unknown" → this node cannot decide — MUST NOT block anything
+VerifyVerdict = Literal["ok", "dead", "unknown"]
+
+VERIFY_OK: VerifyVerdict = "ok"
+VERIFY_DEAD: VerifyVerdict = "dead"
+VERIFY_UNKNOWN: VerifyVerdict = "unknown"
+
+
+# =============================================================================
+# Driver Protocol
+# =============================================================================
+
+@runtime_checkable
+class Driver(Protocol):
+    """One driver per LLM provider type. Stateless except for the
+    ``ProviderCard`` snapshot it captures at construction.
+
+    Implementations should be cheap to instantiate — each LLM call
+    builds a new Driver from a freshly-read card row. Caching belongs
+    to the resolver layer, not here.
+    """
+
+    card: ProviderCard
+
+    # ----- class-level metadata ----------------------------------------------
+
+    @classmethod
+    def driver_type(cls) -> str:
+        """Returns the key under which this driver registers in
+        :data:`driver_registry()`. Must match the value written into
+        ``user_providers.driver_type``.
+        """
+        ...
+
+    # ----- config construction ----------------------------------------------
+
+    def build_claude_config(self, model: str) -> ClaudeConfig:
+        """Build a ``ClaudeConfig`` for the AGENT slot.
+
+        Raises NotImplementedError on drivers that don't speak
+        anthropic protocol (e.g. CustomOpenAIDriver).
+        """
+        ...
+
+    def build_openai_config(self, model: str) -> OpenAIConfig:
+        """Build an ``OpenAIConfig`` for the HELPER_LLM slot.
+
+        Raises NotImplementedError on drivers that don't speak openai
+        protocol (e.g. CustomAnthropicDriver, ClaudeOAuthDriver).
+        """
+        ...
+
+    def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
+        """Build an ``AnthropicHelperConfig`` for the HELPER_LLM slot
+        when it points at an anthropic-protocol provider.
+
+        Raises NotImplementedError on drivers that can't serve direct
+        Messages-API calls (openai-protocol drivers, OAuth drivers).
+        """
+        ...
+
+    def build_cli_helper_config(self, model: str) -> CliHelperConfig:
+        """Build a ``CliHelperConfig`` for the HELPER_LLM slot when it points
+        at a subscription (OAuth) provider — the helper runs through the same
+        CLI as the agent (one subscription covers both slots).
+
+        Implemented only by the OAuth drivers (ClaudeOAuthDriver /
+        CodexOAuthDriver); raises NotImplementedError elsewhere.
+        """
+        ...
+
+    def build_codex_config(
+        self,
+        model: str,
+        *,
+        thinking: str = "",
+        reasoning_effort: str = "",
+    ) -> CodexConfig:
+        """Build a ``CodexConfig`` for the AGENT slot when the agent
+        framework is ``codex_cli``.
+
+        Codex is a *mode* over OpenAI-protocol providers rather than a
+        protocol of its own, so this is implemented on ``_DriverBase`` for
+        every openai-protocol card and only specialised by drivers that
+        carry a non-trivial credential shape (e.g. ``CodexOAuthDriver``
+        injects the shared CLI auth-ref). Raises NotImplementedError on
+        non-openai cards (Codex CLI has no anthropic endpoint).
+        """
+        ...
+
+    # ----- diagnostics + lifecycle hooks ------------------------------------
+
+    async def probe(self) -> DriverHealth:
+        """Active credential + endpoint reachability check.
+
+        Default: assume healthy if api_key/auth_ref is populated. Drivers
+        that can actually call a /models or /me endpoint should override.
+        """
+        ...
+
+    def models(self) -> list[str]:
+        """Return the list of model IDs the user has marked usable on
+        this card. Self-heal compares against this list.
+        """
+        ...
+
+
+# =============================================================================
+# Mixins to make Driver implementations terse
+# =============================================================================
+
+class _DriverBase:
+
+    """Common helper boilerplate so concrete drivers stay short.
+
+    Concrete drivers can inherit from this *or* duck-type. The Protocol
+    check is satisfied by either path.
+    """
+
+    #: Set by ``registry.register`` (the ``@register`` decorator): the plugin
+    #: contribution the builtin manifest names for this driver class.
+    contribution: "ClassVar[Contribution[type]]"
+
+    def __init__(self, card: ProviderCard) -> None:
+        self.card = card
+
+    def models(self) -> list[str]:
+        return list(self.card.models or [])
+
+    async def probe(self) -> DriverHealth:
+        if self.card.api_key or self.card.auth_ref:
+            return DriverHealth(ok=True, detail="credential present")
+        return DriverHealth(ok=False, detail="no credential configured for this provider")
+
+    def build_claude_config(self, model: str) -> ClaudeConfig:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support agent (anthropic) slot"
+        )
+
+    def build_openai_config(self, model: str) -> OpenAIConfig:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support helper_llm (openai) slot"
+        )
+
+    def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support helper_llm (anthropic) slot"
+        )
+
+    def build_cli_helper_config(self, model: str) -> CliHelperConfig:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support helper_llm (cli) slot"
+        )
+
+    def build_codex_config(
+        self,
+        model: str,
+        *,
+        thinking: str = "",
+        reasoning_effort: str = "",
+    ) -> CodexConfig:
+        # Codex runs over any OpenAI-protocol card. The api-key path is
+        # generic and lives here; CodexOAuthDriver overrides to inject the
+        # shared CLI auth-ref. Non-openai cards can't drive Codex.
+        if (self.card.protocol or "").lower() != "openai":
+            raise NotImplementedError(
+                f"{type(self).__name__} (protocol={self.card.protocol!r}) "
+                f"cannot serve a Codex agent — Codex CLI requires an "
+                f"OpenAI-protocol provider."
+            )
+        return CodexConfig(
+            api_key=self.card.api_key,
+            base_url=self.card.base_url,
+            model=model,
+            auth_type=self.card.auth_type or "api_key",
+            auth_ref=self.card.auth_ref or "",
+            thinking=thinking,
+            reasoning_effort=reasoning_effort,
+        )
+
+
+__all__ = [
+    "ProviderCard",
+    "DriverHealth",
+    "Driver",
+    "_DriverBase",
+]

@@ -128,6 +128,17 @@ export function LoginPage() {
     if (e.key === 'Enter') void handleLocalLogin();
   };
 
+  // One source of truth for "can the NetMind form submit" — used by BOTH the
+  // Sign In button and the Enter key, so the two can't drift (a new condition
+  // added to only one would let Enter bypass it).
+  const canSubmitNetmind = !netmind.loading && !!email.trim() && !!password;
+
+  const handleNetmindKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && canSubmitNetmind) {
+      void netmind.emailLogin(email, password);
+    }
+  };
+
   // Reusable "OR" separator, matching the original inline styling.
   const orDivider = (
     <div className="relative py-4">
@@ -200,7 +211,7 @@ export function LoginPage() {
   // Short caption explaining what each login method is (dual-mode clarity).
   const methodDesc = (text: string) => (
     <p
-      className="text-xs leading-relaxed rounded-lg p-3"
+      className="text-xs leading-relaxed rounded-[var(--radius-lg)] p-3"
       style={{
         color: 'var(--nm-ink70)',
         background: 'var(--nm-raised)',
@@ -269,37 +280,22 @@ export function LoginPage() {
   );
 
   // NetMind ("Power") account form: email/password + OAuth + sign-up.
-  // ``withNotice`` shows the account-migration banner (forced-cloud only — it's
-  // about migrating legacy cloud accounts, irrelevant to a local dual-mode user).
+  // ``withNotice`` = forced-cloud tab: it skips the Power value-prop blurb
+  // (forced-cloud already has its own heading) and autofocuses the email field.
   const netmindBlock = (withNotice: boolean) => (
     <div className="space-y-5 mt-6">
-      {/* Power value-prop — shown in the local dual-mode tab (forced-cloud
-          already has its own heading + migration notice). */}
+      {/* Power value-prop — shown only in the local dual-mode tab. The
+          account-migration banner that used to sit here was removed: the
+          migration is long done and it unconditionally told every user to reset
+          their password, which was never true (old passwords still work). */}
       {!withNotice && methodDesc(t('pages.login.powerDesc'))}
-      {withNotice && (
-        <div
-          className="rounded-xl p-3 text-xs leading-relaxed"
-          style={{
-            background: 'var(--nm-card)',
-            border: '1px solid var(--nm-hairline)',
-            color: 'var(--nm-ink70)',
-          }}
-          role="status"
-        >
-          <strong>{t('pages.login.migrationNoticeHeading')}</strong>{' '}
-          {t('pages.login.migrationNoticeBody')}{' '}
-          <a href="mailto:bin.liang@netmind.ai" className="underline">
-            bin.liang@netmind.ai
-          </a>
-          .
-        </div>
-      )}
 
       <FormField label={t('pages.login.emailLabel')}>
         <TextInput
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={handleNetmindKeyDown}
           placeholder="you@example.com"
           disabled={netmind.loading}
           error={!!(netmind.error || error)}
@@ -313,6 +309,7 @@ export function LoginPage() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={handleNetmindKeyDown}
           placeholder="••••••••"
           disabled={netmind.loading}
           error={!!(netmind.error || error)}
@@ -348,7 +345,7 @@ export function LoginPage() {
         variant="primary"
         size="lg"
         onClick={() => void netmind.emailLogin(email, password)}
-        disabled={netmind.loading || !email.trim() || !password}
+        disabled={!canSubmitNetmind}
         loading={netmind.loading}
         className="w-full"
         trailing={!netmind.loading ? <ArrowRight className="w-4 h-4" /> : undefined}

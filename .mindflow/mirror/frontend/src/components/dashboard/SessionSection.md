@@ -19,11 +19,11 @@ stub: false
 ## 设计决策
 1. **Avatar dot 颜色**：用 `user_display` 做稳定 hash → palette 8 色选一。同一用户始终同色——用户识别稳定。
 2. **最多显示 5 个头像**：`shown = sessions.slice(0, 5)`，超出显示 `[+N]` chip。避免卡片头部爆裂。
-3. **两层展开**（和 JobsSection 同模式）：
+3. **两层展开**（原与 JobsSection 同模式，后者已于 2026-08-27 删除）：
    - Section：点 header 展开完整 session 列表
    - Item：点单个 session 展开"最新消息 + 元信息"详情
 4. **Initial 算法**：`user_display` 按空格分词，单词数 ≥2 取首末首字母，1 个取前 2 字母。简单但足够识别。
-5. **Item 展开时 stopPropagation**：同 JobsSection。
+5. **Item 展开时 stopPropagation**：与已删除的 JobsSection 同做法。
 6. **`user_last_message_preview` 内联在折叠行**——不用展开就能看一眼最新一句，提供"快扫"价值。展开才看完整 latest message。
 
 ## Gotcha

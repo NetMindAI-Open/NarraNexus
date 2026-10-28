@@ -26,7 +26,7 @@ import types
 
 import pytest
 
-from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
+from narranexus_plugins.frameworks_codex_cli.official_sdk import (
     _ESCALATION_METHODS,
     _install_write_gate,
     _workspace_write_cancel_handler,

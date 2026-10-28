@@ -40,8 +40,10 @@ the dim layer must use theme-STABLE light tones, never --nm-* tokens.
 Owner requirement (spec §12): "界面太复杂" — a bottom-left ? opens a
 dimmed overlay where handwritten notes + wobbly arrows explain the live
 controls. It extends the NM paper motif: the overlay is *another hand
-writing on the paper*. It complements OnboardingChecklist: checklist =
-"what to do first" (task), overlay = "what is this" (map).
+writing on the paper*. It complemented the OnboardingChecklist (retired
+2026-08-19, replaced by the auto-provisioned guide agent): checklist =
+"what to do first" (task), overlay = "what is this" (map) — the overlay
+keeps the "map" role alone now.
 
 ## 设计决策
 

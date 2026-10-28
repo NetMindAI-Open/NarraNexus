@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/CsvRenderer.tsx
-last_verified: 2026-08-04
+last_verified: 2026-08-19
 stub: false
 ---
 
@@ -52,3 +52,10 @@ Fetches agent-generated CSV and renders it as a scrollable HTML `<table>` so use
 Very large CSVs (thousands of rows) will render slowly and occupy a lot of DOM nodes. No pagination or virtualisation is implemented. This is acceptable for agent-emitted tabular results; production data import pipelines need a different component.
 
 **Empty CSV guard (I6, 2026-05-09)**: An explicit `rows.length === 0` check was added before the `const [header, ...body] = rows` destructuring. Without it, an agent that emits a zero-byte or whitespace-only CSV file would produce `rows = []` after `parseCsv()`, and `header.map(...)` would throw `TypeError: Cannot read properties of undefined`. Now an empty CSV renders a `"(Empty CSV)"` placeholder instead of crashing.
+
+## 2026-08-19 — 表格投影退役,csv=常驻编辑器
+
+无模式框架定稿:csv 是 render=source,view 即 edit。表格投影删除
+(网格面是 v2 增强),本组件只剩 heal 流 + raw url 铸造,编辑全在
+[[ResidentTextEditor.tsx]]。scrollContainment 测试的 csv 载体从
+<table> 换成 .cm-editor(意图不变)。

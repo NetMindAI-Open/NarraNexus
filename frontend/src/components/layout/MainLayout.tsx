@@ -4,108 +4,79 @@
  * @date: 2025-01-15
  * @description: Main Layout - Bioluminescent Terminal Style
  *
- * Layout structure:
- * ┌──────────┬──────────────────────┬──┬──────────────────┬──────────────────┐
- * │          │                      │║│                  │ [Tab] [Tab] [Bell]│
- * │  Agent   │      Chat Area       │║│ Artifact Column  ├──────────────────┤
- * │  List    │                      │║│ (auto-hides when │                  │
- * │          │  (Spacious chat)     │║│   no artifacts)  │  Context Panel   │
- * │          │                      │║│                  │  (Tab content)   │
- * └──────────┴──────────────────────┴──┴──────────────────┴──────────────────┘
- *                                    └─ Drag handle (chat ↔ artifacts)
+ * Layout structure (Chat UI v4):
+ * ┌──────────┬──────────────────────────────────┬──────────────────┐
+ * │  Sidebar │            Chat Area             │ Bookmark Drawer  │
+ * │  (Agent  │  (full-bleed, header owns all    │ (pinned column / │
+ * │   List)  │   panel + artifacts entries)     │  slide-over)     │
+ * └──────────┴──────────────────────────────────┴──────────────────┘
  *
- * Right-side tabs: Runtime, Awareness, Agent Inbox, Jobs
- * Top-right bell: User Inbox Popover
- * Artifact column: auto-hides when no artifacts; collapses to sliver on demand.
- *
- * Chat ↔ Artifacts split is user-resizable via the ResizableDivider; ratio
- * persisted to localStorage. Divider hidden when the artifact column is in
- * sliver mode (no artifacts yet, or user-collapsed) because resizing a
- * 36-px sliver is meaningless. The pinned bookmark drawer gets its own
- * divider and its own persisted width — every column on the right resizes
- * the same way.
- *
- * The bookmark strip is never covered: an open slide-over reserves
- * STRIP_WIDTH_PX + RAIL_GUTTER_PX of the right edge for it, backdrop
- * included, so switching panels is one click rather than close-then-click.
+ * Panel entries (Awareness / Jobs / Inbox / Artifacts / …) live in the chat
+ * header (v4); they funnel through uiStore.requestPanel into the single
+ * BookmarkDrawer below. The old right-edge BookmarkStrip AND the resizable
+ * side Artifact Column are retired — artifacts render as a drawer panel
+ * like everything else (Owner 2026-08-06). The pinned drawer keeps its own
+ * ResizableDivider + persisted width.
  *
  * Signal source: artifact_id signals arrive via the chat WebSocket stream
  * (tool_output frames parsed in ChatPanel.tsx). loadPinned is called on mount /
- * agent change to hydrate agent-scoped artifacts. No dedicated artifact WS.
+ * agent change to hydrate agent-scoped artifacts (feeds the header badge and
+ * the drawer panel). No dedicated artifact WS.
  */
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { initReplyLanguageSync } from '@/lib/replyLanguageSync';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { X, MonitorPlay, PanelLeft } from 'lucide-react';
+import { Button } from '@/components/nm/button';
+import { PANELS, useRegistryEntries } from '@/platform/registries';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { CommandPalette } from './CommandPalette';
 import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 import { ResizableDivider } from './ResizableDivider';
 import {
-  BookmarkStrip,
   BookmarkDrawer,
   BookmarkPanelHost,
   tabLabelKey,
-  STRIP_WIDTH_PX,
+  tabDescKey,
+  visibleCategories,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
 import { FeedbackButton } from '@/components/ui/FeedbackButton';
+import { TelemetryNotice } from '@/components/telemetry/TelemetryNotice';
+import { WebAnalyticsNotice } from '@/components/analytics/WebAnalyticsNotice';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
+import { useStudioLifecycle } from '@/hooks/useStudioLifecycle';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
 import { TeamChatPanel } from '@/components/chat/team';
 import { CostPopover } from '@/components/cost/CostPopover';
-import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
+import { GuideAgentCoachmark } from '@/components/onboarding/GuideAgentCoachmark';
 import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
+import { NoProviderNotice } from './NoProviderNotice';
+import { BrowserNotices } from './BrowserNotices';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
-import { ArtifactColumn } from '@/components/artifacts';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
 import { useIsMobile } from '@/hooks/useMediaQuery';
-import { cn } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks';
+import { DrawerCoachMark } from '@/components/bookmarks/DrawerCoachMark';
+import {
+  DRAWER_OPENED_ONCE_KEY,
+  markAgentDrawerSeen,
+  markFirstRunSeen,
+  shouldAutoOpenFirstRun,
+  shouldAutoOpenForAgent,
+} from './drawerLayout';
+import { usePinnedDrawer } from '@/hooks/usePinnedDrawer';
 
-const SPLIT_STORAGE_KEY = 'chat_artifact_split_v1';
-const DRAWER_PINNED_KEY = 'bookmark_drawer_pinned_v1';
-const DRAWER_OPENED_ONCE_KEY = 'bookmark_drawer_opened_v1';
-const DRAWER_WIDTH_KEY = 'bookmark_drawer_width_v1';
-const DEFAULT_SPLIT = 0.6; // 60 % chat, 40 % artifacts — matches the legacy 3:2 flex shares.
-const MIN_CHAT_PX = 400;
-const MIN_ARTIFACT_PX = 320;
-const SPLIT_HARD_MIN = 0.1;
-const SPLIT_HARD_MAX = 0.9;
 // Pinned bookmark drawer: user-resizable like the chat ↔ artifacts split, so
 // every column on the right side follows the same "grab the rule and drag"
-// rule instead of one of them being a hardcoded width.
-const DEFAULT_DRAWER_PX = 400;
-const MIN_DRAWER_PX = 300;
-const MAX_DRAWER_PX = 720;
-/**
- * Gutter between the bookmark strip and the viewport edge — `<main>`'s
- * `md:p-3`. The strip only renders on desktop (≥ md), so 12 is the only
- * value that can apply; the open slide-over reserves strip + gutter so it
- * never lands on top of the strip.
- */
-const RAIL_GUTTER_PX = 12;
-
-function readInitialSplit(): number {
-  if (typeof window === 'undefined') return DEFAULT_SPLIT;
-  const raw = window.localStorage.getItem(SPLIT_STORAGE_KEY);
-  if (!raw) return DEFAULT_SPLIT;
-  const parsed = parseFloat(raw);
-  if (!Number.isFinite(parsed)) return DEFAULT_SPLIT;
-  return Math.min(SPLIT_HARD_MAX, Math.max(SPLIT_HARD_MIN, parsed));
-}
-
-function readInitialDrawerWidth(): number {
-  if (typeof window === 'undefined') return DEFAULT_DRAWER_PX;
-  const raw = window.localStorage.getItem(DRAWER_WIDTH_KEY);
-  if (!raw) return DEFAULT_DRAWER_PX;
-  const parsed = parseFloat(raw);
-  if (!Number.isFinite(parsed)) return DEFAULT_DRAWER_PX;
-  return Math.min(MAX_DRAWER_PX, Math.max(MIN_DRAWER_PX, parsed));
-}
+// rule instead of one of them being a hardcoded width. Sizing policy lives
+// in drawerLayout.ts; the React wiring is the shared usePinnedDrawer hook —
+// the team room mounts the SAME drawer with the same preferences.
 
 /** Default chat view with context panel */
 export function ChatView() {
@@ -113,156 +84,109 @@ export function ChatView() {
   // the drawer is pinned into a static column (persisted — pinning is a
   // deliberate workspace choice). One tab = one panel (Owner IA).
   const { t: tr } = useTranslation();
-  const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(null);
-  const [drawerPinned, setDrawerPinned] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(DRAWER_PINNED_KEY) === '1';
-  });
+  // First run (desktop): the artifacts panel opens pinned with a coach mark
+  // teaching unpin/close. The decision is a read-only lazy initializer (no
+  // cascading render); the seen-marker is written from the mount effect
+  // below, so a discarded render pass cannot burn it.
+  const [showDrawerCoach, setShowDrawerCoach] = useState<boolean>(() =>
+    typeof window !== 'undefined' &&
+    shouldAutoOpenFirstRun(window.localStorage, window.matchMedia('(max-width: 767.98px)').matches),
+  );
+  useEffect(() => {
+    if (showDrawerCoach) markFirstRunSeen(window.localStorage);
+    // First-run decision is mount-time only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { agentId, userId } = useConfigStore();
+  // Per-agent first view (Owner 2026-09-11): an agent whose chat was never
+  // shown on this desktop opens with the drawer on Artifacts — pinned, the
+  // pin default — so a new agent's explainer is visible immediately, for new
+  // AND existing users (the coach above only reaches brand-new profiles).
+  // Decided at mount (lazy initializer) and on every agent switch (derived
+  // state set during render — no effect → no flash of a closed drawer); the
+  // seen-marker is written from the effect below.
+  const isSmallViewport = () =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767.98px)').matches;
+  const autoOpenFor = (id: string | null | undefined) =>
+    typeof window !== 'undefined' && shouldAutoOpenForAgent(window.localStorage, id, isSmallViewport());
+  const [drawerTab, setDrawerTab] = useState<AtomicTabId | null>(
+    () => (showDrawerCoach || autoOpenFor(agentId) ? 'artifacts' : null),
+  );
+  const [drawerAgentId, setDrawerAgentId] = useState(agentId);
+  if (agentId !== drawerAgentId) {
+    setDrawerAgentId(agentId);
+    if (autoOpenFor(agentId)) setDrawerTab('artifacts');
+  }
+  useEffect(() => {
+    // A phone visit does not spend the agent's desktop first view.
+    if (agentId && !isSmallViewport()) markAgentDrawerSeen(window.localStorage, agentId);
+  }, [agentId]);
+  const {
+    pinned: drawerPinned,
+    setPinned: setDrawerPinned,
+    effectiveWidth: effectiveDrawerWidth,
+    colRef: drawerColRef,
+    handleResize: handleDrawerResize,
+    handleResizeEnd: handleDrawerResizeEnd,
+  } = usePinnedDrawer();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
   useBookmarkSignals(agentId);
 
-  // Mobile: the chat ↔ artifacts split collapses to a tab switcher, and the
-  // right bookmark strip hides (panels reached via the ⌘K palette instead).
   const isMobile = useIsMobile();
-  const [mobileTab, setMobileTab] = useState<'chat' | 'artifacts'>('chat');
+  const browserOffered = useRegistryEntries(PANELS).some((entry) => entry.id === 'browser');
   const pendingPanel = useUIStore((s) => s.pendingPanel);
+  const pendingPanelMode = useUIStore((s) => s.pendingPanelMode);
   const clearPendingPanel = useUIStore((s) => s.clearPendingPanel);
+  const requestPanel = useUIStore((s) => s.requestPanel);
+  const openPanel = useUIStore((s) => s.openPanel);
 
-  const handleBookmarkOpen = (tab: AtomicTabId) => {
-    // Re-clicking the open tab closes the drawer (toggle).
-    if (drawerTab === tab) {
-      setDrawerTab(null);
-      return;
-    }
-    setDrawerTab(tab);
-    try {
-      window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
-    } catch { /* storage unavailable — onboarding hint just stays */ }
+  // The creation studio lives exactly as long as its panel is what this
+  // drawer shows for this agent — reconciled in ONE place (useStudioLifecycle),
+  // not at each way the drawer can close. Which entries OFFER its tab is the
+  // registry's business (bookmarks/tabs `conditional: 'studio'`), consumed by
+  // the chat header's ⋯ menu, the ⌘K palette and the drawer's title switcher
+  // below (via visibleCategories, the same rule grouped by category).
+  const { studioOpen, studioResumable } = useStudioLifecycle({ agentId, drawerTab, setDrawerTab });
+  // Computed per render, not memoized: PANELS can gain plugin panels after
+  // mount, and the derivation is a sort over ~a dozen entries.
+  const switcherCategories = visibleCategories({ studioOpen, studioResumable });
+
+  const handleDrawerClose = () => {
+    setDrawerTab(null);
+    setShowDrawerCoach(false);
   };
 
-  const handleDrawerClose = () => setDrawerTab(null);
-
-  // A panel requested from the command palette (mobile entry point) — open its
-  // drawer, then clear the request so it fires once.
+  // A panel requested from the chat header entries / ⋯ detail menu / the
+  // command palette / the drawer's title switcher — all funnel through
+  // uiStore (requestPanel / openPanel).
+  // Re-requesting the open tab closes the drawer (toggle).
   useEffect(() => {
     if (pendingPanel) {
-      setDrawerTab(pendingPanel as AtomicTabId);
+      setDrawerTab((prev) => {
+        // 'open' callers must end up open; only a user toggle closes.
+        if (pendingPanelMode === 'toggle' && prev === (pendingPanel as AtomicTabId)) return null;
+        try {
+          window.localStorage.setItem(DRAWER_OPENED_ONCE_KEY, '1');
+        } catch { /* storage unavailable — onboarding hint just stays */ }
+        return pendingPanel as AtomicTabId;
+      });
       clearPendingPanel();
     }
-  }, [pendingPanel, clearPendingPanel]);
+  }, [pendingPanel, pendingPanelMode, clearPendingPanel]);
 
   const handlePinnedChange = (pinned: boolean) => {
     setDrawerPinned(pinned);
-    try {
-      window.localStorage.setItem(DRAWER_PINNED_KEY, pinned ? '1' : '0');
-    } catch { /* non-fatal */ }
+    setShowDrawerCoach(false);
   };
+
 
   const loadPinned = useArtifactStore((s) => s.loadPinned);
   const artifactsLength = useArtifactStore((s) => s.artifacts.length);
-  const artifactsCollapsed = useArtifactStore((s) => s.collapsed);
 
-  // Chat ↔ Artifacts split (fraction of joint width occupied by chat).
-  //
-  // The panes track the cursor live, but WITHOUT paying either of the two
-  // costs that made earlier cuts of this janky:
-  //   - React renders: `handleResize` writes `flex-grow` straight to the two
-  //     column DOM nodes. Zero renders during the drag; one on release.
-  //   - iframe reflow: an HTML artifact is a sandboxed <iframe>, and
-  //     reflowing it 60×/s while shrinking is visibly janky. So the artifact
-  //     column freezes its CONTENT at the pre-drag width for the duration of
-  //     the drag (`contentFrozen`) — the column resizes and clips, the iframe
-  //     doesn't move. Release unfreezes → exactly one reflow, at the final
-  //     width.
-  const [chatSplit, setChatSplit] = useState<number>(() => readInitialSplit());
-  const [dragging, setDragging] = useState(false);
-  const groupRef = useRef<HTMLDivElement | null>(null);
-  const chatColRef = useRef<HTMLDivElement | null>(null);
-  const artifactColRef = useRef<HTMLElement | null>(null);
-  const pendingSplitRef = useRef<number>(chatSplit);
 
-  // Persist on every committed change so refreshes preserve the layout.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(SPLIT_STORAGE_KEY, String(chatSplit));
-  }, [chatSplit]);
-
-  // Pinned-drawer width — same two-phase drag as the split above (imperative
-  // during, committed + persisted on release). No iframe lives in the drawer,
-  // so there is nothing to freeze here.
-  const [drawerWidth, setDrawerWidth] = useState<number>(() => readInitialDrawerWidth());
-  const drawerColRef = useRef<HTMLDivElement | null>(null);
-  const pendingDrawerWidthRef = useRef<number>(drawerWidth);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(DRAWER_WIDTH_KEY, String(drawerWidth));
-  }, [drawerWidth]);
-
-  // Translate a raw pointer clientX into a clamped split fraction relative
-  // to the joint chat+artifact area. Clamp tight against per-pane min
-  // widths so neither pane can be dragged below its declared minimum.
-  const computeSplit = useCallback((clientX: number): number | null => {
-    const el = groupRef.current;
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return null;
-    const rawRatio = (clientX - rect.left) / rect.width;
-    const minRatio = Math.max(SPLIT_HARD_MIN, MIN_CHAT_PX / rect.width);
-    const maxRatio = Math.min(SPLIT_HARD_MAX, 1 - MIN_ARTIFACT_PX / rect.width);
-    // If the container is too narrow for both mins, just clamp to hard bounds.
-    const lo = Math.min(minRatio, maxRatio);
-    const hi = Math.max(minRatio, maxRatio);
-    return Math.min(hi, Math.max(lo, rawRatio));
-  }, []);
-
-  // During drag (≤ once per frame): move the real columns by writing flex-grow
-  // straight to the DOM. No setState → no re-render; the artifact content is
-  // frozen for the duration, so no iframe reflow either.
-  const handleResize = useCallback((clientX: number) => {
-    const split = computeSplit(clientX);
-    if (split === null) return;
-    pendingSplitRef.current = split;
-    if (chatColRef.current) chatColRef.current.style.flexGrow = String(split);
-    if (artifactColRef.current) artifactColRef.current.style.flexGrow = String(1 - split);
-  }, [computeSplit]);
-
-  // On release: commit the final ratio (one re-render → React re-asserts the
-  // same flex-grow values it was just handed imperatively) and unfreeze the
-  // artifact content so it reflows once, at the width the user chose.
-  const handleResizeEnd = useCallback((clientX: number) => {
-    const split = computeSplit(clientX);
-    if (split !== null) pendingSplitRef.current = split;
-    setChatSplit(pendingSplitRef.current);
-    setDragging(false);
-  }, [computeSplit]);
-
-  // Pinned-drawer drag. Width grows leftward from the drawer's own right edge,
-  // which is pinned by the bookmark strip beside it — so the edge stays put
-  // while the chat+artifact group absorbs the change.
-  const computeDrawerWidth = useCallback((clientX: number): number | null => {
-    const el = drawerColRef.current;
-    if (!el) return null;
-    const right = el.getBoundingClientRect().right;
-    return Math.min(MAX_DRAWER_PX, Math.max(MIN_DRAWER_PX, right - clientX));
-  }, []);
-
-  const handleDrawerResize = useCallback((clientX: number) => {
-    const el = drawerColRef.current;
-    const width = computeDrawerWidth(clientX);
-    if (!el || width === null) return;
-    pendingDrawerWidthRef.current = width;
-    el.style.width = `${width}px`;
-  }, [computeDrawerWidth]);
-
-  const handleDrawerResizeEnd = useCallback((clientX: number) => {
-    const width = computeDrawerWidth(clientX);
-    if (width !== null) pendingDrawerWidthRef.current = width;
-    setDrawerWidth(pendingDrawerWidthRef.current);
-  }, [computeDrawerWidth]);
-
-  // Load pinned artifacts whenever agentId changes.
+  // Load pinned artifacts whenever agentId changes — even with the side
+  // column retired, the header badge count and the drawer panel both read
+  // from this hydration.
   // Note: chatStore does not expose a per-agent session ID, so loadForSession
   // is not called here. Session-scoped artifacts arrive via the chat WS stream
   // (tool_output frames parsed in ChatPanel.tsx).
@@ -272,121 +196,62 @@ export function ChatView() {
     loadPinned(agentId);
   }, [agentId, loadPinned]);
 
-
-  // The divider only makes sense when the artifact column is in expanded
-  // mode (has artifacts AND is not collapsed). In sliver mode the artifact
-  // pane is a fixed 36-px button and a resize handle next to it would just
-  // confuse the user.
-  const artifactExpanded = !!agentId && artifactsLength > 0 && !artifactsCollapsed;
-
   return (
-    <main className="flex-1 flex min-w-0 p-2 gap-2 md:p-3 md:gap-3 overflow-hidden relative z-10">
-      {/* Chat + Artifact group — owns the resizable divider. */}
-      <div
-        ref={groupRef}
-        className="relative flex-1 min-w-0 flex flex-col md:flex-row overflow-hidden"
-      >
-        {/* Mobile: centered Chat / Artifacts tab switcher with the activity
-            (heartbeat) icon docked on the right. The side artifact column
-            doesn't fit on phones, so the two views share the pane; this row
-            also stands in for the chat header (hidden on mobile). The left
-            spacer balances the right icon so the tabs stay centered. */}
+    // Full-bleed, seam-free — the chat surface runs edge to edge with
+    // hairline separations instead of padded floating cards. Artifacts do
+    // not occupy a side column: they open in the bookmark drawer via the
+    // chat header's Artifacts entry.
+    <main className="flex-1 flex min-w-0 overflow-hidden relative z-10">
+      <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
+        {/* The desktop header is hidden on mobile; keep its activity panels
+            reachable here even before the agent has produced an artifact. */}
         {isMobile && agentId && (
-          <div className="flex h-9 shrink-0 items-center border-b border-[var(--nm-hairline)]">
-            <div className="flex-1" />
-            <div className="flex h-full items-stretch justify-center gap-6" role="tablist">
-              {(['chat', 'artifacts'] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  role="tab"
-                  aria-selected={mobileTab === t}
-                  onClick={() => setMobileTab(t)}
-                  className={cn(
-                    'px-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.12em] transition-colors border-b-2',
-                    mobileTab === t
-                      ? 'text-[var(--color-carbon)] border-[var(--color-carbon)]'
-                      : 'text-[var(--text-tertiary)] border-transparent',
-                  )}
-                >
-                  {t === 'chat'
-                    ? tr('layout.chatView.tabChat')
-                    : artifactsLength > 0
-                      ? tr('layout.chatView.tabArtifactsCount', { count: artifactsLength })
-                      : tr('layout.chatView.tabArtifacts')}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-1 justify-end pr-1.5">
-              <CostPopover compact />
-            </div>
+          <div className="flex h-9 shrink-0 items-center justify-end gap-1 px-1.5 border-b border-[var(--nm-hairline)]">
+            <button
+              type="button"
+              onClick={() => requestPanel('artifacts')}
+              className="inline-flex items-center gap-1.5 px-2 h-7 rounded-[var(--radius-sm)] font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-[0.12em] text-[var(--text-tertiary)] transition-colors hover:text-[var(--nm-ink)]"
+            >
+              {artifactsLength > 0
+                ? tr('layout.chatView.tabArtifactsCount', { count: artifactsLength })
+                : tr('layout.chatView.tabArtifacts')}
+            </button>
+            {browserOffered && (
+              <Button variant="ghost" size="sm" onClick={() => requestPanel('browser')}
+                leading={<MonitorPlay className="h-3.5 w-3.5" />}
+                className="h-7 px-2 text-[11px] text-[var(--text-tertiary)]">
+                {tr('rail.browser', 'Browser')}
+              </Button>
+            )}
+            <CostPopover compact />
           </div>
         )}
 
         {/* Chat column — NM paper card (the actual conversation surface,
-            --nm-card sits on top of the warm nm-paper background).
-            flex-col so the (cloud-only, self-hiding) onboarding checklist
-            can sit above the chat without ChatPanel losing its height. */}
+            --nm-card sits on top of the warm nm-paper background). */}
         <div
-          ref={chatColRef}
-          className={cn(
-            'min-w-0 lg:min-w-[400px] animate-fade-in overflow-hidden rounded-[var(--radius-md)] flex flex-col',
-            isMobile && mobileTab === 'artifacts' && 'hidden',
-          )}
-          style={{
-            background: 'var(--nm-card)',
-            border: '1px solid var(--nm-hairline)',
-            ...(artifactExpanded
-              ? { flexGrow: chatSplit, flexBasis: 0 }
-              : { flexGrow: 1, flexBasis: 0 }),
-          }}
+          className="min-w-0 flex-1 animate-fade-in overflow-hidden flex flex-col"
+          style={{ background: 'var(--nm-card)' }}
         >
-          <OnboardingChecklist />
+          {/* One-shot new-user nudge (portals to body; renders nothing once
+              dismissed). Replaces the retired OnboardingChecklist card — the
+              auto-provisioned guide agent now carries the onboarding. */}
+          <GuideAgentCoachmark />
           <MigrationGuide />
           <div className="relative flex-1 min-h-0">
             <ChatPanel onAgentComplete={refreshAll} />
             <WakingOverlay />
           </div>
         </div>
-
-        {/* Resizable divider (chat ↔ artifacts) — desktop only. Hidden in
-            sliver mode; on mobile the views are tabbed, not split. */}
-        {!isMobile && artifactExpanded && (
-          <ResizableDivider
-            onResizeStart={() => setDragging(true)}
-            onResize={handleResize}
-            onResizeEnd={handleResizeEnd}
-          />
-        )}
-
-        {/* Artifact column. Desktop: side column (auto-hides to a sliver when
-            empty; flexGrow drives the split). Mobile: only rendered when the
-            Artifacts tab is active, forced to the full expanded view. */}
-        {agentId &&
-          (isMobile
-            ? mobileTab === 'artifacts' && (
-                <ArtifactColumn agentId={agentId} forceExpanded />
-              )
-            : (
-                <ArtifactColumn
-                  agentId={agentId}
-                  flexGrow={artifactExpanded ? 1 - chatSplit : undefined}
-                  columnRef={artifactColRef}
-                  contentFrozen={dragging}
-                />
-              ))}
       </div>
 
-      {/* Drag handle for the pinned drawer's width. `-mx-2` cancels most of
-          <main>'s own `md:gap-3`, which lands on both sides of the handle and
-          would otherwise add up to a ~30px blank strip. */}
+      {/* Drag handle for the pinned drawer's width. */}
       {drawerPinned && drawerTab && agentId && !isMobile && (
         <ResizableDivider
           onResize={handleDrawerResize}
           onResizeEnd={handleDrawerResizeEnd}
           label={tr('layout.resizableDivider.drawerAriaLabel')}
           title={tr('layout.resizableDivider.drawerTitle')}
-          marginClassName="-mx-2"
         />
       )}
 
@@ -400,28 +265,44 @@ export function ChatView() {
       {agentId && (
         <BookmarkDrawer
           open={drawerTab !== null}
-          pinned={drawerPinned}
+          pinned={drawerPinned && !isMobile}
           onPinnedChange={handlePinnedChange}
           onClose={handleDrawerClose}
           title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
-          edgeReservePx={isMobile ? 0 : STRIP_WIDTH_PX + RAIL_GUTTER_PX}
-          pinnedWidth={drawerWidth}
+          description={drawerTab ? tr(tabDescKey(drawerTab), '') : ''}
+          edgeReservePx={0}
+          pinnedWidth={effectiveDrawerWidth}
+          // Title switcher (Owner-required): a pinned drawer switches its own
+          // content without a trip back to the chat header. It goes through
+          // the same uiStore funnel as every other panel entry ('open' mode:
+          // the switcher never re-selects the open tab, so no toggle).
+          activeTab={drawerTab}
+          onSelectTab={openPanel}
+          switcherCategories={switcherCategories}
+          banner={
+            showDrawerCoach ? (
+              <DrawerCoachMark onDismiss={() => setShowDrawerCoach(false)} />
+            ) : null
+          }
+          // Desktop: transient drawer is an in-flow column (chat shifts left,
+          // nothing gets covered). Artifacts wants big-screen readability —
+          // ~half the viewport, clamped so the sidebar (272) + chat (400)
+          // always keep their minimum room; other panels stay at 440px.
+          inset={!isMobile}
+          insetWidth={
+            drawerTab === 'artifacts'
+              ? 'min(max(440px, 50vw), max(320px, calc(100vw - 672px)))'
+              : 'min(440px, max(320px, calc(100vw - 672px)))'
+          }
           columnRef={drawerColRef}
         >
           {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}
         </BookmarkDrawer>
       )}
 
-      {/* Bookmark strip — the paper edge. ~36px (spec §2). Desktop only; on
-          mobile the panels are reached from the ⌘K command palette instead,
-          which sets pendingPanel → opens the same drawer. */}
-      {!isMobile && agentId && (
-        <BookmarkStrip
-          agentId={agentId}
-          activeTab={drawerTab}
-          onOpen={handleBookmarkOpen}
-        />
-      )}
+      {/* The right-edge bookmark strip is retired in v4 — every panel entry
+          now lives in the chat header (icons + ⋯ detail menu), all funneling
+          through uiStore.requestPanel into the same drawer above. */}
 
       {/* Hand-annotated page guide — bottom-left ?, spec §12 */}
       {/* Floating help (?) — desktop only; on mobile the bottom-right corner
@@ -440,10 +321,10 @@ export function ChatView() {
  */
 export function TeamChatView({ teamId }: { teamId: string }) {
   return (
-    <main className="flex-1 flex min-w-0 p-2 gap-2 md:p-3 md:gap-3 overflow-hidden relative z-10">
+    <main className="flex-1 flex min-w-0 overflow-hidden relative z-10">
       <div
-        className="flex-1 min-w-0 animate-fade-in overflow-hidden rounded-[var(--radius-md)] flex flex-col"
-        style={{ background: 'var(--nm-card)', border: '1px solid var(--nm-hairline)' }}
+        className="flex-1 min-w-0 animate-fade-in overflow-hidden flex flex-col"
+        style={{ background: 'var(--nm-card)' }}
       >
         <TeamChatPanel teamId={teamId} />
       </div>
@@ -459,7 +340,25 @@ export function MainLayout() {
   const navigate = useNavigate();
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
+  const paletteOpen = useUIStore((s) => s.paletteOpen);
+  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
   const isMobile = useIsMobile();
+
+  // Global ⌘K / Ctrl+K — hosted here (not the mobile-only TopBar) so the
+  // palette works on every viewport and route.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        const { paletteOpen: open, setPaletteOpen: setOpen } = useUIStore.getState();
+        setOpen(!open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Close the mobile sidebar drawer whenever the view changes (picked an agent
   // or navigated to a sub-page) so the user lands on the content they tapped.
@@ -479,6 +378,12 @@ export function MainLayout() {
     location.pathname !== '/app/chat' &&
     location.pathname !== '/app';
 
+  // Sub-pages that already carry their own way back. The agent profile has a
+  // source-aware breadcrumb (back to Chat or back to Agents, per
+  // location.state.from) top-left AND a Chat + "⋮" action pair top-right; the
+  // generic X would both duplicate the former and sit on top of the latter.
+  const hasOwnCloseControl = location.pathname.startsWith('/app/agents/');
+
   // Preload all data when component mounts or when agentId/userId changes
   useEffect(() => {
     if (agentId && userId) {
@@ -487,18 +392,58 @@ export function MainLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, userId]);
 
+  // Reply-language sync: languageChanged subscription + one-time backfill.
+  // Mounted HERE (MainLayout, like TelemetryNotice/FeedbackButton), NOT in
+  // ChatView: a team-first user or a settings deep-link never renders
+  // ChatView, and a sync only chat users get is not a sync (PR #284 r2).
+  useEffect(() => {
+    initReplyLanguageSync(userId);
+  }, [userId]);
+
   return (
     // h-dvh-safe (not h-screen): 100vh on mobile includes the space behind
     // the browser's retractable UI, pushing the layout's bottom edge under
     // the toolbar. The class carries a plain-vh fallback for engines
     // without dvh (see index.css).
     <div className="h-dvh-safe flex flex-col bg-[var(--bg-deep)] relative overflow-hidden">
-      {/* Narrow global status strip — breadcrumb + connection + ⌘K */}
+      {/* "You skipped wiring a model" strip — above everything, because it
+          explains why the app can't answer yet. Self-clears once a provider
+          exists; local only. */}
+      <NoProviderNotice />
+
+      {/* A site the agent is blocked on. In the shell, not in the browser
+          panel: the user reads the refusal in chat, and a prompt that only
+          exists inside a panel they have not opened is no prompt at all. */}
+      <BrowserNotices />
+
+      {/* Mobile-only status strip — hamburger + breadcrumb + ⌘K. Renders
+          nothing on md+ (v4: the sidebar owns the full height there). */}
       <TopBar />
+
+      {/* Command palette — one instance for all viewports and routes. */}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       <div className="flex flex-1 min-h-0 relative">
       {/* Sidebar - Agent List */}
       <Sidebar />
+
+      {/* Collapsed-sidebar expand rail. The chat view renders its own inline
+          expand button in the chat header (v4); sub-pages and team chat get
+          a slim reserved rail instead of a floating chip — the page content
+          shifts right, so nothing is ever covered (Owner 2026-08-06). */}
+      {!isMobile && sidebarCollapsed && (isSubPage || teamChatId) && (
+        <div className="shrink-0 flex w-11 flex-col items-center border-r border-[var(--nm-hairline)] bg-[var(--nm-paper)] pt-3">
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed(false)}
+            title={t('sidebar.expandTitle')}
+            aria-label={t('sidebar.expandTitle')}
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--nm-ink50)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--nm-ink)]"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Mobile drawer backdrop — taps to close the off-canvas sidebar.
           Sits below the sidebar (z-40) and above the content (z-10). */}
@@ -519,6 +464,17 @@ export function MainLayout() {
           the chat view. Mobile keeps its entry in the sidebar drawer footer:
           the corner belongs to the composer there. */}
       {!isMobile && <FeedbackButton aboveHelp={!isSubPage && !teamChatId} />}
+      {/* One-time privacy disclosures. Mounted HERE (MainLayout, like
+          FeedbackButton) and not inside ChatView: a team-first user or a
+          settings deep-link never renders ChatView, and a disclosure that only
+          chat users receive is not a disclosure. Both self-gate (render nothing
+          once seen / when their data flow is off), so this shared stacking slot
+          sizes itself and the two never overlap — pointer-events-none on the
+          slot so it never blocks the composer when both are hidden. */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md flex flex-col gap-3 pointer-events-none">
+        <WebAnalyticsNotice />
+        <TelemetryNotice />
+      </div>
 
       {/* Render: team group chat, a sub-page via Outlet, or the chat view */}
       {teamChatId ? (
@@ -527,16 +483,19 @@ export function MainLayout() {
         <main className="flex-1 min-w-0 overflow-hidden relative z-10">
           {/* Close button — sub-pages (Dashboard / Settings / System …) open
               over the chat with no obvious way back, so dock an X top-right
-              that returns to the conversation. */}
-          <button
-            type="button"
-            onClick={() => navigate('/app/chat')}
-            title={t('layout.subPage.closeTitle')}
-            aria-label={t('layout.subPage.closeAriaLabel')}
-            className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+              that returns to the conversation. Skipped on pages that bring
+              their own back control (hasOwnCloseControl). */}
+          {!hasOwnCloseControl && (
+            <button
+              type="button"
+              onClick={() => navigate('/app/chat')}
+              title={t('layout.subPage.closeTitle')}
+              aria-label={t('layout.subPage.closeAriaLabel')}
+              className="absolute top-4 right-4 z-30 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--nm-paper-warm)] hover:text-[var(--color-carbon)]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
           {/* v2.2 G1: inner Suspense so lazy sub-pages (DashboardPage etc.)
               don't trigger the App-level full-screen spinner that hides the
               Sidebar. The skeleton mirrors the dashboard grid shape. */}

@@ -120,6 +120,21 @@ export interface HealResponse {
   message: string;
 }
 
+/**
+ * The user-edit optimistic lock failed: the file changed since the editor
+ * loaded it. `currentHash` is the sha256 of what is on disk NOW — resend with
+ * it to overwrite anyway, or reload to discard the local text.
+ */
+export class ArtifactEditConflictError extends Error {
+  currentHash: string;
+
+  constructor(message: string, currentHash: string) {
+    super(message);
+    this.name = 'ArtifactEditConflictError';
+    this.currentHash = currentHash;
+  }
+}
+
 export const artifactsApi = {
   async listSession(agentId: string, sessionId: string): Promise<Artifact[]> {
     const url = `${base(agentId)}?scope=session&session_id=${encodeURIComponent(sessionId)}`;
@@ -131,6 +146,18 @@ export const artifactsApi = {
   async listPinned(agentId: string): Promise<Artifact[]> {
     const r = await fetch(`${base(agentId)}?scope=pinned`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`listPinned failed: ${r.status}`);
+    return r.json();
+  },
+
+  /**
+   * The agent's full awareness surface — own pinned ∪ every team it belongs
+   * to (same union the agent's state block draws from). The panel's full
+   * pull on open/switch/reconnect uses this so what the user sees and what
+   * the agent believes exists can never disagree.
+   */
+  async listContext(agentId: string): Promise<Artifact[]> {
+    const r = await fetch(`${base(agentId)}?scope=context`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`listContext failed: ${r.status}`);
     return r.json();
   },
 
@@ -265,6 +292,32 @@ export const artifactsApi = {
       body: JSON.stringify({ mode }),
     });
     if (!r.ok) throw new Error(`setEmbedMode failed: ${r.status}`);
+    return r.json();
+  },
+
+  /**
+   * Persist a user edit from an editing surface (spec A §3.1). `base_hash`
+   * is the sha256 of the bytes the editor loaded; a 409 throws
+   * ArtifactEditConflictError carrying the on-disk hash for the re-base flow.
+   */
+  async putContent(
+    agentId: string,
+    artifactId: string,
+    body: { content: string; base_hash: string },
+  ): Promise<Artifact> {
+    const r = await fetch(`${base(agentId)}/${artifactId}/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 409) {
+      const detail = (await r.json())?.detail ?? {};
+      throw new ArtifactEditConflictError(
+        String(detail.error ?? 'edit conflict'),
+        String(detail.current_hash ?? ''),
+      );
+    }
+    if (!r.ok) throw new Error(`putContent failed: ${r.status}`);
     return r.json();
   },
 

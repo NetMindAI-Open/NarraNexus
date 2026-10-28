@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/__tests__/SettingsPage.nav.test.tsx
-last_verified: 2026-07-21
+last_verified: 2026-09-23
 stub: false
 ---
+
+## 2026-09-23 - Disabled Browser deep links
+
+The Browser section is feature-owned. A real `disableBuiltinUi('builtin.browser')`
+call removes its navigation entry; `?tab=browser` then resolves to the existing
+providers fallback and never mounts the browser pane. The test restores feature
+registrations afterwards and stubs BrowserSettings to avoid runtime requests.
 
 # SettingsPage.nav.test.tsx — settings navigation boundary
 

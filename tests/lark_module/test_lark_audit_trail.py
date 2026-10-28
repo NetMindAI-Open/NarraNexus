@@ -17,11 +17,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from xyz_agent_context.module.lark_module.lark_trigger import LarkTrigger
-from xyz_agent_context.repository.lark_seen_message_repository import (
+from narranexus_plugins.lark_module.lark_trigger import LarkTrigger
+from narranexus.platform.repository.lark_seen_message_repository import (
     LarkSeenMessageRepository,
 )
-from xyz_agent_context.repository.lark_trigger_audit_repository import (
+from narranexus.platform.repository.lark_trigger_audit_repository import (
     LarkTriggerAuditRepository,
     EVENT_INGRESS_PROCESSED,
     EVENT_INGRESS_DROPPED_HISTORIC,
@@ -122,6 +122,41 @@ async def test_audit_records_unbound_drop(db_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_audit_records_empty_content_drop(db_client, monkeypatch):
+    """A message that parses to empty content (no text, no attachment
+    refs) is dropped — but must leave an audit row. Live incident
+    2026-08-06: an unwrapped ``post`` payload parsed to "" and the
+    guard's bare ``return`` left the "why didn't the bot reply?" ticket
+    unanswerable (lessons #3/#5)."""
+    from narranexus.platform.channel.channel_audit_events import (
+        EVENT_INGRESS_DROPPED_EMPTY,
+    )
+
+    t = _make_trigger(db_client)
+    cred = _Cred()
+    t._subscriber_creds[cred.app_id] = cred
+
+    run_mock = AsyncMock()
+    monkeypatch.setattr(t, "_build_and_run_agent", run_mock)
+    monkeypatch.setattr(t, "is_echo", AsyncMock(return_value=False))
+
+    event = {
+        "message_id": "om_empty_post",
+        "chat_id": "oc_1",
+        "sender_id": "ou_x",
+        "sender_type": "user",
+        "message_type": "post",
+        "content": "{}",
+    }
+    await t._process_message(cred, event, worker_id=0)
+
+    run_mock.assert_not_awaited()
+    rows = await t._audit_repo.recent(limit=5)
+    types = [r["event_type"] for r in rows]
+    assert EVENT_INGRESS_DROPPED_EMPTY in types
+
+
+@pytest.mark.asyncio
 async def test_audit_records_inbox_write_failure(db_client, monkeypatch):
     """When _write_to_inbox hits a DB error, the content must not be
     silently lost — an audit row captures the original + response."""
@@ -132,7 +167,7 @@ async def test_audit_records_inbox_write_failure(db_client, monkeypatch):
         raise RuntimeError("inbox db down")
 
     # get_db_client resolves inside _write_to_inbox; patch it
-    from xyz_agent_context.module.lark_module import lark_trigger as lt_mod
+    from narranexus_plugins.lark_module import lark_trigger as lt_mod
     monkeypatch.setattr(lt_mod, "get_db_client", _boom)
 
     await t._write_to_inbox(

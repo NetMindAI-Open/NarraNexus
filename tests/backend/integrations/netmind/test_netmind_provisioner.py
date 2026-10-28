@@ -14,16 +14,16 @@ from __future__ import annotations
 import pytest
 
 import backend.integrations.netmind.netmind_key_client as key_mod
-import xyz_agent_context.utils.db.db_factory as db_factory
-import xyz_agent_context.agent_framework.providers.user_service as ups_mod
-import xyz_agent_context.agent_framework.providers.resolver as resolver_mod
+import narranexus.platform.utils.db.db_factory as db_factory
+import narranexus.platform.agent_framework.providers.user_service as ups_mod
+import narranexus.platform.agent_framework.providers.resolver as resolver_mod
 from backend.integrations.netmind.netmind_key_client import (
     KeyAuthError,
     KeyUpstreamError,
     MintedKey,
 )
 from backend.integrations.netmind.netmind_provisioner import ensure_netmind_provider
-from xyz_agent_context.settings import settings
+from narranexus.platform.settings import settings
 
 USER = "user_test"
 TOKEN = "jwt-abc"

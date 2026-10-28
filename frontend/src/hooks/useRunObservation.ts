@@ -23,8 +23,64 @@
 import { useEffect, useMemo, useReducer, useRef } from 'react';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { useConfigStore } from '@/stores';
+import { useArtifactStore, type ArtifactChangedEvent } from '@/stores/artifactStore';
+import { useChatStore } from '@/stores/chatStore';
 import { translateReconnectFrame } from '@/services/wsManager';
+import { parseBackendTs } from '@/lib/backendTs';
+import { isMonologueFrame } from '@/lib/monologueTier';
 import type { Step, TurnEvent } from '@/types';
+
+/**
+ * Route one backend artifact_changed event: store upsert/remove via
+ * applyEvent (monotonic-guarded, never throws), plus a toast when a heal
+ * repointed the artifact at a different file — the pointer moved without
+ * the user asking, so honesty requires telling them where it went (spec
+ * artifact-events §5.3). Lives at module scope: it holds no hook state and
+ * the reconnect path calls it too.
+ */
+function routeArtifactEvent(raw: Record<string, unknown>): void {
+  const event = raw as unknown as ArtifactChangedEvent;
+  useArtifactStore.getState().applyEvent(event);
+  if (event.action === 'repointed' && event.artifact?.artifact_id) {
+    useChatStore.getState().pushToast({
+      kind: 'artifact-repointed',
+      artifactId: event.artifact.artifact_id,
+      title: event.artifact.title ?? event.artifact.artifact_id,
+      oldPath: event.extra?.old ?? '?',
+      newPath: event.extra?.new ?? '?',
+      hashMatched: event.extra?.hash_matched === true,
+      timestamp: Date.now(),
+    });
+  }
+}
+
+/**
+ * Whether an error frame ends the socket's life, as opposed to being a
+ * run-level event the run continues past.
+ *
+ * A named predicate rather than an inline condition because the retry ladder is
+ * the thing it governs, and a retry loop is invisible in any test that only
+ * folds frames: the reducer never sees `onclose`. This exact gap let the
+ * breaker case reconnect forever while every reducer test stayed green — the
+ * acceptance criterion says "the observation socket does not reconnect
+ * endlessly", and nothing was checking it.
+ *
+ *   - Forbidden / NotFound / DBError: the server closes right after these.
+ *   - agent_circuit_open: retrying is a loop against a refusal. The agent is
+ *     not down, it is declining to run until a human fixes a key, a balance, or
+ *     waits out a cooldown.
+ *
+ * Anything else is a run-level event (a failed tool call mid-run); settling on
+ * those would end runs that are still going.
+ */
+export function isTerminalErrorFrame(errorType: unknown): boolean {
+  return (
+    errorType === 'Forbidden' ||
+    errorType === 'NotFound' ||
+    errorType === 'DBError' ||
+    errorType === 'agent_circuit_open'
+  );
+}
 
 export interface RunObservationSnapshot {
   /** connecting → live (frames flowing) → ended (terminal frame seen). */
@@ -33,12 +89,23 @@ export interface RunObservationSnapshot {
   endState: string | null;
   /** Process blocks in arrival order (thinking / tool_call / tool_output / plan). */
   events: TurnEvent[];
-  /** Pre-loop pipeline phases (step 0..3), upserted by step id. */
+  /** Pipeline phases (step 0..3.4, build-context → run-agent), upserted by
+   *  step id. Which of these render as rows is decided by the consumer's
+   *  whitelist (processShared PHASE_STEP_IDS), not here. */
   steps: Step[];
   /** epoch ms the run started (from the run_reconnect metadata frame). */
   startedAt: number | null;
   /** Last fatal error surfaced by the run (display-only). */
   errorMessage: string | null;
+  /**
+   * Why the agent's breaker is open: "paused:auth" | "paused:quota" |
+   * "cooling", else null.
+   *
+   * Kept rather than collapsed into `endState: 'failed'`, because the three
+   * reasons ask the user for three different things — a new key, more balance,
+   * or simply to wait. "Failed" tells them to do nothing in particular.
+   */
+  circuitReason: string | null;
   /** Tool calls observed so far (derived; 0 while connecting). */
   opsCount: number;
 }
@@ -50,6 +117,7 @@ const INITIAL: RunObservationSnapshot = {
   steps: [],
   startedAt: null,
   errorMessage: null,
+  circuitReason: null,
   opsCount: 0,
 };
 
@@ -80,12 +148,30 @@ export function applyObservationFrame(
     // mid-run drop + backoff reopen would stack the whole trace twice
     // (tool_output rows append unconditionally; thinking would merge
     // doubled content).
-    const startedRaw = raw.started_at as string | null | undefined;
-    const startedMs = startedRaw ? Date.parse(startedRaw) : NaN;
+    // parseBackendTs, not Date.parse (review #349 I1): cloud MySQL emits a
+    // NAIVE-UTC string that bare Date.parse reads as local time — this
+    // elapsed anchor would be off by the viewer's UTC offset the day a UI
+    // starts rendering it.
+    const startedMs = parseBackendTs(raw.started_at as string | null | undefined);
     return {
       ...INITIAL,
       status: 'live',
       startedAt: Number.isFinite(startedMs) ? startedMs : null,
+    };
+  }
+  // An open breaker is TERMINAL, not "still loading". Left as a generic error
+  // it wrote a message, never settled the snapshot, and the socket's onclose
+  // then reconnected forever against an agent that is by definition refusing to
+  // run — the room showing "couldn't load" while the client retried in a loop.
+  // The private chat has had the honest path (a banner with Resume) for a long
+  // time; this is the observation socket learning the same thing.
+  if (t === 'error' && raw.error_type === 'agent_circuit_open') {
+    return {
+      ...snap,
+      status: 'ended',
+      endState: 'failed',
+      circuitReason: (raw.cb_reason as string | null) ?? 'cooling',
+      errorMessage: (raw.error_message as string | null) ?? snap.errorMessage,
     };
   }
   if (t === 'run_ended') {
@@ -116,10 +202,24 @@ export function applyObservationFrame(
     if (!content) return snap;
     const events = [...snap.events];
     const last = events[events.length - 1];
-    if (last && last.type === 'thinking') {
+    // The tier reaches this path too since 2026-08-30 (run_recorder tags the
+    // segment, broadcaster carries the in-flight one, translateReconnectFrame
+    // hands both back) — which is what makes the team member panel show
+    // narration at all. It also means this merge can no longer be
+    // unconditional: gluing a narration block onto a reasoning one would
+    // label two tiers with a single flag. Same guard, same reason, as
+    // chatStore's agent_thinking branch — its twin.
+    const isMonologue = isMonologueFrame(
+      content,
+      translated.monologue as string | undefined,
+    );
+    if (last && last.type === 'thinking' && !!last.monologue === isMonologue) {
       events[events.length - 1] = { ...last, content: last.content + content };
     } else {
-      events.push({ type: 'thinking', id: nextId(), ts: Date.now(), content });
+      events.push({
+        type: 'thinking', id: nextId(), ts: Date.now(), content,
+        monologue: isMonologue,
+      });
     }
     return { ...snap, status: 'live', events };
   }
@@ -283,11 +383,34 @@ export function useRunObservation(
           user_id: userId,
           token: token || undefined,
         }));
+        // Self-healing full pull (spec artifact-events §3.3): any events
+        // missed while the socket was down are made irrelevant by re-pulling
+        // the panel's list on every (re)connect. Fire-and-forget — a failed
+        // refresh just leaves the panel one open/switch away from healing.
+        const activeAgentId = useArtifactStore.getState().activeAgentId;
+        if (activeAgentId) {
+          void useArtifactStore
+        .getState()
+        .loadPinned(activeAgentId)
+        .catch((e) => {
+          // Loud, never fatal (same discipline as applyEvent's catch): a
+          // failed full-pull means the panel may lag — worth a trace, not
+          // an unhandled rejection on every reconnect blip (#334 I13).
+          console.warn('artifact panel refresh on reconnect failed', e);
+        });
+        }
       };
       ws.onmessage = (event) => {
         try {
           const raw = JSON.parse(event.data) as Record<string, unknown>;
           if (raw.type === 'heartbeat') return;
+          if (raw.type === 'artifact_changed') {
+            // Artifact registry events feed the artifact store, not the run
+            // timeline reducer — the tab panel is their UI, not the chat.
+            routeArtifactEvent(raw);
+            attempts = 0; // a live frame all the same — reset the backoff ladder
+            return;
+          }
           if (raw.type === 'error') {
             // Protocol-terminal errors (the server closes right after
             // these): stop the ladder AND settle the snapshot so the
@@ -295,7 +418,7 @@ export function useRunObservation(
             // frames are run-level events — dispatch, but do NOT reset
             // the ladder: an error frame is not progress.
             const et = raw.error_type as string | undefined;
-            if (et === 'Forbidden' || et === 'NotFound' || et === 'DBError') {
+            if (isTerminalErrorFrame(et)) {
               fatalRef.current = true;
               dispatch({ type: 'frame', raw });
               dispatch({

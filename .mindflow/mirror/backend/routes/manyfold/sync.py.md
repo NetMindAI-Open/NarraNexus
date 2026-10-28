@@ -1,8 +1,68 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-08-04
+last_verified: 2026-09-07
 stub: false
 ---
+
+## 2026-08-26 — `retag_managed_input`：盖章之后重渲 tag 行
+
+`build_inbound_run_context` 必须先渲染 tag 才能拼出 `run_input`，但 tag 上
+有些字段**要等渠道自己的 trigger 看过这一轮才知道**——`is_agent_peer` 是
+第一个这样的字段（只有 trigger 层知道各平台的身份约定）。
+
+顺序是：`:612` 渲染 → `:639` `before_run` 把 `is_agent_peer` 盖进
+`trigger_extra_data["channel_tag"]` **字典** → `:702` 把**早就定型的**
+`run_input` 送进 agent。**字典被改了，模型读的那个字符串没有。**
+
+后果正好落在这个信号最该生效的地方：`MatrixTrigger.is_agent_peer` 是全仓
+唯一能真答出这个问题的实现，而 NarraMessenger 就跑在托管模式下。于是托管
+A2A DM 里，模型拿到的 tag 与人类对话逐字节相同，而 DM 协议里那条
+「若标记为 `agent sender`」是一条**永远走不到的分支**。
+
+修法：**替换**那一行，不新拼一行（两行 tag 比一行过时的更糟），且仍然只走
+`ChannelTag.format()` 这一个渲染定义——在托管侧手写 `agent sender` 就退回成
+「N 份手抄」了。顺带让 `ChannelTag.from_dict` 从死代码变成有调用点。
+
+**用 `user_input` 重建整串**，而不是对渲染好的字符串做手术。第一版切首行、
+判断它以 `[` 开头 `]` 结尾——`sender_name` 是平台转发的 display name，
+`_ctx_str` 当时只削首尾，一个**名字里带换行**的昵称就会让 `tag.format()` 自己
+跨两行，于是首行不以 `]` 结尾、重渲被跳过、标记**静默消失**。而希望这个标记
+消失的正是对面那个 agent，它恰好控制自己的昵称。
+
+配套把 `_ctx_str` 改成折叠内部空白：tag 是**单行协议**，带换行的昵称在别处
+（chat history）也是雷。
+
+**注意折叠面比 tag 大**：`_ctx_str` 同时喂着 `room_id` / `source_message_id`
+/ `thread_id` / `reply_token`，而 `trigger_id` 由 `source_message_id` 拼出来
+并进审计行。这些都是 ID，内部带空白本身就是病态输入，折叠对它们无害——但
+**如果哪天有渠道的 ID 合法地含空白，这里要先分字段处理再动**。
+
+无 `channel_tag` 的纯 Manyfold turn 原样返回。
+
+## 2026-08-10(review 修)— env 委托 + 全败还原批次
+
+`_webhook_env` 改为委托 integrations/manyfold_outbound 的
+`manyfold_runtime_env()`(身份对唯一解析点),并**自带**
+`webhook_url` 非空这道 notify 腿专属的门(净行为不变:仍三者齐全
+才发);`_flush_pending` 全败
+后 `_pending_kinds.update(kinds)` 还原整批——否则重试窗口(~31s)内
+被并批吸收的 kinds 随注定失败的批次一起消失,比无重试时代更糟
+(那时它们会留在 _pending_kinds 等下一个 task)。notify 是"pull
+everything"语义,晚到重发无害。
+
+## 2026-08-10 — A1 `agent_managed_reply` 显式下发 + A3 notify 退避重试
+
+channels inventory 每行 `config` 后处理注入
+`agent_managed_reply`(bool,事实源 = integrations/manyfold_outbound
+的 env 声明)。**显式 false 是关键**:平台 mapper 对缺失键按 managed-ON
+兜底(#504),缺键 = 渠道在某次不可预测的 pull 后突然翻托管;一个
+post-pass 循环保证未来第七个 provider 不可能漏键。
+
+`_flush_pending` 加退避重试(`_NOTIFY_RETRY_BACKOFF_S` = 1s/5s/25s):
+bind 完丢 notify 是最疼的场景(用户直接去 IM 等,turn-final 扳机
+永不触发,平台周期 reconcile 只扫醒着的沙盒)。重试间隙到达的
+kinds 并入当前批(flush task 单飞,没人会另行捡起它们);全败后仍
+raise 给 done-callback 记 warning——never-raise 面向调用方不变。
 
 ## 2026-08-04 — 契约值归一化 + lark enabled 收敛(review)
 
@@ -105,3 +165,19 @@ automations（镜像闹钟）和 channel 连接接管，事件发生时按需唤
 - message_bus 运行中经 MCP 建的 job 没有 HTTP 请求经过 middleware，
   webhook 不会发——依赖 Manyfold 的 turn 结束 pull / boot pull 兜底，
   这是已知 v1 边界。
+
+## 2026-09-04 · services + host hooks (batch 3c.6)
+
+`/manyfold/channels` collects rows from every channel builtin through `onWillExportManagedChannels` (provider order pinned by `_PROVIDER_ORDER`); `execute_job_once` runs through builtin.job's `jobs.run_once` service (`RunJobOutcome` now subclasses `contracts.job.JobRunOutcome`; `jobs_unavailable` when the builtin is disabled). The route imports no channel or job module.
+
+## 2026-09-04 · channels as descriptors (batch 4a)
+
+`_provider_working_source()` resolves an IM provider to its inbound WorkingSource through `ingress.channels` (credentials-only channels and unknown names → None) instead of the hard-coded six-entry map.
+
+## 2026-09-04 · registry-driven order and config paths (batch 4e)
+
+`_provider_rank` orders the channel payload by the descriptors' `ui.order` (unknown providers last); `_channel_path_prefixes()` = `/api/channels` (where every channel binds since 4d.3 — the old tuple would have missed every bind) + each registered channel's own router, so a plugin channel's writes notify Manyfold too.
+
+## 2026-09-07 — 删除死的 module_system 导入（round-2 P2-C1）
+
+注册只在 boot；未 boot 的进程没有渠道即回退为普通 MANYFOLD turn。

@@ -5,19 +5,23 @@
  * @description: Renders one collapsible team section inside the grouped
  * agent list. Owns the section header (team name, member count, collapse
  * toggle, aggregated unread pill) and the agent rows beneath it.
- * Agent row markup is shared logic with AgentList's expanded rendering;
- * the inline rename state is passed down so AgentList owns all mutations.
+ * An owned agent's row carries the ⋯ menu (Rename / Model & framework /
+ * Delete — Owner-required, reinstated 2026-09-11 after #383 removed it) and
+ * the inline rename input it opens; other users' public agents stay
+ * display-only. The actions themselves are the host's (AgentList).
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Check, X, Globe } from 'lucide-react';
+import { Loader2, Globe, ChevronRight } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
-import { AgentRowMenu } from './AgentRowMenu';
+import { AGENT_CARD_BADGES } from '@/platform/registries';
+import { SlotOutlet } from '@/platform/SlotOutlet';
+import { useWhenContext } from '@/platform/whenContext';
 import { aggregateSectionUnread } from './agentGroupUtils';
+import { AgentRowMenu } from './AgentRowMenu';
 import { cn } from '@/lib/utils';
-import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,25 +60,21 @@ export interface AgentGroupSectionProps {
   getIsStreaming: (agentId: string) => boolean;
   completedAgentIds: string[];
 
-  /** Logged-in user — rows derive isOwner from agent.created_by. */
+  /** Logged-in user — the read-only Globe badge marks OTHER users' public
+   *  agents, and only the owner's rows get the ⋯ menu. */
   currentUserId: string | null;
-  /** Threaded from AgentList's SHOW_AGENT_PUBLIC_TOGGLE feature flag. */
-  showPublicToggle: boolean;
 
-  // Inline rename state — owned by AgentList, threaded down here.
-  editingAgentId: string | null;
-  editingName: string;
-  onEditNameChange: (name: string) => void;
-  onSaveEdit: (targetAgentId: string, e: React.SyntheticEvent) => void;
-  onCancelEdit: (e: React.SyntheticEvent) => void;
-  savingName: boolean;
+  /** Row ⋯ menu actions (owner rows only). Omitted → no menu. */
+  rowActions?: AgentRowActions;
+}
 
-  onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onEditAgent: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
-  deletingAgentId: string | null;
+/** What the row's ⋯ menu can do — supplied by the host, which owns the API
+ *  calls, the confirm dialog and the model-config panel. */
+export interface AgentRowActions {
+  /** Persist a new name (the host reports failures itself). */
+  onRename: (agentId: string, name: string) => void;
+  onOpenModelConfig: (agentId: string) => void;
+  onDelete: (agentId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,19 +106,7 @@ export function AgentGroupSection({
   getIsStreaming,
   completedAgentIds,
   currentUserId,
-  showPublicToggle,
-  editingAgentId,
-  editingName,
-  onEditNameChange,
-  onSaveEdit,
-  onCancelEdit,
-  savingName,
-  onStartEdit,
-  onEditAgent,
-  onClearData,
-  onDelete,
-  onTogglePublic,
-  deletingAgentId,
+  rowActions,
 }: AgentGroupSectionProps) {
   const totalUnread = aggregateSectionUnread(agents, (aid) => getRowMeta(aid).unread);
 
@@ -195,17 +183,16 @@ export function AgentGroupSection({
           </span>
         )}
 
-        {/* Collapse arrow */}
-        <span
+        {/* Collapse arrow — lucide chevron, same linear icon language as the
+            team-row toggle (design_system.md §5: no solid/linear mixing). */}
+        <ChevronRight
           className={cn(
-            'text-[10px] shrink-0 transition-transform duration-150',
-            collapsed ? 'rotate-0' : 'rotate-90',
+            'h-3 w-3 shrink-0 transition-transform duration-150',
+            !collapsed && 'rotate-90',
           )}
           style={{ color: 'var(--nm-ink30)' }}
           aria-hidden
-        >
-          ▶
-        </span>
+        />
       </div>
       )}
 
@@ -222,20 +209,8 @@ export function AgentGroupSection({
               getIsStreaming={getIsStreaming}
               completedAgentIds={completedAgentIds}
               currentUserId={currentUserId}
-              showPublicToggle={showPublicToggle}
-              editingAgentId={editingAgentId}
-              editingName={editingName}
-              onEditNameChange={onEditNameChange}
-              onSaveEdit={onSaveEdit}
-              onCancelEdit={onCancelEdit}
-              savingName={savingName}
               onSelectAgent={onSelectAgent}
-              onStartEdit={onStartEdit}
-              onEditAgent={onEditAgent}
-              onClearData={onClearData}
-              onDelete={onDelete}
-              onTogglePublic={onTogglePublic}
-              deletingAgentId={deletingAgentId}
+              rowActions={rowActions}
             />
           ))}
         </div>
@@ -256,20 +231,8 @@ interface AgentRowProps {
   getIsStreaming: (aid: string) => boolean;
   completedAgentIds: string[];
   currentUserId: string | null;
-  showPublicToggle: boolean;
-  editingAgentId: string | null;
-  editingName: string;
-  onEditNameChange: (name: string) => void;
-  onSaveEdit: (targetAgentId: string, e: React.SyntheticEvent) => void;
-  onCancelEdit: (e: React.SyntheticEvent) => void;
-  savingName: boolean;
   onSelectAgent: (agentId: string) => void;
-  onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onEditAgent: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
-  onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
-  deletingAgentId: string | null;
+  rowActions?: AgentRowActions;
 }
 
 /** Single agent row — mirrors the AgentList row but scoped to the group context. */
@@ -281,24 +244,16 @@ function AgentRow({
   getIsStreaming,
   completedAgentIds,
   currentUserId,
-  showPublicToggle,
-  editingAgentId,
-  editingName,
-  onEditNameChange,
-  onSaveEdit,
-  onCancelEdit,
-  savingName,
   onSelectAgent,
-  onStartEdit,
-  onEditAgent,
-  onClearData,
-  onDelete,
-  onTogglePublic,
-  deletingAgentId,
+  rowActions,
 }: AgentRowProps) {
   const { t } = useTranslation();
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
   const isSelected = activeAgentId === agent.agent_id;
   const completed = completedAgentIds.includes(agent.agent_id);
+  const badgeCtx = useWhenContext({ agentId: agent.agent_id });
   // Compact single-line rows: no chat preview (it conflated group-chat content
   // anyway) — just name + time + unread, so more agents fit on screen.
   const { time, unread } = getRowMeta(agent.agent_id);
@@ -312,23 +267,45 @@ function AgentRow({
       : 'transparent';
   const allowHover = !isSelected && unread === 0;
 
-  const isEditing = editingAgentId === agent.agent_id;
   const isOwner = agent.created_by === currentUserId;
-  const [menuOpen, setMenuOpen] = useState(false);
+  const showMenu = isOwner && !!rowActions;
+
+  // Whether the current rename session has already been settled (committed or
+  // cancelled). A ref, not the `renaming` state: Enter/Escape unmount the
+  // input, and engines that dispatch blur on removal (WebKit — the Tauri
+  // webviews) run the blur handler from the SAME render's closure, where
+  // `renaming` is still true. Only a ref sees the first settle.
+  const renameSettledRef = useRef(false);
+  const startRename = () => {
+    renameSettledRef.current = false;
+    setNameDraft(displayName);
+    setRenaming(true);
+  };
+  const cancelRename = () => {
+    renameSettledRef.current = true;
+    setRenaming(false);
+  };
+  const commitRename = () => {
+    // Enter and the blur it triggers both land here — only the first may act.
+    if (renameSettledRef.current) return;
+    renameSettledRef.current = true;
+    const next = nameDraft.trim();
+    setRenaming(false);
+    if (next && next !== displayName) rowActions?.onRename(agent.agent_id, next);
+  };
 
   return (
     <div
-      onClick={() => onSelectAgent(agent.agent_id)}
+      onClick={() => { if (!renaming) onSelectAgent(agent.agent_id); }}
       className={cn(
         'w-full text-left px-3 py-1.5 cursor-pointer animate-slide-up',
+        // Each row is its own stacking context (animate-slide-up keeps a
+        // transform), so an open ⋯ panel lifts its whole row above the next.
+        menuOpen && 'relative z-30',
         // Slight editorial radius matching the chat bubbles (--radius-lg = 4px)
         // so the selected-row background reads consistently with the messages.
         'rounded-[var(--radius-lg)] transition-colors duration-150',
         'group',
-        // animate-slide-up retains a transform (fill: forwards), making
-        // every row a stacking context — lift the row while its kebab
-        // panel is open so the panel paints above the rows below.
-        menuOpen && 'relative z-30',
       )}
       style={{
         animationDelay: `${index * 50}ms`,
@@ -336,7 +313,7 @@ function AgentRow({
       }}
       onMouseEnter={(e) => {
         if (allowHover) {
-          (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-paper-warm)';
+          (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-row-hover)';
         }
       }}
       onMouseLeave={(e) => {
@@ -360,109 +337,87 @@ function AgentRow({
           )}
         </div>
 
-        {/* Right side */}
+        {/* Right side — single line: name … unread + time (+ the owner's ⋯
+            menu). Renaming swaps the line for an inline input. */}
         <div className="flex-1 min-w-0">
-          {isEditing ? (
-            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-              <input
-                type="text"
-                value={editingName}
-                onChange={(e) => onEditNameChange(e.target.value)}
-                maxLength={AGENT_TEXT_MAX_LENGTH}
-                className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onSaveEdit(agent.agent_id, e);
-                  if (e.key === 'Escape') onCancelEdit(e);
-                }}
-              />
-              <button
-                onClick={(e) => onSaveEdit(agent.agent_id, e)}
-                disabled={savingName}
-                className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title={t('layout.agentRow.saveTitle')}
-              >
-                <Check className={cn('w-3.5 h-3.5', savingName && 'animate-pulse')} style={{ color: 'var(--color-success)' }} />
-              </button>
-              <button
-                onClick={onCancelEdit}
-                className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title={t('layout.agentRow.cancelTitle')}
-              >
-                <X className="w-3.5 h-3.5" style={{ color: 'var(--color-error)' }} />
-              </button>
-            </div>
+          {renaming ? (
+            <input
+              autoFocus
+              aria-label={t('layout.agentRowMenu.rename')}
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+              }}
+              onBlur={commitRename}
+              className="w-full px-2 py-0.5 text-sm text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
+            />
           ) : (
-            /* Single line: name + kebab(hover, next to name) … unread + time */
-            <div className="flex items-center gap-1">
-              <span
-                className={cn('min-w-0 truncate text-sm', isSelected ? 'font-semibold' : 'font-medium')}
-                style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
-              >
-                {displayName}
+          <div className="flex items-center gap-1">
+            <span
+              className={cn('min-w-0 truncate text-sm', isSelected ? 'font-semibold' : 'font-medium')}
+              style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
+            >
+              {displayName}
+            </span>
+            {agent.is_public && !isOwner && (
+              <span title={t('layout.agentRow.publicBy', { name: agent.created_by })} className="shrink-0">
+                <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
               </span>
-              {agent.is_public && !isOwner && (
-                <span title={t('layout.agentRow.publicBy', { name: agent.created_by })} className="shrink-0">
-                  <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
-                </span>
-              )}
+            )}
+            {/* Plugin badges (ui.agentCardBadges), gated by `when` (e.g. agentHas:JobModule). */}
+            <SlotOutlet registry={AGENT_CARD_BADGES} ctx={badgeCtx} agentId={agent.agent_id} />
 
-              {/* Kebab menu — shown on hover or when selected */}
-              <div
-                className={cn(
-                  'shrink-0',
-                  isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                  'transition-opacity duration-150',
-                )}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <AgentRowMenu
-                  agentId={agent.agent_id}
-                  agentName={displayName}
-                  onOpenChange={setMenuOpen}
-                  isOwner={isOwner}
-                  isPublic={!!agent.is_public}
-                  showPublicToggle={showPublicToggle}
-                  onStartEdit={(e) => onStartEdit(agent, e)}
-                  onEditAgent={(e) => onEditAgent(agent, e)}
-                  onClearData={(e) => onClearData(agent, e)}
-                  onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
-                  onTogglePublic={(e) => onTogglePublic(agent, e)}
-                />
-              </div>
-
-              {/* Trailing meta — pushed to the right edge */}
-              <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">
-                {unread > 0 && (
-                  <span
-                    className="inline-flex items-center justify-center text-[10px] font-semibold"
-                    style={{
-                      minWidth: 18,
-                      height: 16,
-                      padding: '0 5px',
-                      borderRadius: 8,
-                      background: 'transparent',
-                      border: '1px solid var(--nm-ink30)',
-                      color: 'var(--nm-ink70)',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    {unread > 99 ? '99+' : unread}
-                  </span>
-                )}
+            {/* Trailing meta — pushed to the right edge */}
+            <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">
+              {unread > 0 && (
                 <span
-                  className="text-[10px]"
+                  className="inline-flex items-center justify-center text-[10px] font-semibold"
                   style={{
-                    color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
-                    fontWeight: unread > 0 ? 500 : 400,
+                    minWidth: 18,
+                    height: 16,
+                    padding: '0 5px',
+                    borderRadius: 8,
+                    background: 'transparent',
+                    border: '1px solid var(--nm-ink30)',
+                    color: 'var(--nm-ink70)',
                     fontFamily: 'var(--font-mono)',
-                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
-                  {time}
+                  {unread > 99 ? '99+' : unread}
                 </span>
-              </div>
+              )}
+              <span
+                className="text-[10px]"
+                style={{
+                  color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
+                  fontWeight: unread > 0 ? 500 : 400,
+                  fontFamily: 'var(--font-mono)',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {time}
+              </span>
+              {showMenu && rowActions && (
+                <div
+                  className={cn(
+                    'shrink-0 transition-opacity',
+                    menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+                  )}
+                >
+                  <AgentRowMenu
+                    onOpenChange={setMenuOpen}
+                    onRename={startRename}
+                    onOpenModelConfig={() => rowActions.onOpenModelConfig(agent.agent_id)}
+                    onDelete={() => rowActions.onDelete(agent.agent_id)}
+                  />
+                </div>
+              )}
             </div>
+          </div>
           )}
         </div>
       </div>
@@ -489,10 +444,10 @@ export function AvatarWithStreaming({
       <div className="relative inline-flex items-center justify-center">
         <span
           className="absolute inset-0 rounded-full animate-ping pointer-events-none"
-          style={{ border: '2px solid var(--color-yellow-500)' }}
+          style={{ border: '2px solid var(--color-warning)' }}
         />
         <RingAvatar species="silicon" label={label} size={size} />
-        <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-yellow-500)]" />
+        <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-warning)]" />
       </div>
     );
   }

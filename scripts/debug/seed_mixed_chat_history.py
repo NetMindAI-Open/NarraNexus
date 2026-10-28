@@ -5,7 +5,7 @@
 @description: Seed a fresh ChatModule instance with synthetic rows that
 cover every WorkingSource × message_type combination, then leave it
 referenced from a real narrative + instance_narrative_link so the
-backend picks it up via hook_data_gathering.
+backend picks it up via gather.
 
 The point is to verify the per-source dispatch end-to-end:
 - Lark "real reply" rows (working_source=lark, message_type=chat) MUST
@@ -135,7 +135,9 @@ def main() -> None:
         },
 
         # message_bus trigger — another agent talked to 阿良 via bus,
-        # and 阿良 used send_message_to_user_directly to relay back.
+        # and 阿良 relayed back via the owner-chat tool (which was
+        # `send_message_to_user_directly` when this fixture was written;
+        # it is `reply_owner` / `notify_owner` since 2026-08-17).
         {
             "role": "user",
             "content": "[Message Bus - Incoming Messages]\nFrom: agent_X\n请帮忙把 Q3 营销报告发我。",

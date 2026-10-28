@@ -82,8 +82,8 @@ async def _amain() -> None:
     parser.add_argument("--mapping", help="CSV: old_user_id,new_user_system_code")
     args = parser.parse_args()
 
-    from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
 

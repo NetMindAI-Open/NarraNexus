@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/ui/Markdown.tsx
-last_verified: 2026-07-30
+last_verified: 2026-08-14
 stub: false
 ---
+
+## 2026-08-14 (二) — rehypePlugins 用真类型
+
+`unknown[]` + `as []` 改成 `PluggableList`（来自 `unified`）。`as []` 是转成"空元组"，
+纯粹为了让 tsc 闭嘴——调用方传错东西不会被拦住，而这个 prop 的整个意义就是"把树交给别人
+改"，最需要类型的地方反而没有。
+
+`unified` 同时被声明进 `package.json`，见 [[rehypeMentions.ts]] 那条关于幽灵依赖的记录。
+
+## 2026-08-14 — 可选的 rehypePlugins
+
+新增 `rehypePlugins` prop（追加在 `rehypeRaw` 之后）。存在的理由是让调用方**改渲染树**而
+不是**改 markdown 源码**：团队房间用正则在源码上高亮 @mention，结果把字面量 `<span>`
+塞进了每一个提到 `@all` 的代码块——正则不知道什么是代码块，AST 知道。
+
+传进来的数组必须**稳定**（模块常量或 `useMemo`）：这个组件按浅比较 memo，每次渲染新建一个
+数组会让流式回复的每一个 delta 重新解析整段正文。
 
 ## 2026-07-30 — React.memo
 

@@ -26,8 +26,8 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context.narrative.config import config
-from xyz_agent_context.narrative._narrative_impl.routing_gate import evaluate_gate
+from narranexus.platform.narrative.config import config
+from narranexus.platform.narrative._narrative_impl.routing_gate import evaluate_gate
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "routing_cases.json"
 

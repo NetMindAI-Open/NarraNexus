@@ -14,11 +14,11 @@ only — payloads may be large or sensitive).
 
 import pytest
 
-from xyz_agent_context.channel.channel_audit_events import (
+from narranexus.platform.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_UNPARSED,
 )
-from xyz_agent_context.module.wechat_module.wechat_trigger import WeChatTrigger
-from xyz_agent_context.module.wechat_module._wechat_credential_manager import (
+from narranexus_plugins.wechat_module.wechat_trigger import WeChatTrigger
+from narranexus_plugins.wechat_module._wechat_credential_manager import (
     WeChatCredential,
 )
 

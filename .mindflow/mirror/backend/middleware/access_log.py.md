@@ -41,7 +41,7 @@ trigger_id=f"http:{method}:{path}")`，整个 handler 范围内任何 logger
 - 注册：`backend/main.py` 在 `auth_middleware` **之后**注册——
   FastAPI 中间件 LIFO，所以 access_log 实际上**外层**包住 auth，
   401/402 的响应也能产生一条访问日志。
-- 依赖：`xyz_agent_context.utils.logging.bind_event`（trace 上下文
+- 依赖：`narranexus.platform.utils.logging.bind_event`（trace 上下文
   绑定）和 loguru 全局 `logger`。
 - 不依赖任何模块内部细节——纯粹的横切关注点。
 

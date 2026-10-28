@@ -18,7 +18,7 @@ ended. These tests pin that contract on the prompt the fallback runs with.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+from narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
     _FALLBACK_AFTER_ERROR_INSTRUCTIONS,
     _FALLBACK_NO_REPLY_INSTRUCTIONS,
     _fallback_instructions_for_mode,

@@ -24,28 +24,38 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { Attachment, ChatMessage, Segment, TurnEvent } from '@/types';
-import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
-import { cn, formatDate, formatTime } from '@/lib/utils';
+import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse, EventLogMeta } from '@/types';
+import { cn, formatDate, formatMessageAge, formatTime } from '@/lib/utils';
 import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
+import { decodeBuilderTurn, stripAgentDraft } from '@/lib/builderProtocol';
+import { localizeTurnMarker } from '@/lib/turnMarkers';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { TurnTimeline } from './TurnTimeline';
 import { SegmentedReply } from './SegmentedReply';
+import { RunStatChips } from './RunStatChips';
+import { hasRunStats } from '@/lib/runStats';
+import { MESSAGE_ACTIONS, MESSAGE_RENDERERS, rendererFor, useRegistryEntries, visibleSlotEntries } from '@/platform/registries';
+import { useWhenContext } from '@/platform/whenContext';
+import { PluginBoundary } from '@/platform/PluginBoundary';
 
 interface MessageBubbleProps {
   message: ChatMessage;
   isStreaming?: boolean;
   eventId?: string;    // For lazy-loading event log from history
   agentId?: string;    // Needed for the event log API call
-  agentName?: string;  // Drives the assistant avatar label (matches the sidebar AgentList)
+  /** Latest message in the visible stream — its meta row (time) stays
+   *  visible; every other row reveals meta on hover only (claude.ai
+   *  convention, Owner 2026-08-06). */
+  isLatest?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
-  const { t } = useTranslation();
+export function MessageBubble({ message, isStreaming = false, eventId, agentId, isLatest = false }: MessageBubbleProps) {
+  const { t, i18n } = useTranslation();
   // Free-tier remedy buttons deep-link into Settings via `?tab=` (added in #211).
   const navigate = useNavigate();
   const [showDetails, setShowDetails] = useState(false);
@@ -62,12 +72,16 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   const [eventLogThinking, setEventLogThinking] = useState<string | null>(null);
   const [eventLogToolCalls, setEventLogToolCalls] = useState<EventLogToolCall[] | null>(null);
   const [eventLogTimeline, setEventLogTimeline] = useState<EventLogTimelineEntry[] | null>(null);
+  // Per-turn usage (tokens / cost / duration / models) — the same `meta` the
+  // Inner Thoughts card renders. Optional on purpose: a backend that predates
+  // it, or a turn with no ledger rows, simply yields no chip row.
+  const [eventLogMeta, setEventLogMeta] = useState<EventLogMeta | null>(null);
   const eventLogCacheRef = useRef<Map<string, EventLogResponse>>(new Map());
 
-  // Build a unified TurnEvent[] for inline rendering. We deliberately
-  // skip "reply" events here — the user-facing reply text lives in
-  // message.content and is already rendered as Markdown below, so
-  // duplicating it inside the timeline would print the reply twice.
+  // Build a unified TurnEvent[] for inline rendering. All three source
+  // paths deliberately carry NO "reply" events — the user-facing reply
+  // text lives in message.content and is already rendered as Markdown
+  // below, so duplicating it inside the timeline would print it twice.
   const inlineEvents: TurnEvent[] = useMemo(() => {
     if (isUser) return [];
 
@@ -83,36 +97,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     const events: TurnEvent[] = [];
 
     // Path 1 — historical: the backend gave us a time-ordered timeline.
+    // ONE conversion implementation (segmentTurn.timelineToEvents); the
+    // collapsed disclosure keeps reply-tool calls as ordinary process rows,
+    // hence convertOwnerReplyTool: false.
     if (eventLogTimeline && eventLogTimeline.length > 0) {
-      eventLogTimeline.forEach((entry, idx) => {
-        const id = `tl-${idx}`;
-        const ts = idx;
-        switch (entry.type) {
-          case 'thinking':
-            if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
-            break;
-          case 'tool_call':
-            events.push({
-              id, ts, type: 'tool_call',
-              tool_name: entry.tool_name || 'unknown',
-              tool_input: entry.tool_input || {},
-              reply_via: entry.reply_via,
-            });
-            break;
-          case 'tool_output':
-            events.push({
-              id, ts, type: 'tool_output',
-              tool_name: entry.tool_name || 'unknown',
-              output: entry.tool_output || '',
-            });
-            break;
-          case 'native_output':
-            if (entry.content) events.push({ id, ts, type: 'native_output', content: entry.content });
-            break;
-          // 'reply' intentionally skipped — see comment above.
-        }
-      });
-      return events;
+      return timelineToEvents(eventLogTimeline, { convertOwnerReplyTool: false })
+        .filter((e) => e.type !== 'reply');
     }
 
     // Path 2 — live stream: message.thinking + message.toolCalls came
@@ -150,7 +140,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
   // Segment-mode: the turn renders as the m things the agent actually
   // said, each with its own process region. Only when at least one
   // segment has a reply — a zero-reply turn keeps the legacy path
-  // (content is "(Agent decided no response needed)", process behind
+  // (content is the no-response marker, see lib/turnMarkers.ts; process behind
   // the global toggle), per the design's "don't special-case" rule.
   const segmentsForRender: Segment[] | null = useMemo(() => {
     if (isUser || message.isError) return null;
@@ -168,8 +158,28 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
 
   const hasRealTimeData = !!(message.thinking || message.toolCalls?.length);
   const canLoadEventLog = !isUser && !hasRealTimeData && !!eventId && !!agentId;
+
+  // Is this turn's process only on the server? Derived from PROPS ALONE, never
+  // from fetched state — that distinction is the whole bug fixed on 2026-08-31.
+  // The disclosure used to be gated on `segmentsForRender === null`, and the
+  // fetch it triggered is exactly what made that non-null: the control
+  // unmounted itself mid-interaction, leaving the process open with no way
+  // back. A predicate that a fetch can flip cannot govern that fetch's own
+  // affordance.
+  const processIsRemote =
+    canLoadEventLog
+    && !message.isError
+    && !(message.timeline && message.timeline.length > 0)
+    && !message.segments?.some((seg) => seg.reply);
+
+  // All four pieces the fetch fills, meta included: a turn with no thinking
+  // and no tools still returns meta, and leaving it out kept "already
+  // loaded" false for exactly those turns (harmless today — the cache
+  // short-circuits the refetch — but the flag would start lying the moment
+  // the cache gains an expiry).
   const hasEventLogData =
-    eventLogTimeline !== null || eventLogThinking !== null || eventLogToolCalls !== null;
+    eventLogTimeline !== null || eventLogThinking !== null ||
+    eventLogToolCalls !== null || eventLogMeta !== null;
 
   const loadEventLog = useCallback(async () => {
     if (!eventId || !agentId || eventLogLoading) return;
@@ -180,6 +190,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
       setEventLogThinking(cached.thinking || null);
       setEventLogToolCalls(cached.tool_calls.length > 0 ? cached.tool_calls : null);
       setEventLogTimeline(cached.timeline && cached.timeline.length > 0 ? cached.timeline : null);
+      setEventLogMeta(cached.meta ?? null);
       return;
     }
 
@@ -193,6 +204,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         setEventLogTimeline(
           response.timeline && response.timeline.length > 0 ? response.timeline : null
         );
+        setEventLogMeta(response.meta ?? null);
       }
     } catch (error) {
       console.error('Failed to load event log:', error);
@@ -208,15 +220,37 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     setShowDetails((prev) => !prev);
   }, [inlineEvents.length, canLoadEventLog, hasEventLogData, loadEventLog]);
 
+  // Creation studio: both directions carry machinery the reader must never
+  // see. A USER message wraps the builder instruction plus the agent's
+  // current config (the conversation runs on the user's own agent, so there
+  // is nowhere else to put it); an ASSISTANT message ends with the
+  // <agent_draft> config block. Strip the matching one from every surface
+  // that shows message text — bubble, copy, download.
+  //
+  // Ordinary traffic passes through untouched, so this is safe for all
+  // messages, and it must stay on the render path rather than the store:
+  // useStudioTurn parses the raw block out of the settled message.
+  //
+  // A no-reply turn's content is a fixed English marker (the backend
+  // persists it, the live session writes the same one); it is localized
+  // here, on the render path, so live and reloaded history read alike.
+  const visibleContent = useMemo(
+    () =>
+      isUser
+        ? decodeBuilderTurn(message.content)
+        : localizeTurnMarker(stripAgentDraft(message.content), t),
+    [isUser, message.content, t],
+  );
+
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(visibleContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback for older browsers
       const ta = document.createElement('textarea');
-      ta.value = message.content;
+      ta.value = visibleContent;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -224,10 +258,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [message.content]);
+  }, [visibleContent]);
 
   const handleDownload = useCallback(() => {
-    const blob = new Blob([message.content], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([visibleContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -236,77 +270,81 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [message.content, message.timestamp]);
+  }, [visibleContent, message.timestamp]);
 
   // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
-  // Assistant avatar mirrors the sidebar AgentList: first 2 chars of the
-  // agent name (falling back to 'AI' only when no name is available),
-  // instead of a hardcoded 'A'.
-  const avatarLabel = isUser
-    ? (userId || 'U').slice(0, 1)
-    : (message.role === 'assistant' ? (agentName?.slice(0, 2) || 'AI') : '?');
+  // Only the human side renders an avatar now (the agent's turn is a
+  // full-width document, see the render below), so this is the user initial.
+  const avatarLabel = (userId || 'U').slice(0, 1);
 
-  return (
+  // Plugin surfaces (batch 3d): a registered renderer that recognises this
+  // message owns its whole bubble; message actions join the hover strip.
+  const rendererEntries = useRegistryEntries(MESSAGE_RENDERERS);
+  const whenCtx = useWhenContext({ conversationKind: 'chat', agentId: agentId ?? null });
+  const messageActions = visibleSlotEntries(useRegistryEntries(MESSAGE_ACTIONS), whenCtx);
+  const renderer = rendererFor(rendererEntries, message);
+
+  // The shell's own bubble, as a lazily-invoked function rather than a JSX
+  // value: it is the PluginBoundary fallback below, and building this whole
+  // tree on every render just to discard it when a plugin renderer is
+  // healthy would be wasted work (and, before a plugin's first successful
+  // render, indistinguishable from "always render both").
+  const renderShellBubble = () => (
     <div
       className={cn(
-        'flex gap-3',
+        'group flex gap-3',
         isUser && 'flex-row-reverse'
       )}
     >
-      {/* NM RingAvatar — carbon for human, silicon for AI. Hidden on mobile
-          (both sides) to give the bubbles the full width; the species color on
-          the bubble itself still distinguishes who's speaking. */}
-      <RingAvatar
-        species={isUser ? 'carbon' : 'silicon'}
-        label={avatarLabel}
-        size="sm"
-        className="shrink-0 hidden md:inline-flex"
-      />
+      {/* Only the human keeps an avatar. The agent's turn is the page's
+          document, and an avatar gutter would hold it back off the full
+          width and re-create the "one more message row" reading it is
+          leaving behind. Who spoke is carried by the user's bubble as the
+          turn anchor above it, and by the agent named in the chat header. */}
+      {isUser && (
+        <RingAvatar
+          species="carbon"
+          label={avatarLabel}
+          size="sm"
+          className="shrink-0 hidden md:inline-flex"
+        />
+      )}
 
       {/* Content */}
       <div className={cn('flex-1 min-w-0', isUser && 'text-right')}>
         <div
           className={cn(
-            'relative inline-block max-w-[85%] text-left',
-            'px-3.5 py-2.5',
-            'rounded-[var(--radius-lg)]',
+            'relative text-left',
+            isUser
+              // The user's message stays a bubble: it is one thing they sent,
+              // so it keeps a boundary and shrinks to its content. (A w-full
+              // variant was tried 2026-08-18 and reverted the same day —
+              // short messages stranded a field of empty paper.)
+              ? 'inline-block max-w-[85%] px-3.5 py-2.5 rounded-[var(--radius-lg)]'
+              // The agent's turn is the page's main reading surface, so it
+              // sits directly on the ground at full width: no fill, no
+              // border, no radius. An error keeps a left rule instead of a
+              // solid red panel — full-width red is a siren, and the old
+              // solid fill is what forced the remedy buttons out of the
+              // bubble in the first place (the red-on-red note below).
+              : cn('w-full', message.isError && 'border-l-2 pl-3'),
             'transition-colors duration-150',
-            // AI (silicon) bubble: rebind markdown code/table fills to a blue
-            // tint so they don't read as muddy gray on the blue surface.
-            !isUser && !message.isError && 'nm-bubble-ai',
           )}
           style={
             isUser
               ? {
-                  // Own bubble — Carbon (human) species variant, matching
-                  // the Narra Agent App design ref: carbon-soft coral fill,
-                  // carbon-hair border, and a 3px solid carbon stripe on the
-                  // RIGHT (the "own" side). This mirrors the AI bubble's
-                  // silicon-on-the-LEFT treatment, so a conversation reads as
-                  // a clear human(carbon)·AI(silicon) dialogue. Both tints
-                  // flip automatically in dark mode via token redefinition.
-                  background: 'var(--color-carbon-soft)',
+                  // Own bubble — v4 paper treatment: warm-paper fill with a
+                  // hairline border; the human(carbon) species reads from the
+                  // 3px carbon stripe on the RIGHT (the "own" side) + the
+                  // carbon avatar ring, instead of a coral fill.
+                  background: 'var(--nm-paper-warm)',
                   color: 'var(--nm-ink)',
-                  border: '1px solid var(--color-carbon-hair)',
+                  border: '1px solid var(--nm-hairline)',
                   borderRight: '3px solid var(--color-carbon)',
                 }
               : message.isError
-                ? {
-                    background: 'var(--color-error)',
-                    color: 'white',
-                    border: '1px solid var(--color-error)',
-                  }
-                : {
-                    // AI bubble — NM canonical FinBubble: silicon-soft fill,
-                    // silicon-hair border, 3px silicon stripe on the LEFT
-                    // edge. Light mode lands on light-blue bg + dark-blue
-                    // stripe; dark mode flips to grayish-blue bg + light-blue
-                    // stripe (driven entirely by token redefinition).
-                    background: 'var(--color-silicon-soft)',
-                    color: 'var(--nm-ink)',
-                    border: '1px solid var(--color-silicon-hair)',
-                    borderLeft: '3px solid var(--color-silicon)',
-                  }
+                ? { borderColor: 'var(--color-error)', color: 'var(--nm-ink)' }
+                : undefined
           }
         >
           {/* Red error badge — any error surfaces here, whether the whole
@@ -320,7 +358,13 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 <button
                   type="button"
                   aria-label={t('chat.error.badgeLabel')}
-                  className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full shadow-sm"
+                  className={cn(
+                    'z-10 flex items-center justify-center w-5 h-5 rounded-full shadow-sm',
+                    // A bubble can hang it off the corner; a full-width
+                    // document has no corner to hang it from, so it leads
+                    // the block instead.
+                    isUser ? 'absolute -top-2 -right-2' : 'mb-1.5',
+                  )}
                   style={{ background: 'var(--color-error)', color: 'white' }}
                 >
                   <AlertCircle className="w-3.5 h-3.5" />
@@ -383,7 +427,18 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               matching the live streaming UX. No inner ScrollArea —
               long content pushes the bubble taller and scrolls with
               the main message list (no double-scroll). */}
-          {segmentsForRender === null && (inlineEvents.length > 0 || canLoadEventLog) && (
+          {/* What this one turn cost. Sits ABOVE the disclosure, outside it:
+              the chips describe the whole turn, not the process region the
+              disclosure holds. (The original reason was that the fetch could
+              unmount the disclosure and blink the chips out — that unmount is
+              fixed on this branch, but above is still the right place.) */}
+          {eventLogMeta && hasRunStats(eventLogMeta) && (
+            <div className="mb-2" data-testid="run-stat-chips-slot">
+              <RunStatChips meta={eventLogMeta} t={t} />
+            </div>
+          )}
+
+          {processIsRemote && (
             <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
               <button
                 onClick={handleToggleDetails}
@@ -406,11 +461,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                       : t('chat.message.viewReasoning')}
                 </span>
               </button>
-              {showDetails && inlineEvents.length > 0 && (
-                <div className="mt-3">
-                  <TurnTimeline events={inlineEvents} />
-                </div>
-              )}
+            </div>
+          )}
+
+          {/* The process itself. In hand (live stream persisted it) it reads
+              inline like any other turn — no click to spend. Fetched, it
+              renders under the toggle above. Either way the provider's raw
+              chain-of-thought stays folded behind its own control: opening
+              this is a request for the turn's CONCLUSIONS — the narration and
+              the tool lines — not for the model's scratch paper, which is
+              bulkier than all of them combined. */}
+          {segmentsForRender === null && inlineEvents.length > 0
+            && (!processIsRemote || showDetails) && (
+            <div className="mb-3">
+              <TurnTimeline events={inlineEvents} />
             </div>
           )}
 
@@ -457,7 +521,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 return (
                   <div
                     key={att.file_id}
-                    className="flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 max-w-[280px]"
+                    className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 max-w-[280px]"
                   >
                     <div className="w-8 h-8 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
                       {att.category === 'image' ? (
@@ -488,14 +552,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Segment mode: the m things the agent said, each with its
               // own collapsible process. Replaces the single content blob
               // — rendering both would print every sentence twice.
-              // defaultOpen when the segments came from the event-log
-              // fetch: the user already clicked "View reasoning" once to
-              // get here, so the process shows immediately instead of
-              // behind a second toggle.
+              // A fetched turn stays governed by the toggle above; a turn
+              // whose process was in hand all along just reads inline, like a
+              // live one. Reasoning folds by default in both cases.
               <SegmentedReply
                 segments={segmentsForRender}
-                showProcess
-                defaultOpen={!message.segments?.some((s) => s.reply)}
+                showProcess={!processIsRemote || showDetails}
               />
             ) : isUser ? (
               // Match the Agent reply's font size: the Markdown wrapper
@@ -503,7 +565,35 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // would inherit the parent .text-sm (0.85rem) and look smaller.
               // Pin it so both bubbles read at the same size — a notch smaller
               // on mobile, in step with the markdown mobile size.
-              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">{message.content}</span>
+              <>
+                <span className="whitespace-pre-wrap text-sm">{visibleContent}</span>
+                {message.steerStatus && (
+                  // Mid-run follow-up state: queued → merged, or rejected.
+                  <span
+                    className="block mt-1 text-[11px] opacity-70"
+                    style={{
+                      color: message.steerStatus === 'rejected'
+                        ? 'var(--color-error)'
+                        : 'var(--text-tertiary)',
+                    }}
+                  >
+                    {message.steerStatus === 'queued' && t('chat.steer.queued')}
+                    {message.steerStatus === 'merged' && `✓ ${t('chat.steer.merged')}`}
+                    {message.steerStatus === 'rejected' &&
+                      t('chat.steer.rejected', {
+                        // Known reason → its localized text; an unknown/blank
+                        // reason (e.g. a backend reject with no `reason`) falls
+                        // back to a generic phrase so the line never renders as
+                        // "Not sent — " with a dangling dash.
+                        reason: message.rejectReason
+                          ? t(`chat.steer.reason.${message.rejectReason}`, {
+                              defaultValue: message.rejectReason,
+                            })
+                          : t('chat.steer.reason.unknown'),
+                      })}
+                  </span>
+                )}
+              </>
             ) : message.actionReason ? (
               // Self-serviceable failure: show a clean, localized "what you
               // can do" line in the body. The full (English) provider detail
@@ -514,9 +604,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 })}
               </span>
             ) : message.isError ? (
-              <span className="whitespace-pre-wrap">{message.content}</span>
+              <span className="whitespace-pre-wrap">{visibleContent}</span>
             ) : (
-              <Markdown content={message.content} />
+              <Markdown content={visibleContent} />
             )}
             {isStreaming && (
               <span className="inline-block w-0.5 h-4 ml-0.5 bg-[var(--accent-primary)] animate-pulse rounded-full" />
@@ -527,7 +617,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           {message.warnings && message.warnings.length > 0 && (
             <div className="mt-2 pt-2 border-t border-[var(--rule)]">
               {message.warnings.map((warning, i) => (
-                <div key={i} className="flex items-start gap-1.5 text-xs text-[var(--color-yellow-500)]">
+                <div key={i} className="flex items-start gap-1.5 text-xs text-[var(--color-warning)]">
                   <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
                   <span>{warning}</span>
                 </div>
@@ -623,17 +713,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         )}
 
         {/* Meta row — pulled OUTSIDE the bubble so the bubble stays tight
-            (no internal footer padding/whitespace). Time + copy/download sit
-            just below the bubble, aligned to the bubble's side: right for own
-            (carbon) messages, left for agent (silicon) messages. Mono 9.5px
-            in the subtle token. */}
+            (no internal footer padding/whitespace). claude.ai convention
+            (Owner 2026-08-06): hidden by default, revealed on row hover;
+            only the LATEST message keeps its time always visible. Copy is
+            offered on BOTH sides (download stays assistant-only — user
+            messages aren't markdown documents). Time reads as a relative
+            "x days ago"; the exact date+time lives in the hover tooltip. */}
         <div
           className={cn(
-            'mt-1 flex items-center gap-1.5 px-0.5',
-            isUser ? 'justify-end' : 'justify-start'
+            'mt-1 flex items-center gap-1.5 px-0.5 transition-opacity duration-150',
+            isUser ? 'justify-end' : 'justify-start',
+            isLatest ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
           )}
         >
-          {!isUser && !isStreaming && message.content && (
+          {!isStreaming && message.content && (
             <>
               <button
                 onClick={handleCopy}
@@ -646,32 +739,60 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                   <Copy className="w-3 h-3" />
                 )}
               </button>
-              <button
-                onClick={handleDownload}
-                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
-                title={t('chat.message.downloadMd')}
-              >
-                <Download className="w-3 h-3" />
-              </button>
+              {!isUser && (
+                <button
+                  onClick={handleDownload}
+                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                  title={t('chat.message.downloadMd')}
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+              )}
+              {messageActions.map((entry) => {
+                const Icon = entry.value.icon ?? Sparkles;
+                const label = entry.value.labelIsKey ? t(entry.value.label) : entry.value.label;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => void entry.value.run({ agentId: agentId ?? null, message })}
+                    className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                    title={label}
+                    aria-label={label}
+                    data-slot-action={entry.id}
+                  >
+                    <Icon className="w-3 h-3" />
+                  </button>
+                );
+              })}
             </>
           )}
           <span
-            className="font-mono tracking-wide"
-            // Hovering the HH:mm:ss reveals the full date — day context for
-            // a single message without waiting for a day separator.
+            className="font-mono tracking-wide cursor-default"
+            // The relative label carries no calendar context — hovering
+            // reveals the full year-month-day + time.
             title={`${formatDate(message.timestamp)} ${formatTime(message.timestamp)}`}
             style={{
               color: 'var(--nm-subtle)',
-              fontSize: '9.5px',
+              fontSize: '10px',
               letterSpacing: '0.05em',
               fontVariantNumeric: 'tabular-nums',
             }}
           >
-            {formatTime(message.timestamp)}
+            {formatMessageAge(message.timestamp, i18n.language)}
           </span>
         </div>
       </div>
     </div>
+  );
+
+  if (!renderer) return renderShellBubble();
+  const Renderer = renderer.component;
+  const rendererOwner = rendererEntries.find((e) => e.value === renderer)?.owner ?? 'shell';
+  return (
+    <PluginBoundary owner={rendererOwner} fallback={renderShellBubble}>
+      <Renderer message={message} agentId={agentId} isStreaming={isStreaming} />
+    </PluginBoundary>
   );
 }
 

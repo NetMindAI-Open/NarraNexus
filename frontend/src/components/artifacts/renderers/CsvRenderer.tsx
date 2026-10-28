@@ -1,32 +1,22 @@
 /**
  * @file_name: CsvRenderer.tsx
- * @description: Lazy-loaded renderer for text/csv artifacts.
+ * @description: Renderer for text/csv artifacts — a resident text editor
+ * (spec A §1: csv is render=source, view IS edit; the table projection was
+ * retired with the no-mode framework, a grid surface is a v2 enhancement).
  *
- * Fetches the raw CSV text and renders it as a scrollable HTML table.
- * Uses a naive comma-split parser — good enough for agent-generated tabular
- * output. Does NOT handle quoted fields containing commas (e.g. "a,b",c).
- * Swap parseCsv() for papaparse or csv-parse if proper RFC 4180 parsing is
- * needed later, without touching the rest of this component.
- *
- * Pointer model: content is fetched from the token-protected directory URL.
+ * This component owns only the heal flow (broken pointer → candidates modal)
+ * and the raw-url mint; everything editable lives in ResidentTextEditor.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { Artifact } from '@/types/artifact';
-import { fetchArtifactText } from '@/services/artifactsApi';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useArtifactHeal } from '@/hooks/useArtifactHeal';
 import ArtifactHealModal from '../ArtifactHealModal';
+import ResidentTextEditor from './ResidentTextEditor';
 
 interface Props {
   artifact: Artifact;
-}
-
-function parseCsv(text: string): string[][] {
-  return text
-    .split(/\r?\n/)
-    .filter((line) => line.length > 0)
-    .map((line) => line.split(','));
 }
 
 export default function CsvRenderer({ artifact }: Props) {
@@ -35,10 +25,8 @@ export default function CsvRenderer({ artifact }: Props) {
     artifact.artifact_id,
     artifact.updated_at,
   );
-  const [rows, setRows] = useState<string[][] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
-  // attempt() via ref so the load effect's deps stay `[url]` — see
+  // attempt() via ref so the error callback's identity stays stable — see
   // HtmlRenderer for the bug story (Dismiss-modal loop, 2026-05-25).
   const attemptRef = useRef(heal.attempt);
   useEffect(() => {
@@ -49,71 +37,17 @@ export default function CsvRenderer({ artifact }: Props) {
     if (heal.recoveryVersion > 0) reload();
   }, [heal.recoveryVersion, reload]);
 
-  useEffect(() => {
-    if (!url) return;
-    let cancelled = false;
-    (async () => {
-      setError(null);
-      try {
-        const text = await fetchArtifactText(url);
-        if (!cancelled) setRows(parseCsv(text));
-      } catch (e) {
-        if (cancelled) return;
-        const msg = String(e);
-        setError(msg);
-        if (msg.includes('fetch failed: 410')) attemptRef.current();
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [url]);
+  const onLoadError = useCallback((message: string) => {
+    if (message.includes('fetch failed: 410')) attemptRef.current();
+  }, []);
 
-  const content = urlError ? (
-    <div className="p-4 text-red-400">Failed to load: {urlError}</div>
-  ) : error ? (
-    <div className="p-4 text-red-400">Failed to load: {error}</div>
-  ) : !rows ? (
-    <div className="p-4 opacity-60">Loading…</div>
-  ) : rows.length === 0 ? (
-    <div className="p-4 opacity-60">Empty CSV</div>
-  ) : (
-    (() => {
-      const [header, ...body] = rows;
-      return (
-        // Auto size, no overflow — vertical and wide-table horizontal
-        // scrolling are owned by ArtifactRenderer's bounded wrapper (column)
-        // or the zoom modal's outer container. Still a div around the table,
-        // never overflow on the table itself (border-collapse clipping quirk).
-        <div className="p-4">
-          <table className="border-collapse text-sm">
-            <thead>
-              <tr>
-                {header.map((cell, i) => (
-                  <th key={i} className="border border-[var(--border-default)] px-2 py-1 text-left bg-[var(--bg-primary)]">
-                    {cell}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {body.map((row, i) => (
-                <tr key={i}>
-                  {row.map((cell, j) => (
-                    <td key={j} className="border border-[var(--border-default)] px-2 py-1">
-                      {cell}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    })()
-  );
+  if (urlError) {
+    return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
+  }
 
   return (
     <>
-      {content}
+      <ResidentTextEditor artifact={artifact} url={url} onLoadError={onLoadError} />
       <ArtifactHealModal
         open={heal.modalOpen}
         artifactTitle={artifact.title}

@@ -1,7 +1,59 @@
 ---
 code_file: frontend/src/components/chat/InnerThoughtCard.tsx
-last_verified: 2026-07-30
+last_verified: 2026-09-24
 ---
+
+## 2026-09-24 ui.toolRenderers（第 18 个注册表）
+
+事件日志里的 tool_output 常不带 tool_name：`withOutputNames` 按时间序把最近一次 tool_call 的名字补上
+（与 segmentTurn 同一规则），否则工具渲染器认不出它。`ToolOutputRow` 与 TurnTimeline 同样的
+注册表 + PluginBoundary + Suspense 回落。
+
+## 2026-08-30 — `EntryRow` 接上独白「进度」档
+
+`EventLogTimelineEntry` 当时有**三个**渲染面：[[TurnTimeline]]、
+`processShared` 的 `ProcessEventRows`（已于 2026-08-30 退役），以及本文件的
+`EntryRow`（前两个走 `timelineToEvents`，这里自己实现一份转换）。A′ 落地时
+前两个接了档位，这里第一版漏了，review 第 4 轮抓到。**今天只剩两个**：
+[[TurnTimeline]] 与本文件。
+
+**这一面其实最要紧**：activity 行只在「本轮没有面向用户的回复」时才写，也就是
+后台 job / 渠道触发那类 turn —— 那种 turn **通篇都是独白**，而这张卡片是它们
+唯一的查看入口。漏掉这里等于把功能价值最高的场景留在了旧观感上，还会让用户
+学不会「亮的 = agent 在说话」（三个面里有一个持续反证）。
+
+两个坑：
+
+- `EntryRow` 末尾那个 `return` 是**所有**非 tool / 非 reply 类型的兜底，不只是
+  thinking，所以条件必须写 `entry.type === 'thinking' && entry.monologue`。
+- `toEntries` 的 legacy 回退（`res.thinking` → 单条）**没有**档位，保持 false
+  即可——它确实不知道，不该猜。
+
+偏好在**卡片层**用 [[useNarrationTier]] 解析（顶层组件，与 TurnTimeline 同规格），
+不在 `EntryRow` 里订阅。
+
+## 2026-08-28 — chips 行抽走，格式规则并轨
+
+`RunMeta` 里那段 chips（状态 / 时长 / 花费 / token / 模型）连同私有的
+`formatDuration` / `formatTokens` / `formatCost` / `StatChip` 一起搬进
+[[RunStatChips]]，因为 Conversation 气泡要渲染同一行。本文件只留下
+input/output 两个文本块，chips 交给共享组件，`hasRunStats` 判断整块是否折叠。
+
+抽取顺带了结了 [[tokenFormat]] 里挂着的那条 NOTE：本卡片私有的两个格式函数
+与共享实现规则不同（M 档 1 位小数、`$0` 而非 `<$0.0001`），共享后以
+`lib/tokenFormat` 为准。**这确实改变了本卡片的渲染**——百万级 token 多一位
+小数，不到千分之一美分的运行不再显示成读起来像"免费"的 `$0`。现有测试断言
+落在 k 档和 `$0.0041`，两套规则一致，故未受影响。
+
+## 2026-08-19 — 输入侧求和改用共享实现
+
+下面 07-30 那条规则（输入侧 = 全价桶 + cache read + cache write，`?? 0` 兜旧响应）
+一字未改，只是实现搬到了 [[tokenFormat.ts]] 的 `inputSideTokens`，本卡改为 import。
+起因是账户页新增用量区时同一条规则出现了第四份实现 —— 它出过一次事故（见下），
+失败方式是**某个屏幕上的数字少一个数量级**，不是崩溃，所以四份各自演化最危险。
+
+**本文件自带的 `formatTokens` 没有一起收**：它的 M 档是一位小数，共享版是两位，
+合并会改变本卡渲染与其测试断言。另记 todo，不夹带。
 
 ## 2026-07-30 — token chip includes the cache buckets
 

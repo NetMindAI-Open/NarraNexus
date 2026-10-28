@@ -2,29 +2,33 @@
  * @file_name: migrationGuide.ts
  * @author: NetMind.AI
  * @date: 2026-07-30
- * @description: Per-user persistence for the one-time "import your other agents"
- * guided flow (MigrationGuide).
+ * @description: Per-user persistence for the "import lives behind the + button"
+ * coach-mark.
  *
- * Keyed by userId so it is per-user (a shared machine nudges each user once).
- * localStorage — the whole feature is local/desktop only, so per-machine-per-user
- * is the right scope; no backend round-trip.
+ * 2026-08-27: the offer itself moved into the first-run flow
+ * ([[WelcomePage]] step 2), so `welcomed` — "has the welcome dialog been shown"
+ * — is gone; that question is now answered server-side by
+ * `onboarding_progress.landing_completed`. What survives is the coach-mark:
+ * when a user SKIPS the import step, something has to tell them where import
+ * went, and a bubble pointing at the sidebar "+" is that something.
+ *
+ * localStorage keyed by userId: the whole feature is local/desktop and
+ * per-machine-per-user is the right scope (a shared machine nudges each user
+ * once); no backend round-trip for a UI hint.
  *
  * State machine:
- *   welcomed          — the welcome modal has been shown+actioned once. Never again.
- *   coachmarkPending  — user dismissed the modal via Later/X → point them at "+".
- *   coachmarkDone     — user dismissed the coach-mark → gone for good.
- * The coach-mark shows while (welcomed && coachmarkPending && !coachmarkDone), so
- * it survives reloads until explicitly clicked away.
+ *   coachmarkPending — the user declined import → point them at "+"
+ *   coachmarkDone    — they clicked it away, or never needed it → gone for good
+ * The bubble shows while (coachmarkPending && !coachmarkDone), so it survives
+ * reloads until explicitly dismissed.
  */
 
 export interface MigrationGuideState {
-  welcomed: boolean;
   coachmarkPending: boolean;
   coachmarkDone: boolean;
 }
 
 const DEFAULT: MigrationGuideState = {
-  welcomed: false,
   coachmarkPending: false,
   coachmarkDone: false,
 };
@@ -48,7 +52,7 @@ export function writeMigrationGuide(
   try {
     localStorage.setItem(key(userId), JSON.stringify(next));
   } catch {
-    /* storage unavailable — degrade to in-memory (nudge may re-show next load) */
+    /* storage unavailable — degrade to in-memory (hint may re-show next load) */
   }
   return next;
 }

@@ -5,7 +5,7 @@
 @description: New ContextVars provider_source / current_user_id default
 behaviour and setter/getter roundtrip.
 """
-from xyz_agent_context.agent_framework.api_config import (
+from narranexus.platform.agent_framework.api_config import (
     set_provider_source,
     get_provider_source,
     set_current_user_id,
@@ -44,7 +44,7 @@ def test_to_cli_env_blanks_claudecode_nested_guard():
     CLAUDECODE; the spawned `claude` CLI then refuses to start (nested-session
     guard, exit 1) — killing the agent loop AND the CLI helper. to_cli_env must
     blank it so the subprocess env is deterministic."""
-    from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+    from narranexus.platform.agent_framework.api_config import ClaudeConfig
 
     env = ClaudeConfig(api_key="sk-x").to_cli_env()
     assert env.get("CLAUDECODE") == ""
@@ -56,7 +56,7 @@ def test_to_cli_env_never_points_default_model_redirects_at_aliases():
     rejects the model outright (exit 1), killing every claude_oauth agent
     turn and the CLI helper. Redirects must be blank for alias models and
     concrete for api_key transports."""
-    from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+    from narranexus.platform.agent_framework.api_config import ClaudeConfig
 
     oauth_env = ClaudeConfig(model="opus", auth_type="oauth").to_cli_env()
     assert oauth_env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == ""

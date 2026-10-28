@@ -6,7 +6,7 @@
 import json
 import pytest
 
-from xyz_agent_context.utils.one_shot_migrations import (
+from narranexus.platform.utils.one_shot_migrations import (
     heal_legacy_singleton_ownership,
     migrate_jobs_protocol_v2_timezone,
 )

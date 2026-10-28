@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
-from xyz_agent_context.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.db.db_factory import get_db_client
 
 router = APIRouter(prefix="/api/arena", tags=["Arena"])
 
@@ -60,4 +60,4 @@ async def provision_arena(request: Request) -> dict:
         raise
     except Exception as e:
         logger.exception(f"[arena.provision] failed for user {user_id}: {e}")
-        raise HTTPException(status_code=502, detail=f"Arena provisioning failed: {e}")
+        raise HTTPException(status_code=502, detail="Arena provisioning failed")

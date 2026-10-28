@@ -52,7 +52,7 @@ export default function TeamDetailPage() {
         <div className="flex items-start gap-3">
           <button
             onClick={() => navigate(-1)}
-            className="p-1 mt-1 hover:bg-[var(--bg-tertiary)]"
+            className="p-1 mt-1 hover:bg-[var(--nm-paper-warm)]"
             title={t('pages.teamDetail.back')}
           >
             <ArrowLeft className="w-4 h-4" />
@@ -149,7 +149,7 @@ export default function TeamDetailPage() {
                     setAgentId(a.agent_id);
                     navigate('/app/chat');
                   }}
-                  className="text-left p-3 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] flex items-start gap-2"
+                  className="text-left p-3 border border-[var(--border-subtle)] hover:bg-[var(--nm-paper-warm)] flex items-start gap-2"
                 >
                   <Bot className="w-4 h-4 mt-0.5 text-[var(--text-secondary)]" />
                   <div className="flex-1 min-w-0">
@@ -162,7 +162,7 @@ export default function TeamDetailPage() {
           )}
         </section>
       </div>
-      <TeamManagementModal open={editing} onClose={() => setEditing(false)} />
+      <TeamManagementModal open={editing} initialTeamId={teamId} onClose={() => setEditing(false)} />
     </ScrollArea>
   );
 }
